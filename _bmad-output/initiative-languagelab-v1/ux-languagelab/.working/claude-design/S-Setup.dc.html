@@ -1,0 +1,86 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Studio — Setup</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Figtree:wght@400;500;600;700&amp;display=swap">
+<style>
+body{margin:0}
+a{color:#5A45C8}a:hover{color:#3F2F96}
+</style>
+</helmet>
+<div style="min-height: 1000px; box-sizing: border-box; background: #FFF8F1; color: #221E2E; font-family: 'Figtree', system-ui, sans-serif; display: flex; flex-direction: column; gap: 20px; padding: 20px 24px 40px">
+  <header style="display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 12px">
+    <div style="font-size: 20px; font-weight: 700">LanguageLab</div>
+    <nav aria-label="Main" style="display: flex; flex-wrap: wrap; gap: 6px; font-size: 14px; font-weight: 600">
+      <a href="#" style="text-decoration: none; background: #F0EAE2; color: #221E2E; border-radius: 22px; padding: 0 16px; min-height: 44px; display: flex; align-items: center">Captures</a>
+      <a href="#" style="text-decoration: none; background: #F0EAE2; color: #221E2E; border-radius: 22px; padding: 0 16px; min-height: 44px; display: flex; align-items: center">English</a>
+      <a href="#" style="text-decoration: none; background: #F0EAE2; color: #221E2E; border-radius: 22px; padding: 0 16px; min-height: 44px; display: flex; align-items: center">French</a>
+      <a href="#" aria-current="page" style="text-decoration: none; background: #5A45C8; color: #FFFFFF; border-radius: 22px; padding: 0 16px; min-height: 44px; display: flex; align-items: center">Setup</a>
+    </nav>
+  </header>
+
+  <div style="width: 100%; max-width: 980px; margin: 0 auto; display: flex; flex-direction: column; gap: 16px">
+    <div style="display: flex; flex-direction: column; gap: 4px">
+      <h1 style="margin: 0; font-size: 32px; font-weight: 700">Setup</h1>
+      <div style="font-size: 15px; color: #5C5669">Creates or repairs everything LanguageLab manages under the prefix <b style="color: #221E2E">LanguageLab</b>. Safe to run again.</div>
+    </div>
+
+    <section style="background: #FFFFFF; border-radius: 24px; padding: 20px; display: flex; flex-direction: column; gap: 12px; box-shadow: 0 1px 2px rgba(34,30,46,0.06), 0 6px 20px rgba(34,30,46,0.06)">
+      <h2 style="margin: 0; font-size: 16px; font-weight: 700">Ready to go?</h2>
+      <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 10px">
+        <div style="border-radius: 18px; background: #ECE8FB; color: #2E2470; padding: 12px 14px; display: flex; align-items: center; gap: 10px; font-weight: 600"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12l5 5L20 7"></path></svg>AnkiConnect reachable</div>
+        <div style="border-radius: 18px; background: #ECE8FB; color: #2E2470; padding: 12px 14px; display: flex; align-items: center; gap: 10px; font-weight: 600"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12l5 5L20 7"></path></svg>Azure configured</div>
+        <div style="border-radius: 18px; background: #ECE8FB; color: #2E2470; padding: 12px 14px; display: flex; align-items: center; gap: 10px; font-weight: 600"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12l5 5L20 7"></path></svg>OpenRouter configured</div>
+      </div>
+    </section>
+
+    <section style="background: #FFFFFF; border-radius: 24px; padding: 20px; display: flex; flex-direction: column; gap: 12px; box-shadow: 0 1px 2px rgba(34,30,46,0.06), 0 6px 20px rgba(34,30,46,0.06)">
+      <div style="display: flex; flex-wrap: wrap; justify-content: space-between; align-items: baseline; gap: 8px">
+        <h2 style="margin: 0; font-size: 16px; font-weight: 700">What will change in Anki</h2>
+        <span style="font-size: 14px; color: #5C5669">Nothing changes until you apply.</span>
+      </div>
+      <ul style="list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 8px">
+        <li style="border: 2px solid #E2DACF; border-radius: 18px; padding: 12px 16px; display: flex; flex-wrap: wrap; align-items: center; gap: 8px 14px">
+          <span style="flex: 1 1 240px; font-weight: 600">Decks <span style="font-weight: 400; color: #5C5669">· LanguageLab, Captures, Study, Pronunciation and subdecks</span></span>
+          <span style="font-size: 13px; font-weight: 700; background: #ECE8FB; color: #2E2470; border-radius: 12px; padding: 4px 10px">Create 28</span>
+        </li>
+        <li style="border: 2px solid #E2DACF; border-radius: 18px; padding: 12px 16px; display: flex; flex-wrap: wrap; align-items: center; gap: 8px 14px">
+          <span style="flex: 1 1 240px; font-weight: 600">Note types <span style="font-weight: 400; color: #5C5669">· Capture, English and French Vocabulary and Sentence</span></span>
+          <span style="font-size: 13px; font-weight: 700; background: #ECE8FB; color: #2E2470; border-radius: 12px; padding: 4px 10px">Create 5</span>
+        </li>
+        <li style="border: 2px solid #E2DACF; border-radius: 18px; padding: 12px 16px; display: flex; flex-wrap: wrap; align-items: center; gap: 8px 14px">
+          <span style="flex: 1 1 240px; font-weight: 600">Card templates and CSS <span style="font-weight: 400; color: #5C5669">· Understand, Produce, Write, Pronounce</span></span>
+          <span style="font-size: 13px; font-weight: 700; background: #ECE8FB; color: #2E2470; border-radius: 12px; padding: 4px 10px">Create</span>
+        </li>
+        <li style="border: 2px solid #E2DACF; border-radius: 18px; padding: 12px 16px; display: flex; flex-wrap: wrap; align-items: center; gap: 8px 14px">
+          <span style="flex: 1 1 240px; font-weight: 600">Deck options <span style="font-weight: 400; color: #5C5669">· sibling burying off for Study decks</span></span>
+          <span style="font-size: 13px; font-weight: 700; background: #ECE8FB; color: #2E2470; border-radius: 12px; padding: 4px 10px">Create</span>
+        </li>
+      </ul>
+      <div style="display: flex; justify-content: flex-end; padding-top: 4px">
+        <button style="height: 52px; padding: 0 28px; border-radius: 26px; border: none; background: #5A45C8; color: #FFFFFF; font: inherit; font-size: 16px; font-weight: 700">Apply setup</button>
+      </div>
+    </section>
+
+    <section style="background: #FFF3EC; border-radius: 20px; padding: 14px 18px; display: flex; flex-direction: column; gap: 4px">
+      <div style="font-size: 15px; font-weight: 700">In Anki, study “LanguageLab::Study”, not the root deck</div>
+      <div style="font-size: 14px; color: #5C5669">Pronounce Cards live under LanguageLab::Pronunciation and are reviewed here, in LanguageLab.</div>
+    </section>
+  </div>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"$preview":{"width":1280,"height":1000}}'>
+class Component extends DCLogic {
+renderVals() {
+return {};
+}
+}
+</script>
+</body>
+</html>

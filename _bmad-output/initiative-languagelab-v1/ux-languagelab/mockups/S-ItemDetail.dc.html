@@ -1,0 +1,99 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Studio — Item detail</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Figtree:wght@400;500;600;700&amp;display=swap">
+<style>
+body{margin:0}
+a{color:#5A45C8}a:hover{color:#3F2F96}
+</style>
+</helmet>
+<div style="min-height: 1000px; box-sizing: border-box; background: #FFF8F1; color: #221E2E; font-family: 'Figtree', system-ui, sans-serif; display: flex; flex-direction: column; gap: 20px; padding: 20px 24px 40px">
+  <header style="display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 12px">
+    <div style="font-size: 20px; font-weight: 700">LanguageLab</div>
+    <nav aria-label="Main" style="display: flex; flex-wrap: wrap; gap: 6px; font-size: 14px; font-weight: 600">
+      <a href="#" style="text-decoration: none; background: #F0EAE2; color: #221E2E; border-radius: 22px; padding: 0 16px; min-height: 44px; display: flex; align-items: center">Captures</a>
+      <a href="#" aria-current="page" style="text-decoration: none; background: #5A45C8; color: #FFFFFF; border-radius: 22px; padding: 0 16px; min-height: 44px; display: flex; align-items: center">English</a>
+      <a href="#" style="text-decoration: none; background: #F0EAE2; color: #221E2E; border-radius: 22px; padding: 0 16px; min-height: 44px; display: flex; align-items: center">French</a>
+      <a href="#" style="text-decoration: none; background: #F0EAE2; color: #221E2E; border-radius: 22px; padding: 0 16px; min-height: 44px; display: flex; align-items: center">Setup</a>
+    </nav>
+  </header>
+
+  <div style="width: 100%; max-width: 980px; margin: 0 auto; display: flex; flex-direction: column; gap: 16px">
+    <div style="display: flex; flex-wrap: wrap; align-items: flex-end; justify-content: space-between; gap: 12px">
+      <div style="display: flex; flex-direction: column; gap: 6px">
+        <a href="S-Items.dc.html" style="font-size: 14px; font-weight: 600; text-decoration: none; min-height: 32px; display: flex; align-items: center">‹ English Items</a>
+        <h1 style="margin: 0; font-size: 32px; font-weight: 700">jump to conclusions</h1>
+        <div style="display: flex; flex-wrap: wrap; gap: 6px; font-size: 13px; font-weight: 600"><span style="background: #ECE8FB; color: #2E2470; border-radius: 12px; padding: 4px 10px">Vocabulary</span><span style="background: #FFEBC7; color: #7A4A00; border-radius: 12px; padding: 4px 10px">2 unsaved changes</span></div>
+      </div>
+      <div style="display: flex; gap: 8px">
+        <a href="S-Delete.dc.html" style="height: 48px; padding: 0 18px; border-radius: 24px; color: #8F2F05; font-size: 15px; font-weight: 700; text-decoration: none; display: flex; align-items: center">Delete</a>
+        <button style="height: 48px; padding: 0 24px; border-radius: 24px; border: none; background: #5A45C8; color: #FFFFFF; font: inherit; font-size: 15px; font-weight: 700">Save changes</button>
+      </div>
+    </div>
+
+    <section style="background: #FFFFFF; border-radius: 24px; padding: 20px; display: flex; flex-wrap: wrap; gap: 14px; box-shadow: 0 1px 2px rgba(34,30,46,0.06), 0 6px 20px rgba(34,30,46,0.06)">
+      <label style="flex: 1 1 280px; display: flex; flex-direction: column; gap: 6px; font-size: 14px; font-weight: 600">Target
+        <input value="jump to conclusions" style="font: inherit; font-weight: 500; font-size: 16px; padding: 12px 14px; border: 2px solid #948A7E; border-radius: 14px; color: #221E2E">
+      </label>
+      <label style="flex: 1 1 280px; display: flex; flex-direction: column; gap: 6px; font-size: 14px; font-weight: 600">Russian meaning
+        <input value="делать поспешные выводы; торопиться с выводами" style="font: inherit; font-weight: 500; font-size: 16px; padding: 12px 14px; border: 2px solid #948A7E; border-radius: 14px; color: #221E2E">
+      </label>
+      <div style="flex: 1 1 100%; display: flex; justify-content: flex-end"><button style="font: inherit; font-size: 14px; font-weight: 600; color: #5A45C8; background: none; border: none; min-height: 44px; padding: 0 8px">Regenerate Russian meaning</button></div>
+    </section>
+
+    <section style="background: #FFFFFF; border-radius: 24px; padding: 20px; display: flex; flex-direction: column; gap: 14px; box-shadow: 0 1px 2px rgba(34,30,46,0.06), 0 6px 20px rgba(34,30,46,0.06)">
+      <h2 style="margin: 0; font-size: 16px; font-weight: 700">Example · compare</h2>
+      <div style="display: flex; flex-wrap: wrap; gap: 12px">
+        <div style="flex: 1 1 300px; border: 2px solid #E2DACF; border-radius: 18px; padding: 14px 16px; display: flex; flex-direction: column; gap: 6px">
+          <span style="font-size: 12px; font-weight: 700; letter-spacing: 0.06em; text-transform: uppercase; color: #5C5669">Current</span>
+          <p style="margin: 0; font-size: 16px; font-weight: 500">Let's not jump to conclusions before we've seen the data.</p>
+          <p style="margin: 0; font-size: 14px; color: #5C5669">Давай не будем делать поспешных выводов, пока не увидим данные.</p>
+        </div>
+        <div style="flex: 1 1 300px; border: 2px solid #5A45C8; background: #F7F5FE; border-radius: 18px; padding: 14px 16px; display: flex; flex-direction: column; gap: 6px">
+          <span style="font-size: 12px; font-weight: 700; letter-spacing: 0.06em; text-transform: uppercase; color: #5A45C8">Preview · not saved</span>
+          <p style="margin: 0; font-size: 16px; font-weight: 500">She tends to jump to conclusions about people she's just met.</p>
+          <p style="margin: 0; font-size: 14px; color: #5C5669">Она склонна делать поспешные выводы о людях, с которыми только что познакомилась.</p>
+        </div>
+      </div>
+      <div style="display: flex; flex-wrap: wrap; gap: 8px; justify-content: flex-end">
+        <button style="height: 44px; padding: 0 18px; border-radius: 22px; border: 2px solid #E2DACF; background: #FFFFFF; color: #221E2E; font: inherit; font-size: 15px; font-weight: 700">Keep current</button>
+        <button style="height: 44px; padding: 0 18px; border-radius: 22px; border: none; background: #ECE8FB; color: #2E2470; font: inherit; font-size: 15px; font-weight: 700">Use preview</button>
+      </div>
+    </section>
+
+    <section style="background: #FFFFFF; border-radius: 24px; padding: 20px; display: flex; flex-direction: column; gap: 14px; box-shadow: 0 1px 2px rgba(34,30,46,0.06), 0 6px 20px rgba(34,30,46,0.06)">
+      <h2 style="margin: 0; font-size: 16px; font-weight: 700">Reference audio · compare</h2>
+      <div style="display: flex; flex-wrap: wrap; gap: 12px">
+        <div style="flex: 1 1 300px; border: 2px solid #E2DACF; border-radius: 18px; padding: 12px 14px; display: flex; align-items: center; gap: 12px">
+          <button aria-label="Play current audio" style="width: 44px; height: 44px; border-radius: 22px; border: none; background: #F0EAE2; color: #221E2E; display: flex; align-items: center; justify-content: center; padding: 0"><svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor"><path d="M8 5l11 7-11 7z"></path></svg></button>
+          <div style="display: flex; flex-direction: column"><span style="font-size: 12px; font-weight: 700; letter-spacing: 0.06em; text-transform: uppercase; color: #5C5669">Current</span><span style="font-size: 15px; font-weight: 600">0:02</span></div>
+        </div>
+        <div style="flex: 1 1 300px; border: 2px solid #5A45C8; background: #F7F5FE; border-radius: 18px; padding: 12px 14px; display: flex; flex-wrap: wrap; align-items: center; gap: 12px">
+          <button aria-label="Play audio preview" style="width: 44px; height: 44px; border-radius: 22px; border: none; background: #5A45C8; color: #FFFFFF; display: flex; align-items: center; justify-content: center; padding: 0"><svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor"><path d="M8 5l11 7-11 7z"></path></svg></button>
+          <div style="display: flex; flex-direction: column; flex-grow: 1"><span style="font-size: 12px; font-weight: 700; letter-spacing: 0.06em; text-transform: uppercase; color: #5A45C8">Preview · not saved</span><span style="font-size: 15px; font-weight: 600">0:02</span></div>
+          <label style="display: flex; align-items: center; gap: 8px; font-size: 14px; font-weight: 600">Voice
+            <select style="font: inherit; font-weight: 500; font-size: 15px; padding: 8px 12px; border: 2px solid #948A7E; border-radius: 14px; color: #221E2E; background: #FFFFFF; min-height: 44px"><option>en-US · Ava</option><option>en-US · Andrew</option><option>en-US · Emma</option></select>
+          </label>
+        </div>
+      </div>
+      <div style="font-size: 13px; color: #5C5669">The old audio is removed only after Save succeeds.</div>
+    </section>
+  </div>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"$preview":{"width":1280,"height":1000}}'>
+class Component extends DCLogic {
+renderVals() {
+return {};
+}
+}
+</script>
+</body>
+</html>

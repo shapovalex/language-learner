@@ -1,0 +1,71 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Studio — Setup states</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Figtree:wght@400;500;600;700&amp;display=swap">
+<style>
+body{margin:0}
+a{color:#5A45C8}a:hover{color:#3F2F96}
+</style>
+</helmet>
+<div style="min-height: 1100px; box-sizing: border-box; background: #FFF8F1; color: #221E2E; font-family: 'Figtree', system-ui, sans-serif; display: flex; flex-direction: column; gap: 20px; padding: 20px 24px 40px">
+  <div style="width: 100%; max-width: 980px; margin: 0 auto; display: flex; flex-direction: column; gap: 14px">
+
+    <div style="font-size: 12px; font-weight: 700; letter-spacing: 0.06em; text-transform: uppercase; color: #5C5669">Readiness check failed</div>
+    <section style="background: #FFFFFF; border-radius: 24px; padding: 20px; display: flex; flex-direction: column; gap: 12px; box-shadow: 0 1px 2px rgba(34,30,46,0.06), 0 6px 20px rgba(34,30,46,0.06)">
+      <h2 style="margin: 0; font-size: 16px; font-weight: 700">Ready to go?</h2>
+      <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 10px">
+        <div style="border-radius: 18px; background: #ECE8FB; color: #2E2470; padding: 12px 14px; display: flex; align-items: center; gap: 10px; font-weight: 600"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12l5 5L20 7"></path></svg>AnkiConnect reachable</div>
+        <div style="border-radius: 18px; background: #ECE8FB; color: #2E2470; padding: 12px 14px; display: flex; align-items: center; gap: 10px; font-weight: 600"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12l5 5L20 7"></path></svg>Azure configured</div>
+        <div style="border-radius: 18px; background: #FFD9C7; color: #8F2F05; border: 2px solid #C2410C; padding: 10px 12px; display: flex; align-items: center; gap: 10px; font-weight: 700"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"><path d="M6 6l12 12"></path><path d="M18 6L6 18"></path></svg>OpenRouter not configured</div>
+      </div>
+      <div role="alert" style="background: #FFF3EC; border-radius: 16px; padding: 12px 14px; font-size: 14px; color: #5E2003">Add your OpenRouter key to the LanguageLab configuration on the Mac mini, restart LanguageLab, then reload this page.</div>
+      <div style="display: flex; justify-content: flex-end; align-items: center; gap: 12px">
+        <span style="font-size: 14px; color: #5C5669">Fix the failing check to continue.</span>
+        <button disabled style="height: 52px; padding: 0 28px; border-radius: 26px; border: none; background: #E2DACF; color: #5C5669; font: inherit; font-size: 16px; font-weight: 700">Apply setup</button>
+      </div>
+    </section>
+
+    <div style="font-size: 12px; font-weight: 700; letter-spacing: 0.06em; text-transform: uppercase; color: #5C5669; padding-top: 14px">Applying</div>
+    <section role="status" style="background: #FFFFFF; border-radius: 24px; padding: 20px; display: flex; align-items: center; gap: 12px; font-size: 15px; font-weight: 600; box-shadow: 0 1px 2px rgba(34,30,46,0.06), 0 6px 20px rgba(34,30,46,0.06)">
+      <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="#5A45C8" stroke-width="2.5" stroke-linecap="round"><path d="M12 3a9 9 0 1 0 9 9"></path></svg>
+      Applying setup and verifying… Keep Anki open.
+    </section>
+
+    <div style="font-size: 12px; font-weight: 700; letter-spacing: 0.06em; text-transform: uppercase; color: #5C5669; padding-top: 14px">Verified</div>
+    <section role="status" style="background: #ECE8FB; color: #2E2470; border-radius: 24px; padding: 18px 20px; display: flex; align-items: center; gap: 12px">
+      <div style="width: 44px; height: 44px; border-radius: 22px; background: #5A45C8; color: #FFFFFF; display: flex; align-items: center; justify-content: center; flex-shrink: 0"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12l5 5L20 7"></path></svg></div>
+      <div style="display: flex; flex-direction: column; gap: 2px"><span style="font-size: 16px; font-weight: 700">Setup applied and verified</span><span style="font-size: 14px">Decks, note types, templates and deck options match what LanguageLab expects.</span></div>
+    </section>
+
+    <div style="font-size: 12px; font-weight: 700; letter-spacing: 0.06em; text-transform: uppercase; color: #5C5669; padding-top: 14px">Verified with discrepancies</div>
+    <section role="alert" style="background: #FFFFFF; border-radius: 24px; padding: 20px; display: flex; flex-direction: column; gap: 12px; border: 2px solid #C2410C">
+      <div style="display: flex; flex-direction: column; gap: 2px"><span style="font-size: 16px; font-weight: 700; color: #8F2F05">Setup applied, but 1 thing doesn't match</span><span style="font-size: 14px; color: #5C5669">Anki was changed. Review the difference below, then run Setup again.</span></div>
+      <ul style="list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 8px">
+        <li style="border: 2px solid #E2DACF; border-radius: 18px; padding: 12px 16px; display: flex; flex-direction: column; gap: 2px">
+          <span style="font-weight: 600">Deck options · LanguageLab::Study::French::Vocabulary::Write</span>
+          <span style="font-size: 14px; color: #5C5669">Expected sibling burying off; found on.</span>
+        </li>
+      </ul>
+      <div style="display: flex; justify-content: flex-end">
+        <button style="height: 48px; padding: 0 24px; border-radius: 24px; border: none; background: #5A45C8; color: #FFFFFF; font: inherit; font-size: 15px; font-weight: 700">Run Setup again</button>
+      </div>
+    </section>
+  </div>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"$preview":{"width":1280,"height":1100}}'>
+class Component extends DCLogic {
+renderVals() {
+return {};
+}
+}
+</script>
+</body>
+</html>

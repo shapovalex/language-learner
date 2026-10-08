@@ -1,0 +1,56 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Studio — Delete Item</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Figtree:wght@400;500;600;700&amp;display=swap">
+<style>
+body{margin:0}
+a{color:#5A45C8}a:hover{color:#3F2F96}
+</style>
+</helmet>
+<div style="width: 390px; height: 844px; box-sizing: border-box; background: #FFF8F1; color: #221E2E; font-family: 'Figtree', system-ui, sans-serif; position: relative; overflow: hidden">
+  <div aria-hidden="true" style="padding: 12px 16px; display: flex; flex-direction: column; gap: 14px">
+    <div style="min-height: 44px; display: flex; align-items: center; font-size: 15px; font-weight: 600; color: #5A45C8">‹ Items</div>
+    <div style="font-size: 28px; font-weight: 700">jump to conclusions</div>
+    <div style="background: #FFFFFF; border-radius: 24px; height: 300px"></div>
+    <div style="background: #FFFFFF; border-radius: 24px; height: 180px"></div>
+  </div>
+  <div style="position: absolute; top: 0; left: 0; width: 390px; height: 844px; background: rgba(34,30,46,0.42)"></div>
+
+  <section role="alertdialog" aria-labelledby="del-title" aria-describedby="del-desc" style="position: absolute; left: 20px; top: 190px; width: 350px; box-sizing: border-box; background: #FFFFFF; border-radius: 28px; padding: 22px 20px 18px; display: flex; flex-direction: column; gap: 14px">
+    <div style="width: 48px; height: 48px; border-radius: 24px; background: #FFD9C7; color: #8F2F05; display: flex; align-items: center; justify-content: center">
+      <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 7h16"></path><path d="M10 11v6"></path><path d="M14 11v6"></path><path d="M6 7l1 13h10l1-13"></path><path d="M9 7V4h6v3"></path></svg>
+    </div>
+    <h2 id="del-title" style="margin: 0; font-size: 21px; font-weight: 700; line-height: 1.25">Delete “jump to conclusions”?</h2>
+    <div id="del-desc" style="display: flex; flex-direction: column; gap: 10px; font-size: 15px; line-height: 1.45">
+      <p style="margin: 0">This permanently removes the Item and its 4 Cards from Anki, with their review history:</p>
+      <div style="display: flex; flex-wrap: wrap; gap: 6px; font-size: 13px; font-weight: 600">
+        <span style="background: #F0EAE2; border-radius: 12px; padding: 4px 10px">Understand</span>
+        <span style="background: #F0EAE2; border-radius: 12px; padding: 4px 10px">Produce</span>
+        <span style="background: #F0EAE2; border-radius: 12px; padding: 4px 10px">Write</span>
+        <span style="background: #F0EAE2; border-radius: 12px; padding: 4px 10px">Pronounce</span>
+      </div>
+      <p style="margin: 0; color: #5C5669">There is no undo.</p>
+    </div>
+    <div style="display: flex; flex-direction: column; gap: 8px; padding-top: 4px">
+      <button style="height: 52px; border-radius: 26px; border: none; background: #8F2F05; color: #FFFFFF; font: inherit; font-size: 16px; font-weight: 700">Delete permanently</button>
+      <button style="height: 52px; border-radius: 26px; border: 2px solid #E2DACF; background: #FFFFFF; color: #221E2E; font: inherit; font-size: 16px; font-weight: 700">Cancel</button>
+    </div>
+  </section>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"$preview":{"width":390,"height":844}}'>
+class Component extends DCLogic {
+renderVals() {
+return {};
+}
+}
+</script>
+</body>
+</html>

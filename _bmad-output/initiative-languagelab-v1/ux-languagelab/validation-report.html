@@ -1,0 +1,530 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>UX Design Validation: LanguageLab</title>
+<style>
+  :root {
+    --bg: #fafaf9;
+    --surface: #ffffff;
+    --border: #e7e5e4;
+    --text: #1c1917;
+    --muted: #78716c;
+
+    --verdict-strong: #16a34a;
+    --verdict-adequate: #65a30d;
+    --verdict-thin: #d97706;
+    --verdict-broken: #dc2626;
+
+    --sev-low: #64748b;
+    --sev-medium: #ca8a04;
+    --sev-high: #ea580c;
+    --sev-critical: #dc2626;
+  }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; padding: 0; }
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Inter, system-ui, sans-serif;
+    background: var(--bg);
+    color: var(--text);
+    line-height: 1.6;
+    font-size: 15px;
+  }
+  .container { max-width: 960px; margin: 0 auto; padding: 32px 24px 64px; }
+
+  header.report-header {
+    display: flex;
+    align-items: flex-start;
+    justify-content: space-between;
+    gap: 24px;
+    padding-bottom: 16px;
+    border-bottom: 1px solid var(--border);
+    margin-bottom: 24px;
+  }
+  .title h1 { margin: 0; font-size: 22px; font-weight: 600; letter-spacing: -0.01em; }
+  .title .subtitle { color: var(--muted); font-size: 13px; margin-top: 4px; font-family: ui-monospace, "SF Mono", Menlo, monospace; }
+
+  .synthesis {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-left: 3px solid var(--muted);
+    border-radius: 8px;
+    padding: 18px 22px;
+    margin-bottom: 24px;
+    font-size: 15.5px;
+  }
+  .synthesis p { margin: 0 0 10px; }
+  .synthesis p:last-child { margin-bottom: 0; }
+
+  .dimension-summary {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+    gap: 10px;
+    margin-bottom: 24px;
+  }
+  .dim-card {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 12px 14px;
+  }
+  .dim-card .dim-name { font-size: 13px; color: var(--muted); margin-bottom: 6px; }
+  .dim-card .dim-verdict { font-size: 14px; font-weight: 600; }
+
+  section.dimension, section.reviewer-section { margin-bottom: 14px; }
+  section.dimension details, section.reviewer-section details {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    overflow: hidden;
+  }
+  section summary {
+    padding: 14px 20px;
+    cursor: pointer;
+    user-select: none;
+    list-style: none;
+    display: flex;
+    align-items: center;
+    gap: 12px;
+  }
+  section summary::-webkit-details-marker { display: none; }
+  section summary::before {
+    content: "▸";
+    display: inline-block;
+    color: var(--muted);
+    transition: transform 0.15s ease;
+  }
+  section details[open] summary::before { transform: rotate(90deg); }
+  section summary h2 {
+    display: inline;
+    margin: 0;
+    font-size: 16px;
+    font-weight: 600;
+    letter-spacing: -0.005em;
+    flex: 1;
+  }
+  .verdict-pill {
+    font-size: 11px;
+    padding: 3px 10px;
+    border-radius: 999px;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+    color: white;
+  }
+  .verdict-strong { background: var(--verdict-strong); }
+  .verdict-adequate { background: var(--verdict-adequate); }
+  .verdict-thin { background: var(--verdict-thin); }
+  .verdict-broken { background: var(--verdict-broken); }
+
+  .dim-body { padding: 4px 20px 18px; }
+  .dim-judgment { color: var(--text); font-size: 14.5px; }
+  .dim-judgment p { margin: 0 0 10px; }
+
+  .findings-list { padding: 0 20px 4px; }
+  article.finding {
+    padding: 14px 0;
+    border-top: 1px solid var(--border);
+  }
+  article.finding:first-child { border-top: none; }
+  article.finding header {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    flex-wrap: wrap;
+    margin-bottom: 6px;
+  }
+  .badge {
+    font-size: 10.5px;
+    padding: 3px 8px;
+    border-radius: 4px;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+    line-height: 1.4;
+  }
+  .badge-sev-low { background: rgba(100, 116, 139, 0.12); color: var(--sev-low); }
+  .badge-sev-medium { background: rgba(202, 138, 4, 0.14); color: var(--sev-medium); }
+  .badge-sev-high { background: rgba(234, 88, 12, 0.14); color: var(--sev-high); }
+  .badge-sev-critical { background: rgba(220, 38, 38, 0.14); color: var(--sev-critical); }
+  .finding-title { margin: 0; font-size: 15px; font-weight: 500; flex: 1; min-width: 200px; }
+  .finding-location { font-family: ui-monospace, "SF Mono", Menlo, monospace; font-size: 12.5px; color: var(--muted); }
+  .finding-note, .finding-fix { margin-top: 6px; font-size: 14px; }
+  .finding-fix strong { color: var(--muted); font-weight: 500; }
+
+  .reviewer-source {
+    font-size: 12px;
+    color: var(--muted);
+    font-family: ui-monospace, "SF Mono", Menlo, monospace;
+  }
+
+  .mechanical {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 16px 20px;
+    margin-top: 24px;
+    font-size: 14px;
+  }
+  .mechanical h3 { margin: 0 0 10px; font-size: 14px; font-weight: 600; color: var(--muted); text-transform: uppercase; letter-spacing: 0.04em; }
+  .mechanical ul { margin: 0; padding-left: 20px; }
+  .mechanical li { margin-bottom: 4px; color: var(--text); }
+
+  footer.report-footer {
+    margin-top: 40px;
+    padding-top: 16px;
+    border-top: 1px solid var(--border);
+    font-size: 12px;
+    color: var(--muted);
+    font-family: ui-monospace, "SF Mono", Menlo, monospace;
+  }
+  footer .meta { display: flex; gap: 24px; flex-wrap: wrap; }
+  .status { font-size: 11px; padding: 3px 8px; border-radius: 4px; font-weight: 600; letter-spacing: 0.02em; line-height: 1.4; border: 1px solid var(--border); }
+  .status-decision { color: #1d4ed8; background: rgba(29,78,216,0.08); }
+  .status-fixed { color: var(--verdict-strong); background: rgba(22,163,74,0.10); }
+  .status-assumption { color: #7c3aed; background: rgba(124,58,237,0.08); }
+  .finding-resolution { margin-top: 6px; font-size: 14px; }
+  .finding-resolution strong { color: var(--muted); font-weight: 500; }
+  code { font-family: ui-monospace, "SF Mono", Menlo, monospace; font-size: 0.9em; background: rgba(120,113,108,0.10); padding: 0 4px; border-radius: 3px; }
+  @media (max-width: 600px) { .container { padding: 24px 16px 48px; } }
+</style>
+</head>
+<body>
+  <div class="container">
+    <header class="report-header">
+      <div class="title">
+        <h1>LanguageLab — UX Design Validation Report</h1>
+        <div class="subtitle">_bmad-output/initiative-languagelab-v1/ux-languagelab/DESIGN.md + EXPERIENCE.md</div>
+      </div>
+    </header>
+    <div class="synthesis">
+      <p>The pair is a usable contract. Every color token has a hex value, every <code>{token}</code> reference resolves, all 14 mockups are cited inline, and each in-app PRD journey has a Key Flow with a climax and a failure path. No finding is critical. Three high findings should be fixed before story-dev: Reference audio auto-play contradicts FR-31 and the iOS user-gesture rule; the 2px <code>border</code> outline on text fields (1.38:1) fails the stated WCAG 2.2 AA non-text contrast target; and the Pronunciation surface has no cold-load / pre-session Sync state. No spine content contradicts <code>.memlog.md</code>. One memlog decision is missing from the spines (see §7).</p>
+      <p><strong>Post-review status.</strong> All 19 findings are addressed in the spines (critical 0, high 3, medium 6, low 10): 4 resolved by user decision, 10 fixed, 5 fixed with <code>[ASSUMPTION]</code> specs. The three high findings were closed by decisions logged in <code>.memlog.md</code>: Reference audio is tap-to-play and never auto-plays; new <code>border-input</code> #948A7E for fields, with outline and Rating buttons keeping #E2DACF as an accepted deviation; pre-session Sync runs in the background. en-US IPA in feedback was kept by decision. The category verdicts below are the reviewer's and describe the pre-fix state; each finding carries its resolution. After the fixes, 254 token references and 14 mockup links resolve (memlog). The memlog records 12 low findings from the reviewer summary; review-rubric.md contains 10 low bullets, and those are reported here.</p>
+    </div>
+    <div class="dimension-summary">
+      <div class="dim-card"><div class="dim-name">Flow coverage</div><div class="dim-verdict" style="color: var(--verdict-adequate)">adequate</div></div>
+      <div class="dim-card"><div class="dim-name">Token completeness</div><div class="dim-verdict" style="color: var(--verdict-adequate)">adequate</div></div>
+      <div class="dim-card"><div class="dim-name">Component coverage</div><div class="dim-verdict" style="color: var(--verdict-adequate)">adequate</div></div>
+      <div class="dim-card"><div class="dim-name">State coverage</div><div class="dim-verdict" style="color: var(--verdict-adequate)">adequate</div></div>
+      <div class="dim-card"><div class="dim-name">Visual reference coverage</div><div class="dim-verdict" style="color: var(--verdict-strong)">strong</div></div>
+      <div class="dim-card"><div class="dim-name">Bloat & overspecification</div><div class="dim-verdict" style="color: var(--verdict-strong)">strong</div></div>
+      <div class="dim-card"><div class="dim-name">Inheritance discipline</div><div class="dim-verdict" style="color: var(--verdict-adequate)">adequate</div></div>
+      <div class="dim-card"><div class="dim-name">Shape fit</div><div class="dim-verdict" style="color: var(--verdict-strong)">strong</div></div>
+    </div>
+    <section class="dimension">
+      <details>
+        <summary>
+          <h2>Flow coverage</h2>
+          <span class="verdict-pill verdict-adequate">adequate</span>
+        </summary>
+        <div class="dim-body"><div class="dim-judgment"><p>Checked PRD §2.3 UJ-1…UJ-6 against EXPERIENCE.md Key Flows. UJ-1→J1, UJ-2→J2, UJ-3→J3, UJ-5→J4, UJ-6→J5. UJ-4 is declared out-of-UI with OQ-5. Each flow names Oleksii, has numbered steps, a <strong>Climax</strong> beat and a Failure line. J1's device deviation from UJ-1 is noted and follows the memlog.</p></div></div>
+        <div class="findings-list">
+          <article class="finding">
+            <header>
+              <span class="badge badge-sev-high">high</span>
+              <h3 class="finding-title">Reference audio auto-play contradicts FR-31 and the iOS user-gesture rule</h3>
+              <span class="status status-decision">resolved by decision</span>
+            </header>
+            <div class="finding-location">EXPERIENCE.md Interaction Primitives; Responsive &amp; Platform; J3 step 2</div>
+            <div class="finding-note">Interaction Primitives says "Reference audio auto-plays before the first Attempt and before each retry (FR-31)". FR-31 only says the user *can play* it. iOS Safari needs a user gesture to start playback, and the first Card loads with no gesture. The order of events after "Try again" is also undefined; J3 step 2 inherits the ambiguity.</div>
+            <div class="finding-fix"><strong>Fix:</strong> Pick one rule: an explicit play tap (matches FR-31 and iOS), or auto-play only on a gesture-initiated load with a stated fallback. Then state the order of "Try again", replay and record.</div>
+            <div class="finding-resolution"><strong>Resolution:</strong> resolved by decision. Reference audio never auto-plays, on any device: tap Reference to listen, then Record. "Try again" starts recording at once and never plays the Reference.</div>
+          </article>
+          <article class="finding">
+            <header>
+              <span class="badge badge-sev-low">low</span>
+              <h3 class="finding-title">J2 departs from PRD UJ-2 without a deviation note</h3>
+              <span class="status status-fixed">fixed</span>
+            </header>
+            <div class="finding-location">EXPERIENCE.md J2</div>
+            <div class="finding-note">Custom value instead of Use as is, no edits, no Mnemonic. The memlog sanctions this, but unlike J1 the flow carries no deviation note, so no flow exercises Draft editing (FR-18) or the Mnemonic.</div>
+            <div class="finding-fix"><strong>Fix:</strong> Add a one-line note like J1's, or add a variant step where Oleksii edits a field and adds a Mnemonic.</div>
+            <div class="finding-resolution"><strong>Resolution:</strong> fixed.</div>
+          </article>
+        </div>
+      </details>
+    </section>
+    <section class="dimension">
+      <details>
+        <summary>
+          <h2>Token completeness</h2>
+          <span class="verdict-pill verdict-adequate">adequate</span>
+        </summary>
+        <div class="dim-body"><div class="dim-judgment"><p>Checked 33 colors (all hex; <code>scrim</code> is 8-digit hex = 42%), 21 typography roles, 12 radii, 26 spacing tokens, 41 component token groups. All 86 distinct <code>{path}</code> references in DESIGN.md and both in EXPERIENCE.md resolve. Every stated contrast ratio recomputed and accurate. Light-only is declared, so no dark pairs are needed.</p></div></div>
+        <div class="findings-list">
+          <article class="finding">
+            <header>
+              <span class="badge badge-sev-high">high</span>
+              <h3 class="finding-title"><code>border</code> #E2DACF (1.38:1) is the only boundary of text fields, failing WCAG 1.4.11</h3>
+              <span class="status status-decision">resolved by decision</span>
+            </header>
+            <div class="finding-location">DESIGN.md Colors <code>border</code> row; components <code>text-field</code>, <code>rating-button</code></div>
+            <div class="finding-note"><code>border</code> is the only visible boundary of <code>text-field</code>, <code>button-secondary</code> and <code>rating-button</code> on white cards, at 1.38:1 (1.32:1 on <code>ground</code>). For text inputs the boundary identifies the control, and WCAG 2.2 AA 1.4.11 (the stated target) requires 3:1.</div>
+            <div class="finding-fix"><strong>Fix:</strong> Add a stronger outline token (≥3:1 against <code>surface</code>) for field borders, or give fields a <code>surface-sunken</code> fill. State the decision for buttons explicitly.</div>
+            <div class="finding-resolution"><strong>Resolution:</strong> resolved by decision. New token <code>border-input</code> #948A7E (3.39:1 on white, 3.22:1 on ground) for text fields, textareas and selects. Outline buttons and Rating buttons keep #E2DACF as an accepted deviation (label-identified). Mockups updated.</div>
+          </article>
+          <article class="finding">
+            <header>
+              <span class="badge badge-sev-low">low</span>
+              <h3 class="finding-title">Component values bypass the scale as raw literals</h3>
+              <span class="status status-fixed">fixed</span>
+            </header>
+            <div class="finding-location">DESIGN.md frontmatter <code>components</code></div>
+            <div class="finding-note"><code>readiness-fix-hint.radius: 16px</code>, <code>bottom-sheet.radius: '28px 28px 0 0'</code>, <code>nav-pill.height: 44px</code>, and <code>queue-count-chip</code> fontSize/weight (13/700) match no token.</div>
+            <div class="finding-fix"><strong>Fix:</strong> Reference existing tokens, or add a <code>count</code> typography role.</div>
+            <div class="finding-resolution"><strong>Resolution:</strong> fixed.</div>
+          </article>
+          <article class="finding">
+            <header>
+              <span class="badge badge-sev-low">low</span>
+              <h3 class="finding-title"><code>rounded.word-pill-tablet</code> unused; destructive button lacks small height</h3>
+              <span class="status status-fixed">fixed</span>
+            </header>
+            <div class="finding-location">DESIGN.md frontmatter; Components → Buttons, Inline alert</div>
+            <div class="finding-note">No component references <code>rounded.word-pill-tablet</code>. Prose gives destructive buttons a 44px in-alert height, while <code>button-destructive.height</code> is 52 with no small variant.</div>
+            <div class="finding-fix"><strong>Fix:</strong> Add <code>radiusTablet</code> to the word-pill components and <code>heightSmall: 44px</code> to <code>button-destructive</code>.</div>
+            <div class="finding-resolution"><strong>Resolution:</strong> fixed.</div>
+          </article>
+        </div>
+      </details>
+    </section>
+    <section class="dimension">
+      <details>
+        <summary>
+          <h2>Component coverage</h2>
+          <span class="verdict-pill verdict-adequate">adequate</span>
+        </summary>
+        <div class="dim-body"><div class="dim-judgment"><p>Checked 30 DESIGN.md Components bullets against 29 EXPERIENCE.md Component Patterns rows, plus components named elsewhere (IA, Navigation model, State Patterns). Most pairs carry real rules on both sides.</p></div></div>
+        <div class="findings-list">
+          <article class="finding">
+            <header>
+              <span class="badge badge-sev-medium">medium</span>
+              <h3 class="finding-title">Phone Menu has no visual or behavioral spec</h3>
+              <span class="status status-assumption">fixed as assumption</span>
+            </header>
+            <div class="finding-location">EXPERIENCE.md IA → Navigation model; DESIGN.md Components → App header</div>
+            <div class="finding-note">The Menu is the only top-level navigation on iPhone, yet neither spine specifies presentation, contents, focus or close. It survives only as <code>[ASSUMPTION]</code> and OQ-12.</div>
+            <div class="finding-fix"><strong>Fix:</strong> Add a Menu row to both spines (e.g. a bottom sheet listing the four areas with <code>aria-current</code>, closing on selection or scrim).</div>
+            <div class="finding-resolution"><strong>Resolution:</strong> fixed as assumption. Menu specified as a bottom sheet.</div>
+          </article>
+          <article class="finding">
+            <header>
+              <span class="badge badge-sev-medium">medium</span>
+              <h3 class="finding-title">Unsaved-changes confirmation reuses the delete-specific Alert dialog</h3>
+              <span class="status status-assumption">fixed as assumption</span>
+            </header>
+            <div class="finding-location">EXPERIENCE.md Component Patterns → Alert dialog; DESIGN.md Components → Alert dialog</div>
+            <div class="finding-note">The Alert dialog visual spec is delete-specific (trash icon, Destructive button first, Card chips). Whether "Discard" is destructive-styled or which icon appears is unclear.</div>
+            <div class="finding-fix"><strong>Fix:</strong> Add an unsaved-warning variant naming its icon (or none), button order and styles.</div>
+            <div class="finding-resolution"><strong>Resolution:</strong> fixed as assumption. Unsaved variant: no icon, Discard / Keep editing.</div>
+          </article>
+          <article class="finding">
+            <header>
+              <span class="badge badge-sev-low">low</span>
+              <h3 class="finding-title">Component names drift between files; Level meter and Progress card half-specified</h3>
+              <span class="status status-fixed">fixed</span>
+            </header>
+            <div class="finding-location">both spines, Components sections</div>
+            <div class="finding-note">"Queue-count chip" vs "Queue count", "Text field / textarea / select" vs "Text field", "Verification banners" vs "banner". Level meter has no DESIGN.md bullet; Progress card has no behavior row.</div>
+            <div class="finding-fix"><strong>Fix:</strong> Align names verbatim, add a Level meter bullet and a Progress card behavior row.</div>
+            <div class="finding-resolution"><strong>Resolution:</strong> fixed. Progress card rule (leaving during Apply doesn't cancel) added as <code>[ASSUMPTION]</code>.</div>
+          </article>
+          <article class="finding">
+            <header>
+              <span class="badge badge-sev-low">low</span>
+              <h3 class="finding-title">Back link and text-source choice have no component spec</h3>
+              <span class="status status-fixed">fixed</span>
+            </header>
+            <div class="finding-location">EXPERIENCE.md Navigation model, Key strings; DESIGN.md Text field</div>
+            <div class="finding-note">The "‹ Captures" back link and the "Use as is / Custom value" choice are not specified in either file.</div>
+            <div class="finding-fix"><strong>Fix:</strong> Name the control type (radio pair or segmented picker) and the back-link style.</div>
+            <div class="finding-resolution"><strong>Resolution:</strong> fixed.</div>
+          </article>
+        </div>
+      </details>
+    </section>
+    <section class="dimension">
+      <details>
+        <summary>
+          <h2>State coverage</h2>
+          <span class="verdict-pill verdict-adequate">adequate</span>
+        </summary>
+        <div class="dim-body"><div class="dim-judgment"><p>Checked each IA surface against empty, cold-load, busy, error, permission-denied and focus. Draft, Item detail, Review and Setup are well covered, with copy quoted from <code>S-States</code> / <code>S-SetupStates</code>.</p></div></div>
+        <div class="findings-list">
+          <article class="finding">
+            <header>
+              <span class="badge badge-sev-high">high</span>
+              <h3 class="finding-title">Pronunciation has no cold-load / pre-session Sync state</h3>
+              <span class="status status-decision">resolved by decision</span>
+            </header>
+            <div class="finding-location">EXPERIENCE.md State Patterns; J3 step 1</div>
+            <div class="finding-note">PRD UJ-3 and FR-36 sync before the session, which can take seconds. No loading row exists, J3 step 1 jumps straight to the queue chip, and Sync-failure behavior is unstated.</div>
+            <div class="finding-fix"><strong>Fix:</strong> Add a row for syncing/loading the queue, with Sync failure proceeding silently, and add the step to J3.</div>
+            <div class="finding-resolution"><strong>Resolution:</strong> resolved by decision. Pre-session Sync runs in the background and is non-blocking; the first Card shows immediately; no Sync UI. A first-Card skeleton was added as <code>[ASSUMPTION]</code>.</div>
+          </article>
+          <article class="finding">
+            <header>
+              <span class="badge badge-sev-medium">medium</span>
+              <h3 class="finding-title">Items (per Language) lacks loading and empty states</h3>
+              <span class="status status-assumption">fixed as assumption</span>
+            </header>
+            <div class="finding-location">EXPERIENCE.md State Patterns</div>
+            <div class="finding-note">Only "Search no matches" is covered; the Loading row omits Items.</div>
+            <div class="finding-fix"><strong>Fix:</strong> Add both rows with copy, e.g. "No English Items yet. Items are made from Captures."</div>
+            <div class="finding-resolution"><strong>Resolution:</strong> fixed as assumption. Items empty/loading copy added.</div>
+          </article>
+          <article class="finding">
+            <header>
+              <span class="badge badge-sev-medium">medium</span>
+              <h3 class="finding-title">Setup "nothing to change" state unspecified</h3>
+              <span class="status status-assumption">fixed as assumption</span>
+            </header>
+            <div class="finding-location">EXPERIENCE.md State Patterns; J5 step 7</div>
+            <div class="finding-note">J5 step 7 references it, but whether Apply is disabled, hidden or shown with a message is unclear.</div>
+            <div class="finding-fix"><strong>Fix:</strong> Add a row with copy and the Apply button's state.</div>
+            <div class="finding-resolution"><strong>Resolution:</strong> fixed as assumption. "Nothing to change…" callout; Apply setup is hidden.</div>
+          </article>
+          <article class="finding">
+            <header>
+              <span class="badge badge-sev-low">low</span>
+              <h3 class="finding-title">Smaller state gaps: voice fetch failure, model outage, Generate disabled, Assessing</h3>
+              <span class="status status-assumption">fixed as assumption</span>
+            </header>
+            <div class="finding-location">EXPERIENCE.md State Patterns; Component Patterns</div>
+            <div class="finding-note">Voice catalog fetch failure (FR-26), OpenRouter outage vs validation failure (PRD §5.2), when "Generate draft" is disabled, and the unmocked "Assessing" rule vs the Rating row.</div>
+            <div class="finding-fix"><strong>Fix:</strong> Add one row each, or fold them into existing rows.</div>
+            <div class="finding-resolution"><strong>Resolution:</strong> fixed as assumption. "Couldn't load voices", "Couldn't reach the model", Generate-draft disabled reason, Reference disabled while recording.</div>
+          </article>
+        </div>
+      </details>
+    </section>
+    <section class="dimension">
+      <details>
+        <summary>
+          <h2>Visual reference coverage</h2>
+          <span class="verdict-pill verdict-strong">strong</span>
+        </summary>
+        <div class="dim-body"><div class="dim-judgment"><p><code>mockups/</code> holds 14 files, each cited by name in both spines at the relevant IA row or component bullet. <code>wireframes/</code> does not exist and <code>imports/</code> is empty. Spines-win-on-conflict is stated once (EXPERIENCE.md Foundation). No orphans.</p></div></div>
+        <div class="findings-list">
+          <article class="finding">
+            <header>
+              <span class="badge badge-sev-low">low</span>
+              <h3 class="finding-title">Key strings differ from the mockups they cite</h3>
+              <span class="status status-fixed">fixed</span>
+            </header>
+            <div class="finding-location">EXPERIENCE.md Voice and Tone → Key strings; Pronunciation Feedback</div>
+            <div class="finding-note"><code>S-Items</code> shows "Search English Items" vs spine "Search English or Russian"; <code>S-Review</code> shows "Complete" vs "Complete(ness)" / "Completeness".</div>
+            <div class="finding-fix"><strong>Fix:</strong> Commit one string per slot, drop "(ness)", mark the spine value canonical.</div>
+            <div class="finding-resolution"><strong>Resolution:</strong> fixed.</div>
+          </article>
+        </div>
+      </details>
+    </section>
+    <section class="dimension">
+      <details>
+        <summary>
+          <h2>Bloat & overspecification</h2>
+          <span class="verdict-pill verdict-strong">strong</span>
+        </summary>
+        <div class="dim-body"><div class="dim-judgment"><p>Little bloat. Tables are used where they fit, source restatement is limited to FR anchors, and the invented Pronunciation Feedback section is load-bearing.</p></div></div>
+        <div class="findings-list">
+          <article class="finding">
+            <header>
+              <span class="badge badge-sev-low">low</span>
+              <h3 class="finding-title">Components prose restates frontmatter literals</h3>
+              <span class="status status-fixed">fixed</span>
+            </header>
+            <div class="finding-location">DESIGN.md Components; EXPERIENCE.md Pronunciation Feedback</div>
+            <div class="finding-note">E.g. "<code>border</code> (<code>#E2DACF</code>) fill, <code>ink-muted</code> text (5.1:1)" in Disabled button; pixel values in Success banner and Queue-count chip; Pronunciation Feedback rows repeat IA and Component Patterns.</div>
+            <div class="finding-fix"><strong>Fix:</strong> Keep the token references and drop the restated literals.</div>
+            <div class="finding-resolution"><strong>Resolution:</strong> fixed.</div>
+          </article>
+        </div>
+      </details>
+    </section>
+    <section class="dimension">
+      <details>
+        <summary>
+          <h2>Inheritance discipline</h2>
+          <span class="verdict-pill verdict-adequate">adequate</span>
+        </summary>
+        <div class="dim-body"><div class="dim-judgment"><p>All <code>sources</code> paths and <code>design: DESIGN.md</code> resolve. FR and UJ IDs match the PRD. Glossary terms are consistent. EXPERIENCE.md token references resolve. No contradictions with <code>.memlog.md</code>.</p></div></div>
+        <div class="findings-list">
+          <article class="finding">
+            <header>
+              <span class="badge badge-sev-medium">medium</span>
+              <h3 class="finding-title">en-US phoneme pills render IPA despite the "No IPA" non-goal</h3>
+              <span class="status status-decision">resolved by decision</span>
+            </header>
+            <div class="finding-location">DESIGN.md Weak-word panel; EXPERIENCE.md Weak-word panel / Pronunciation Feedback</div>
+            <div class="finding-note"><code>S-Review</code> shows IPA symbols; addendum, spec-draft and PRD non-goals say no IPA overlay. Neither spine commits the alphabet or the reasoning.</div>
+            <div class="finding-fix"><strong>Fix:</strong> Commit the alphabet and record the reasoning, or switch to a non-IPA rendering.</div>
+            <div class="finding-resolution"><strong>Resolution:</strong> resolved by decision. en-US feedback keeps IPA as returned by Azure; the PRD IPA ban applies to Cards, not review feedback.</div>
+          </article>
+          <article class="finding">
+            <header>
+              <span class="badge badge-sev-medium">medium</span>
+              <h3 class="finding-title">Memlog decision "Capture detail does not show Items created from it" missing from spines</h3>
+              <span class="status status-fixed">fixed</span>
+            </header>
+            <div class="finding-location">EXPERIENCE.md IA → Capture detail; Component Patterns</div>
+            <div class="finding-note">A builder adding a "made from this capture" list would not be stopped.</div>
+            <div class="finding-fix"><strong>Fix:</strong> State it in the IA row or the Success banner rule.</div>
+            <div class="finding-resolution"><strong>Resolution:</strong> fixed.</div>
+          </article>
+          <article class="finding">
+            <header>
+              <span class="badge badge-sev-low">low</span>
+              <h3 class="finding-title">Flow titles, glossary and OQ-16 drift from the PRD</h3>
+              <span class="status status-fixed">fixed</span>
+            </header>
+            <div class="finding-location">EXPERIENCE.md Key Flows headings; Glossary; OQ-16</div>
+            <div class="finding-note">Key Flow titles use memlog names rather than PRD UJ titles; glossary omits "Anki" and "Study Cards"; OQ-16 says Capture delete has "no Cards" but FR-13 deletes the Capture's suspended card.</div>
+            <div class="finding-fix"><strong>Fix:</strong> Append PRD UJ titles to headings, complete the glossary, reword OQ-16.</div>
+            <div class="finding-resolution"><strong>Resolution:</strong> fixed.</div>
+          </article>
+        </div>
+      </details>
+    </section>
+    <section class="dimension">
+      <details>
+        <summary>
+          <h2>Shape fit</h2>
+          <span class="verdict-pill verdict-strong">strong</span>
+        </summary>
+        <div class="dim-body"><div class="dim-judgment"><p>DESIGN.md sections are in canonical order. EXPERIENCE.md has all required defaults; Responsive &amp; Platform and Inspiration &amp; Anti-patterns are present as triggered. Pronunciation Feedback and Open Questions earn their place.</p></div></div>
+        <div class="findings-list">
+          <article class="finding">
+            <header>
+              <span class="badge badge-sev-low">low</span>
+              <h3 class="finding-title">DESIGN.md Open design questions nested under Do's and Don'ts</h3>
+              <span class="status status-fixed">fixed</span>
+            </header>
+            <div class="finding-location">DESIGN.md end</div>
+            <div class="finding-note">DQ-1…4 sit as an H3 under Do's and Don'ts, so a parser of hard visual rules picks up open questions.</div>
+            <div class="finding-fix"><strong>Fix:</strong> Move it to a separate trailing H2.</div>
+            <div class="finding-resolution"><strong>Resolution:</strong> fixed.</div>
+          </article>
+        </div>
+      </details>
+    </section>
+    <div class="mechanical">
+      <h3>Mechanical notes (pre-fix)</h3>
+      <ul>
+        <li>Frontmatter: both spines carry title, status, created, updated and sources; DESIGN.md also carries <code>name</code> and <code>description</code>. YAML well-formed by inspection.</li>
+        <li>Cross-refs: all token references resolve. The shorthand "<code>{typography.score-headline}</code> / <code>-tablet</code>" is not a resolvable path; write <code>{typography.score-headline-tablet}</code>.</li>
+        <li>Unused tokens: <code>rounded.word-pill-tablet</code>. <code>colors.danger-outline</code> and <code>colors.accent-hover</code> are named in prose without <code>{}</code> syntax.</li>
+        <li>Name inconsistencies: Queue-count chip / Queue count; Text field / textarea / select / Text field; Verification banners / banner; Complete / Completeness.</li>
+        <li>No Mermaid diagrams present.</li>
+        <li>Open-question IDs cross-reference correctly (DQ-1↔OQ-11, DQ-3↔OQ-6, DQ-4↔OQ-5).</li>
+      </ul>
+    </div>
+    <footer class="report-footer">
+      <div class="meta">
+        <span>Rubric: _bmad-output/initiative-languagelab-v1/ux-languagelab/review-rubric.md</span>
+        <span>Generated: 2026-10-08T16:03:47-04:00</span>
+      </div>
+    </footer>
+  </div>
+</body>
+</html>
