@@ -191,6 +191,7 @@ No score is stored after leaving the Card (FR-35). The ring color never changes 
 | Setup verified / discrepancies | Setup | Verified banner "Setup applied and verified", or discrepancy banner "Setup applied, but 1 thing doesn't match" / "Setup applied, but N things don't match" with "Anki was changed. Review the difference below, then run Setup again.", the list (expected vs. found), and "Run Setup again" (FR-6). Non-managed-notes reporting not mocked (OQ-6). Migration preview reuses the change list (FR-7). |
 | App unreachable (Mac mini/Tailscale down) | Out of app | Browser's own error; no offline mode (NFR-10). |
 | Sync failure | Out of app | Terminal only (FR-36), including the pre- and post-session Sync; never blocks the session. |
+| Full sync required | Setup | After a Setup run that changed note-type fields, Anki needs a one-way full sync, and every Sync fails until it happens. Setup's readiness shows a warning tile, "Full sync required" / "Open Anki Desktop, sync, and choose Upload to AnkiWeb." The tile is shown only in this state; every other Sync failure stays terminal-only (architecture AD-17). Not mocked. |
 
 ## Interaction Primitives
 

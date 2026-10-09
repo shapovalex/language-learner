@@ -499,7 +499,7 @@ WCAG AA is the target. All text/background pairs used in the mockups meet it (â‰
 
 ## Typography
 
-One family: **Figtree** (Google Fonts, weights 400/500/600/700), fallback `system-ui, sans-serif`. Content in English, French, and Russian (Cyrillic) is set in the same family. If Figtree's Cyrillic coverage falls short, the fallback renders Russian text (verify Figtree's Cyrillic coverage during the build).
+One family: **Figtree** (weights 400/500/600/700), fallback `system-ui, sans-serif`. The woff2 files are vendored into the wheel under `static/vendor/` and never loaded from Google Fonts at runtime (architecture AD-13). Figtree ships Latin and Latin Extended subsets only, so English and French render in Figtree and Russian (Cyrillic) renders in the `system-ui` fallback. That is accepted for v1.
 
 | Role | Token | Where |
 |---|---|---|
