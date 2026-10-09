@@ -1,0 +1,66 @@
+# tickets.toml — the epics of initiative-languagelab-v1 in build order.
+
+[[epic]]
+id = 1
+slug = "epic-platform-baseline"
+title = "Platform baseline: run and reach"
+covers = ["CAP-1"]
+
+[[epic]]
+id = 2
+slug = "epic-anki-setup-sync"
+title = "Anki safely managed: Setup, repair, and Sync"
+covers = ["CAP-2", "CAP-11"]
+after = [{ epic = 1, needs = "composition root, settings with every .env key, error envelope, shell and router to mount the Setup screen, test harness" }]
+
+[[epic]]
+id = 3
+slug = "epic-captures"
+title = "Captures"
+covers = ["CAP-3"]
+after = [
+  { epic = 1, needs = "router, api.js, Studio styles" },
+  { epic = 2, needs = "Capture note type and deck in the manifest, AnkiStore with the setup gate" },
+]
+
+[[epic]]
+id = 4
+slug = "epic-capture-to-item"
+title = "Capture to Item: Drafts, duplicates, and four Cards"
+covers = ["CAP-4", "CAP-5", "CAP-6", "CAP-7"]
+after = [
+  { epic = 1, needs = "router.setDirty and the unsaved alert, api.js" },
+  { epic = 2, needs = "Vocabulary and Sentence note types, deck tree, ord-to-deck mapping, codec, setup gate" },
+  { epic = 3, needs = "Capture detail screen and Capture read" },
+]
+
+[[epic]]
+id = 5
+slug = "epic-maintain-items"
+title = "Maintain Items"
+covers = ["CAP-8"]
+after = [
+  { epic = 3, needs = "the delete confirmation dialog pattern" },
+  { epic = 4, needs = "ItemContent, Save create-or-update by ItemId, Item read and view-only Item detail, Draft generation, duplicate read and sheet" },
+]
+
+[[epic]]
+id = 6
+slug = "epic-reference-audio"
+title = "Reference audio"
+covers = ["CAP-9"]
+after = [
+  { epic = 4, needs = "Draft editor and Save with the audio intent (keep)" },
+  { epic = 5, needs = "editable Item detail and Item delete" },
+]
+
+[[epic]]
+id = 7
+slug = "epic-pronunciation-review"
+title = "Pronunciation review"
+covers = ["CAP-10"]
+after = [
+  { epic = 2, needs = "SyncRequester port, AnkiStore with the setup gate" },
+  { epic = 4, needs = "Pronounce Cards (ord 3) in the Pronunciation decks" },
+  { epic = 6, needs = "Azure adapter and the /api/media route for Reference playback" },
+]
