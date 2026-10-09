@@ -16,15 +16,16 @@ Per Language, the user reviews new and due Pronounce Cards: plays the Reference 
 
 ## Outcome
 
-Pronunciation practice happens inside Anki's spaced repetition on iPhone, iPad, and desktop — AC16–AC19 and the session part of AC20.
+Pronunciation practice happens inside Anki's spaced repetition on iPhone, iPad, and desktop — AC16–AC19, the microphone part of AC2, and the session part of AC20.
 
 ## Done when
 
 1. On the released wheel, from iPhone Safari over Tailscale, the user plays Reference audio, records Attempts, sees Azure feedback, and retries without changing Anki (AC16).
-2. A Rating answers only that Pronounce Card through Anki's scheduler and loads the next; a retried Rating is not applied twice (AC17, AD-20).
-3. Feedback never selects or suggests a Rating; `en-US` shows IPA and prosody, and `fr-CA` shows only overall, word, and position scores without naming a sound (AC18).
-4. Nothing from recordings or Assessments is retained once the review ends, and logs carry no audio or scores (AC19, NFR-7).
-5. Sync is requested on session start and end, including when the tab is hidden or closed, and a failed Assessment or Rating leaves the Card unanswered and current (AC20 session part, CAP-10).
+2. iPhone Safari, iPad Safari, and a desktop browser grant microphone permission to LanguageLab over Tailscale HTTPS, and a denied permission shows the mic-blocked state (AC2, microphone part).
+3. A Rating answers only that Pronounce Card through Anki's scheduler and loads the next; a retried Rating is not applied twice (AC17, AD-20).
+4. Feedback never selects or suggests a Rating; `en-US` shows IPA and prosody, and `fr-CA` shows only overall, word, and position scores without naming a sound (AC18).
+5. Nothing from recordings or Assessments is retained once the review ends, and logs carry no audio or scores (AC19, NFR-7).
+6. Sync is requested on session start and end, including when the tab is hidden or closed, and a failed Assessment or Rating leaves the Card unanswered and current (AC20 session part, CAP-10).
 
 ## Boundaries
 
@@ -43,3 +44,4 @@ Pronunciation practice happens inside Anki's spaced repetition on iPhone, iPad, 
 - Waits on epic-reference-audio because: it needs the Azure adapter and `/api/media` for Reference playback.
 - Waits on epic-capture-to-item because: it needs Pronounce Cards in the Pronunciation decks.
 - Waits on epic-anki-setup-sync because: it needs the SyncRequester port and AnkiStore with the setup gate.
+- Decision (2026-10-08): this epic owns the microphone-permission part of AC2, moved from epic-platform-baseline.

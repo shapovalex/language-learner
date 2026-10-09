@@ -1,0 +1,122 @@
+# tickets.toml — the entries of epic-platform-baseline (epic 1) in build order.
+
+[[entry]]
+id = 1
+type = "story"
+title = "Tracer: runnable wheel serving the shell"
+description = "Stands up pyproject (Python 3.14, every Stack runtime dependency pinned plus dev dependencies pytest, ruff, and pytest-playwright, so later entries add none, console script language-lab, static assets packaged), a create_app(settings) composition root with a minimal Settings (host, port) that entry 2 completes, bound to 127.0.0.1:8787 that prints the local URL, versioned /static asset URLs, the shell for every non-/api GET, GET /api/health returning the version, and api.js (the only fetch caller) rendering it; plus pytest, ruff, and an empty tests/fakes/ package."
+verify = "`uv build` then `uvx --from dist/<wheel> language-lab` serves a shell at http://127.0.0.1:8787/any/path that shows the version from /api/health, and `uv run pytest` and `uv run ruff check` pass."
+covers = ["CAP-1"]
+after = []
+hitl = true   # the user installs Python 3.14 via uv if missing and runs the wheel once
+risk = "medium"
+
+[[entry]]
+id = 2
+type = "story"
+title = "Configuration from ~/.config/language-lab/.env"
+description = "Completes entry 1's settings.py (pydantic-settings, extra=ignore) loaded once at startup with every A2 key plus LANGUAGE_LAB_PUBLIC_HOST and LANGUAGE_LAB_DEV, ANKI_PREFIX validation that fails startup, the OPENROUTER_MODELS list validator, adapters' settings injected by app.py, dev mode via `uv run language-lab` with LANGUAGE_LAB_DEV=1 that loads a gitignored repo-root `.env` instead of ~/.config and refuses ANKI_PREFIX=LanguageLab, and a documented .env.example."
+verify = "Tests against a temp .env show unknown keys ignored, an invalid Prefix aborting startup with a non-zero exit and no secret echoed, the dev flag exposed in Settings, and dev mode reading the repo `.env` and refusing the release Prefix, models parsed in order, and every Settings field present in .env.example."
+covers = ["CAP-1"]
+after = [1]
+hitl = false
+risk = "low"
+
+[[entry]]
+id = 3
+type = "story"
+title = "Error envelope and content-free request log"
+description = "Adds domain/errors.py with the twelve-code enum, exception handlers mapping every /api failure (including validation, unknown route, and unhandled errors) to the envelope without echoing input, request-id middleware with one log line per request (id, method, route template, status, code, duration), the uvicorn access log off, and api.js parsing the envelope into a typed error."
+verify = "Pytest shows a validation error, an unknown /api path, and a raised exception each return the envelope with a requestId and no input value, and the captured log holds exactly one line per request without query string or body."
+covers = ["CAP-1"]
+after = [2]   # same app.py lane
+hitl = false
+risk = "medium"
+
+[[entry]]
+id = 4
+type = "story"
+title = "Host and Origin allow-list with tailnet discovery"
+description = "Adds the AD-16 middleware: allow-list of 127.0.0.1:<port>, localhost:<port>, and the tailnet host from LANGUAGE_LAB_PUBLIC_HOST or discovered at startup from Tailscale (non-fatal when absent); effective host from X-Forwarded-Host else Host; Origin required on non-GET /api; 403 forbidden_origin; startup prints the Tailscale URL when known; the Playwright live-server fixture from entry 5 keeps passing by putting its port in settings."
+verify = "Pytest shows a foreign Host and a non-GET /api with a missing or foreign Origin get 403 forbidden_origin in the envelope with one log line, the tailnet host via X-Forwarded-Host passes, and discovery parses a recorded Tailscale status fixture."
+covers = ["CAP-1"]
+after = [3, 5]
+hitl = false
+risk = "medium"
+
+[[entry]]
+id = 5
+type = "story"
+title = "Studio styles and vendored Figtree"
+description = "Adds static/css with the DESIGN.md Studio tokens (colors, spacing, radius, type scale) and base styles (focus ring, inputs at 16px or more, safe areas), and vendors Figtree with its license under static/vendor/, loaded by the shell; sets up pytest-playwright (dev-only) with a live-server fixture in tests/e2e/conftest.py that later entries reuse."
+verify = "A Playwright check on the served shell shows Figtree applied and every request served from the app with none to an external host."
+covers = ["CAP-1"]
+after = [1]
+hitl = false
+risk = "low"
+
+[[entry]]
+id = 6
+type = "story"
+title = "Shell navigation with four destinations"
+description = "Adds router.js with History API routing for /captures, /en/items, /en/pronunciation, /fr/items, /fr/pronunciation, and /setup, the header with pills on tablet and desktop and the Menu bottom sheet on phone, the per-Language Items / Pronunciation segmented control, aria-current, and one empty screen module per destination using mount(root, params) → unmount; tests use the Playwright fixture from entry 5."
+verify = "Playwright at 390px, 820px, and 1280px reaches every destination by nav, by direct URL load, and by browser back, with aria-current correct and the Menu sheet trapping and returning focus."
+covers = ["CAP-1"]
+after = [5]
+hitl = false
+risk = "medium"
+
+[[entry]]
+id = 7
+type = "story"
+title = "Unsaved-changes alert and flash in the router"
+description = "Adds router.setDirty(null | {kind, count, target}), the single unsaved alert dialog (role=alertdialog with labelled title and description) with both body variants (focus on Keep editing, Esc cancels) intercepting pills, Menu, back links, and browser back, router.confirmLeave(), beforeunload while dirty, and navigate(path, { flash }) as a one-shot message."
+verify = "Playwright sets dirty state on a destination and shows that every leave path raises the alert, Keep editing stays, Discard navigates, confirmLeave resolves accordingly, and a flash shows once and is gone after the next navigation."
+covers = ["CAP-1"]
+after = [6]
+hitl = false
+risk = "medium"
+
+[[entry]]
+id = 8
+type = "story"
+title = "Tag-triggered release workflow"
+description = "Adds .github/workflows/release.yml that on a vX.Y.Z tag runs ruff and pytest (with Playwright browsers), fails if the tag differs from the pyproject version, builds the wheel with uv, and attaches it to a GitHub release."
+verify = "Pushing v0.1.0 produces a GitHub release with the wheel, and on the Mac Mini `uvx --from <release asset URL> language-lab` starts, loads ~/.config/language-lab/.env, and listens on 127.0.0.1 only."
+covers = ["CAP-1"]
+after = [2, 5]
+hitl = true   # the user pushes the tag and runs the release on the Mac Mini
+risk = "medium"
+
+[[entry]]
+id = 9
+type = "story"
+title = "Install and configuration docs"
+description = "Adds docs/ covering install with the uvx release command, the .env location with chmod 600 and the .env.example keys, dev mode with the LanguageLabDev Prefix, the one-time Tailscale Serve command, the keyless-AnkiConnect warning, studying <Prefix>::Study and never the root, and backing up Anki before Setup or a migration."
+verify = "Each FR-4 item except model-evaluation fixtures maps to a named docs section, and every command in docs/ matches the console script, settings keys, and release asset name in the repo."
+covers = ["CAP-1"]
+after = [4, 8]
+hitl = false
+risk = "low"
+
+[[entry]]
+id = 10
+type = "story"
+title = "Device acceptance over Tailscale Serve"
+description = "The user follows the docs on the Mac Mini to set up Tailscale Serve and start the released wheel, then reaches the shell from iPhone Safari, iPad Safari, and a desktop browser, navigates every destination, and confirms the Host and Origin headers Tailscale Serve sends pass the allow-list; findings are fixed or ticketed."
+verify = "From all three devices the HTTPS shell loads in a secure context and every destination opens by nav and direct URL; a non-GET /api from the desktop browser over Tailscale is not rejected as forbidden_origin while one from another Origin is; <LAN IP>:8787 and <LAN IP>:8765 (AnkiConnect) are unreachable from another device."
+covers = ["CAP-1"]
+after = [7, 9]
+hitl = true
+risk = "medium"
+
+[[entry]]
+id = 11
+type = "story"
+title = "Refactor sweep"
+description = "Takes cleanup deferred in the plans and review findings of entries 1–10; scope is set when it starts."
+verify = "pytest, Playwright, and ruff pass unchanged in behavior after the cleanup."
+covers = ["CAP-1"]
+after = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10]
+hitl = false
+risk = "low"
