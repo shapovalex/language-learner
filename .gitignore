@@ -3,3 +3,9 @@
 .idea
 skills-lock.json
 _bmad
+.venv/
+dist/
+__pycache__/
+.pytest_cache/
+.ruff_cache/
+.env
