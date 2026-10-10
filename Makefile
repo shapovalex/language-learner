@@ -1,4 +1,4 @@
-.PHONY: test test-fast test-e2e test-webkit test-integration test-cov test-ci browsers
+.PHONY: test test-fast test-e2e test-webkit test-integration test-cov test-ci browsers lint burn-in ci-local
 
 # Everything, Chromium only.
 test:
@@ -27,3 +27,20 @@ test-ci:
 
 browsers:
 	uv run playwright install chromium webkit
+
+lint:
+	uv run ruff check .
+	uv run ruff format --check .
+
+# Flaky detection: E2E BURN_IN times in a row, stopping at the first failure. CI runs it on PRs.
+BURN_IN ?= 10
+burn-in:
+	@for i in $$(seq 1 $(BURN_IN)); do \
+		echo "Burn-in iteration $$i/$(BURN_IN)"; \
+		uv run pytest -m e2e -p no:cacheprovider --video=retain-on-failure || exit 1; \
+	done; \
+	echo "Burn-in complete: $(BURN_IN) clean iterations"
+
+# The push/PR pipeline, locally: lint, the suite, then a short burn-in.
+ci-local: lint test-ci
+	$(MAKE) burn-in BURN_IN=3

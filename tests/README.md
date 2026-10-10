@@ -87,11 +87,26 @@ Don't edit the hook itself: `hookSha256` detects a drifted copy.
 
 ## CI
 
-CI isn't set up yet; `/bmad-testarch-ci` will add it. The plan from the Epic 1 test design:
+GitHub Actions, in `.github/workflows/test.yml`. It follows the Epic 1 test design: one job, Chromium, and no Node.
 
-- **On every push/PR:** `ruff check`, then `make test-ci` (Chromium).
-- **On every `vX.Y.Z` tag:** the same, plus `make test-webkit` and the built-wheel smoke test, before `uv build` uploads.
-- **Setup:** run `uv run playwright install --with-deps chromium webkit` on the runner, and upload `test-results/` as an artifact on failure.
+| Trigger | Jobs |
+| --- | --- |
+| Push to `main` | lint → test (Chromium) → report |
+| Pull request to `main` | lint → test → burn-in (E2E ×10) → report |
+| `vX.Y.Z` tag | lint → test → E2E on Chromium + WebKit (R-09) → report |
+
+- **Lint:** `ruff check` and `ruff format --check`. Findings show as PR annotations.
+- **Test:** `make test-ci`. Afterwards the job checks that the JUnit report holds every collected test, so a suite that silently stops running part of itself fails.
+- **Burn-in:** `make burn-in` runs the E2E suite 10 times, and one failure fails the job. Nothing is retried: a flaky test should fail here, not be rerun into green.
+- **Gates:** every test must pass, so P0 is 100% and P1 is held to 100%, stricter than the ≥95% in the design. The report job fails if any job failed or was cancelled.
+- **Artifacts:** `test-results-chromium` and `test-results-webkit` are always uploaded: JUnit, plus a trace, screenshot and video for failed E2E tests. `burn-in-failures` is uploaded on failure. Each is kept 30 days and linked from the run summary.
+- **Caching:** uv's cache keyed on `uv.lock`, and Playwright browsers in `~/.cache/ms-playwright`.
+- **Secrets:** none. Tests never reach real externals.
+- **Notifications:** GitHub's default emails for failed runs on your own pushes and PRs.
+
+Run the same thing locally with `make ci-local` (lint, `test-ci`, then 3 burn-in iterations), or `make burn-in BURN_IN=20` to hunt a flake.
+
+Not in CI yet: the built-wheel smoke test and the release upload belong to entry 8 (R-04), along with an optional `macos-14` smoke job.
 
 ## Troubleshooting
 

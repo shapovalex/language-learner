@@ -13,6 +13,7 @@ bmad-testarch-test-design
 
 --
 bmad-testarch-framework
+bmad-testarch-ci
 --
 
 For every ticket:
