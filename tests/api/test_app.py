@@ -15,7 +15,7 @@ from language_lab import app as app_module
 from language_lab.app import create_app
 from language_lab.settings import Settings
 
-PYPROJECT = Path(__file__).resolve().parents[1] / "pyproject.toml"
+PYPROJECT = Path(__file__).resolve().parents[2] / "pyproject.toml"
 
 
 @pytest.fixture(autouse=True)

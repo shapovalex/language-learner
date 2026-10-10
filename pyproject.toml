@@ -38,4 +38,31 @@ select = ["E", "F", "W", "I", "B", "UP"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
-addopts = "-ra"
+addopts = [
+    "-ra",
+    "--strict-markers",
+    "--strict-config",
+    "--tracing=retain-on-failure",
+    "--screenshot=only-on-failure",
+]
+xfail_strict = true
+markers = [
+    "unit: pure logic, no I/O (auto-applied under tests/unit)",
+    "integration: adapters against recorded HTTP fixtures (auto-applied under tests/integration)",
+    "api: HTTP through TestClient (auto-applied under tests/api)",
+    "e2e: Playwright against the live server (auto-applied under tests/e2e)",
+    "smoke: runs before everything else",
+    "p0: critical path, must pass",
+    "p1: high priority",
+    "p2: medium priority",
+    "p3: low priority",
+    "live_anki: needs a real Anki with the dev Prefix; skipped unless --live-anki",
+]
+
+[tool.coverage.run]
+source = ["language_lab"]
+branch = true
+
+[tool.coverage.report]
+show_missing = true
+skip_covered = true

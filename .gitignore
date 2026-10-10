@@ -9,3 +9,7 @@ __pycache__/
 .pytest_cache/
 .ruff_cache/
 .env
+test-results/
+.coverage
+coverage.xml
+htmlcov/
