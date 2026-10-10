@@ -40,7 +40,9 @@ tests/
   fakes/               one in-memory fake per port (AD-1)
   support/
     live_server.py     run_live_server(): uvicorn in a thread on a pre-bound socket
+    app_env.py         config_values() factory, write_dotenv(), dotenv_keys(), isolated_environ()
     network.py         stub_api_error() (AD-15 envelope), record_requests()
+    startup.py         run_language_lab(): main() in a subprocess, killed if it keeps running
     viewports.py       PHONE 390 / TABLET 820 / DESKTOP 1280
     fixtures/          pytest fixtures, one concern per module
 ```
@@ -52,7 +54,9 @@ Write the function first, then the fixture.
 
 | Fixture | Scope | Purpose |
 | --- | --- | --- |
-| `settings_factory` | function | `make(env={...}, **overrides) -> Settings` with every `LANGUAGE_LAB_*` cleared and HOME/cwd in `tmp_path`. Cleaned up by monkeypatch |
+| `settings_factory` | function | `make(env={...}, **overrides) -> Settings` with every app variable (`LANGUAGE_LAB_*`, `ANKI_*`, `AZURE_SPEECH_*`, `OPENROUTER_*`) cleared and HOME/cwd in `tmp_path`. Cleaned up by monkeypatch |
+| `config_files` | function | `.home` (`~/.config/language-lab/.env`) and `.repo` (`./.env`) inside the isolated HOME/cwd, with `write_home(values)` / `write_repo(values)` |
+| `settings_loader` | function | `load(env={...}) -> Settings` through `load_settings()`, the startup path, in the same isolation |
 | `log_capture` | function | `.records` / `.messages` from `language_lab.*` loggers at INFO+. Use `capsys` for stdout |
 | `live_server` | session | The real `create_app(settings)` on a free port. `settings.port` is the served port, so the AD-16 allow-list accepts it (R-14) |
 | `live_server_settings` | session | Override it to change what the live server runs with |
