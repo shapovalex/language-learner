@@ -87,10 +87,10 @@ jobs:
       - name: Reconcile executed vs collected
         if: success()
         run: |
-          collected=$(uv run pytest --collect-only -q -p no:cacheprovider | tail -n 1 | grep -oE '^[0-9]+')
+          collected=$(uv run pytest --collect-only -q --color=no -p no:cacheprovider | tail -n 1 | grep -oE '^[0-9]+' || true)
           executed=$(uv run python -c "import xml.etree.ElementTree as ET; r = ET.parse('test-results/junit.xml').getroot(); s = r if r.tag == 'testsuite' else r.find('testsuite'); print(s.get('tests'))")
           echo "collected=$collected executed=$executed"
-          if [ -z "$collected" ] || [ "$collected" -eq 0 ] || [ "$collected" != "$executed" ]; then
+          if [ -z "$collected" ] || [ "$collected" = "0" ] || [ "$collected" != "$executed" ]; then
             echo "::error::Collected $collected tests but the JUnit report has $executed"
             exit 1
           fi
