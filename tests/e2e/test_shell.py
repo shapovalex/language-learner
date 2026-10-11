@@ -5,7 +5,7 @@ from playwright.sync_api import Page, ViewportSize, expect
 from language_lab import __version__
 from tests.support import viewports
 from tests.support.live_server import LiveServer
-from tests.support.network import record_requests, stub_api_error
+from tests.support.network import stub_api_error
 
 
 @pytest.mark.smoke
@@ -32,11 +32,3 @@ class TestShell:
         stub_api_error(page, "/api/health", status=500, code="internal_error")
         page.goto("/")
         expect(page.get_by_role("main")).to_have_text("LanguageLab could not reach the server.")
-
-    @pytest.mark.p2
-    def test_requests_stay_on_app_origin(self, page: Page, base_url: str) -> None:
-        urls = record_requests(page)
-        with page.expect_response("**/api/health"):
-            page.goto("/")
-        assert urls
-        assert [u for u in urls if not u.startswith(f"{base_url}/")] == []

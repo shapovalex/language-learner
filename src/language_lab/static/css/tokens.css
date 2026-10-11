@@ -1,0 +1,122 @@
+/* Studio tokens, mapped 1:1 from the DESIGN.md front matter (story 1.5). */
+
+:root {
+  /* colors */
+  --color-ground: #FFF8F1;
+  --color-surface: #FFFFFF;
+  --color-surface-sunken: #F0EAE2;
+  --color-surface-readonly: #FBF8F4;
+  --color-border: #E2DACF;
+  --color-border-input: #948A7E;
+  --color-scrim: #221E2E6B;
+  --color-ink: #221E2E;
+  --color-ink-muted: #5C5669;
+  --color-accent: #5A45C8;
+  --color-accent-hover: #3F2F96;
+  --color-on-accent: #FFFFFF;
+  --color-accent-soft: #ECE8FB;
+  --color-on-accent-soft: #2E2470;
+  --color-accent-tint: #F7F5FE;
+  --color-feedback-good: #ECE8FB;
+  --color-on-feedback-good: #2E2470;
+  --color-feedback-fair: #FFEBC7;
+  --color-on-feedback-fair: #7A4A00;
+  --color-on-feedback-fair-strong: #5A3600;
+  --color-feedback-poor: #FFD9C7;
+  --color-on-feedback-poor: #8F2F05;
+  --color-on-feedback-poor-strong: #5E2003;
+  --color-feedback-poor-strong: #C2410C;
+  --color-feedback-panel: #FFF3EC;
+  --color-danger: #8F2F05;
+  --color-on-danger: #FFFFFF;
+  --color-danger-soft: #FFD9C7;
+  --color-danger-outline: #E8B9A1;
+
+  /* typography */
+  --font-size-wordmark: 20px;
+  --font-weight-wordmark: 700;
+  --font-size-display: 32px;
+  --font-weight-display: 700;
+  --font-size-display-phone: 26px;
+  --font-weight-display-phone: 700;
+  --font-size-dialog-title: 22px;
+  --font-weight-dialog-title: 700;
+  --line-height-dialog-title: 1.25;
+  --font-size-title: 18px;
+  --font-weight-title: 700;
+  --font-size-section-title: 16px;
+  --font-weight-section-title: 700;
+  --font-size-target-text: 20px;
+  --font-weight-target-text: 600;
+  --line-height-target-text: 1.35;
+  --font-size-target-text-tablet: 30px;
+  --font-weight-target-text-tablet: 600;
+  --font-size-score-headline: 32px;
+  --font-weight-score-headline: 700;
+  --font-size-score-headline-tablet: 40px;
+  --font-weight-score-headline-tablet: 700;
+  --font-size-score-value: 18px;
+  --font-weight-score-value: 700;
+  --font-size-body-lg: 17px;
+  --font-weight-body-lg: 500;
+  --line-height-body-lg: 1.45;
+  --font-size-body: 16px;
+  --font-weight-body: 500;
+  --font-size-body-sm: 15px;
+  --font-weight-body-sm: 400;
+  --font-size-label: 14px;
+  --font-weight-label: 600;
+  --font-size-count: 13px;
+  --font-weight-count: 700;
+  --font-size-count-tablet: 14px;
+  --font-weight-count-tablet: 700;
+  --font-size-banner: 15px;
+  --font-weight-banner: 600;
+  --font-size-caption: 13px;
+  --font-weight-caption: 400;
+  --font-size-overline: 12px;
+  --font-weight-overline: 700;
+  --letter-spacing-overline: 0.06em;
+  --font-size-button: 16px;
+  --font-weight-button: 700;
+  --font-size-button-sm: 15px;
+  --font-weight-button-sm: 700;
+
+  /* rounded */
+  --radius-bar: 3px;
+  --radius-phoneme: 10px;
+  --radius-chip: 12px;
+  --radius-word-pill-tablet: 14px;
+  --radius-count-chip: 14px;
+  --radius-field: 14px;
+  --radius-hint: 16px;
+  --radius-inner: 18px;
+  --radius-row: 20px;
+  --radius-card: 24px;
+  --radius-card-lg: 28px;
+  --radius-full: 9999px;
+
+  /* spacing */
+  --space-1: 4px;
+  --space-2: 6px;
+  --space-3: 8px;
+  --space-4: 10px;
+  --space-5: 12px;
+  --space-6: 14px;
+  --space-7: 16px;
+  --space-8: 18px;
+  --space-9: 20px;
+  --space-10: 24px;
+  --space-11: 28px;
+  --space-gutter-phone: 16px;
+  --space-gutter-desktop: 24px;
+  --space-gutter-tablet: 28px;
+  --space-stack-phone: 14px;
+  --space-stack-desktop: 16px;
+  --space-stack-tablet: 20px;
+  --space-card-pad-phone: 18px;
+  --space-card-pad-desktop: 20px;
+  --space-card-pad-tablet: 28px;
+  --space-content-max: 980px;
+  --space-target-min: 44px;
+}
