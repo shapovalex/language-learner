@@ -1,14 +1,16 @@
 """Composition root: the only place routes are wired (AD-13)."""
 
+import sys
 from importlib.resources import files
 
 import uvicorn
 from fastapi import FastAPI, HTTPException
 from fastapi.responses import HTMLResponse
 from fastapi.staticfiles import StaticFiles
+from pydantic import ValidationError
 
 from language_lab import __version__
-from language_lab.settings import Settings
+from language_lab.settings import ConfigError, Settings, describe_errors, load_settings
 
 _STATIC = files("language_lab") / "static"
 _RESERVED_PREFIXES = ("api/", "static/")
@@ -42,6 +44,14 @@ def create_app(settings: Settings) -> FastAPI:
 
 
 def main() -> None:
-    settings = Settings()
+    try:
+        settings = load_settings()
+    except ConfigError as exc:
+        print(exc, file=sys.stderr)
+        sys.exit(1)
+    except ValidationError as exc:
+        for line in describe_errors(exc):
+            print(line, file=sys.stderr)
+        sys.exit(1)
     print(f"LanguageLab running at http://{settings.host}:{settings.port}/", flush=True)
     uvicorn.run(create_app(settings), host=settings.host, port=settings.port)

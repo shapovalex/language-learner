@@ -1,4 +1,3 @@
-import os
 import re
 import socket
 import subprocess
@@ -14,6 +13,8 @@ from language_lab import __version__
 from language_lab import app as app_module
 from language_lab.app import create_app
 from language_lab.settings import Settings
+from tests.support.app_env import HOME_ENV_RELATIVE, config_values, isolated_environ, write_dotenv
+from tests.support.fixtures.settings import ConfigFiles, SettingsFactory
 
 PYPROJECT = Path(__file__).resolve().parents[2] / "pyproject.toml"
 
@@ -93,27 +94,53 @@ def test_only_api_js_calls_fetch() -> None:
 
 
 def test_main_prints_url_and_binds_settings(
-    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+    config_files: ConfigFiles,
 ) -> None:
+    config_files.write_home(config_values(LANGUAGE_LAB_HOST="127.0.0.2", LANGUAGE_LAB_PORT="9123"))
     calls: list[dict] = []
     monkeypatch.setattr(app_module.uvicorn, "run", lambda app, **kwargs: calls.append(kwargs))
     app_module.main()
-    assert "http://127.0.0.1:8787/" in capsys.readouterr().out
-    assert calls == [{"host": "127.0.0.1", "port": 8787}]
+    assert "http://127.0.0.2:9123/" in capsys.readouterr().out
+    assert calls == [{"host": "127.0.0.2", "port": 9123}]
 
 
-def test_port_in_use_exits_non_zero() -> None:
+def test_port_in_use_exits_non_zero(tmp_path: Path) -> None:
+    home = tmp_path / "home"
+    write_dotenv(home / HOME_ENV_RELATIVE, config_values())
     with socket.socket() as busy:
         busy.bind(("127.0.0.1", 0))
         busy.listen()
         port = busy.getsockname()[1]
         result = subprocess.run(
             [sys.executable, "-c", "from language_lab.app import main; main()"],
-            env={
-                **{k: v for k, v in os.environ.items() if k != "LANGUAGE_LAB_HOST"},
-                "LANGUAGE_LAB_PORT": str(port),
-            },
+            env=isolated_environ(home, {"LANGUAGE_LAB_PORT": str(port)}),
+            cwd=tmp_path,
             capture_output=True,
+            text=True,
             timeout=30,
         )
     assert result.returncode != 0
+    assert "LanguageLab running at" in result.stdout  # failed on the busy port, not the config
+
+
+def test_health_and_shell_expose_no_settings_values(settings_factory: SettingsFactory) -> None:
+    """R-06: no configured value reaches /api/health or the shell."""
+    values = config_values()
+    settings = settings_factory(env=values)
+    client = TestClient(create_app(settings))
+    sentinels = [
+        values[key]
+        for key in (
+            "LANGUAGE_LAB_PUBLIC_HOST",
+            "ANKI_PREFIX",
+            "AZURE_SPEECH_KEY",
+            "OPENROUTER_API_KEY",
+        )
+    ]
+    assert settings.azure_speech_key.get_secret_value() in sentinels  # the config took effect
+
+    for path in ("/api/health", "/", "/captures"):
+        body = client.get(path).text
+        assert [value for value in sentinels if value in body] == []
