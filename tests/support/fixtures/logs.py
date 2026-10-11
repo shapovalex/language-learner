@@ -2,6 +2,7 @@
 
 import json
 import logging
+from collections.abc import Iterator
 from dataclasses import dataclass
 
 import pytest
@@ -45,3 +46,13 @@ def log_capture(caplog: pytest.LogCaptureFixture) -> LogCapture:
     """Capture `language_lab.*` records at INFO and above. For stdout/stderr use `capsys`."""
     caplog.set_level(logging.INFO, logger=APP_LOGGER)
     return LogCapture(caplog)
+
+
+@pytest.fixture(autouse=True)
+def restore_app_logger() -> Iterator[None]:
+    """Undo what `main()` does to the process-wide `language_lab` logger (handlers, level)."""
+    logger = logging.getLogger(APP_LOGGER)
+    handlers, level = list(logger.handlers), logger.level
+    yield
+    logger.handlers[:] = handlers
+    logger.setLevel(level)

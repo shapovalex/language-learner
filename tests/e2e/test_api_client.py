@@ -1,15 +1,10 @@
-"""Story 1.3: api.js turns the AD-15 envelope into a typed error.
-
-Skipped until `ApiError` lands in api.js. Un-skip, watch it fail, then implement.
-"""
+"""Story 1.3: api.js turns the AD-15 envelope into a typed error."""
 
 import pytest
 from playwright.sync_api import Page
 
 from language_lab import __version__
 from tests.support.network import stub_api_error
-
-RED_PHASE = pytest.mark.skip(reason="ATDD red phase, story 1.3: un-skip with ApiError in api.js")
 
 API_JS = f"/static/{__version__}/api.js"
 
@@ -31,7 +26,6 @@ CALL_HEALTH = """async (url) => {
 }"""
 
 
-@RED_PHASE
 @pytest.mark.p1
 def test_request_throws_api_error_parsed_from_envelope(page: Page) -> None:
     """AC-7: api.js parses the envelope into a typed error."""
@@ -49,3 +43,20 @@ def test_request_throws_api_error_parsed_from_envelope(page: Page) -> None:
         "message": envelope["error"]["message"],
         "requestId": envelope["error"]["requestId"],
     }
+
+
+@pytest.mark.p1
+def test_non_envelope_failure_becomes_internal_error(page: Page) -> None:
+    """AC-7: a failure without the envelope (a proxy's HTML 502) is still an ApiError."""
+    page.route(
+        "**/api/health",
+        lambda route: route.fulfill(
+            status=502, content_type="text/html", body="<html>Bad Gateway</html>"
+        ),
+    )
+    page.goto("/")
+
+    thrown = page.evaluate(CALL_HEALTH, API_JS)
+
+    assert thrown["isApiError"] is True
+    assert (thrown["status"], thrown["code"], thrown["requestId"]) == (502, "internal_error", None)

@@ -1,11 +1,6 @@
-"""Story 1.3: the AD-15 error-code enum.
-
-Skipped until `domain/errors.py` lands. Un-skip, watch it fail, then implement.
-"""
+"""Story 1.3: the AD-15 error-code enum."""
 
 import pytest
-
-RED_PHASE = pytest.mark.skip(reason="ATDD red phase, story 1.3: un-skip with domain/errors.py")
 
 # AD-15 lists these codes exactly; the API and api.js both depend on the spelling
 AD15_CODES = {
@@ -24,7 +19,6 @@ AD15_CODES = {
 }
 
 
-@RED_PHASE
 @pytest.mark.p1
 def test_error_code_enum_holds_the_twelve_ad15_codes() -> None:
     """AC-1: domain/errors.py defines the twelve-code enum from AD-15."""
