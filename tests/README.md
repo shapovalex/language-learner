@@ -41,7 +41,10 @@ tests/
   support/
     live_server.py     run_live_server(): uvicorn in a thread on a pre-bound socket
     app_env.py         config_values() factory, write_dotenv(), dotenv_keys(), isolated_environ()
-    network.py         stub_api_error() (AD-15 envelope, returned), record_requests()
+    network.py         stub_api_error() (AD-15 envelope, returned), record_requests(), record_resources() (with resource type)
+    design_tokens.py   DESIGN.md front matter -> expected --color/--space/--radius/--font-* properties; css_custom_properties()
+    shell.py           parse_shell() (viewport meta, stylesheet links), fetch_stylesheets() through a TestClient, following @import
+    dom.py             append_to_body() for test-only markup, computed_style(), px(), settle_fonts()
     probes.py          add_probe_routes(): test-only /api routes for validation and crash paths; sentinel(), error_envelope()
     startup.py         run_language_lab(): main() in a subprocess, killed if it keeps running
     viewports.py       PHONE 390 / TABLET 820 / DESKTOP 1280

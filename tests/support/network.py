@@ -2,6 +2,7 @@
 
 import json
 import uuid
+from dataclasses import dataclass
 
 from playwright.sync_api import Page, Request
 
@@ -21,6 +22,23 @@ def stub_api_error(
         ),
     )
     return body
+
+
+@dataclass(frozen=True)
+class Resource:
+    resource_type: str  # Playwright's: "document", "stylesheet", "font", "fetch", …
+    url: str
+
+
+def record_resources(page: Page) -> list[Resource]:
+    """Like `record_requests`, with each request's resource type."""
+    resources: list[Resource] = []
+
+    def on_request(request: Request) -> None:
+        resources.append(Resource(request.resource_type, request.url))
+
+    page.on("request", on_request)
+    return resources
 
 
 def record_requests(page: Page) -> list[str]:
