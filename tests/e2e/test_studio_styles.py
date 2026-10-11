@@ -1,8 +1,4 @@
-"""Story 1.5: Studio base styles and vendored Figtree, checked on the served shell.
-
-Skipped until static/css and static/vendor/figtree land. Un-skip one per task, watch it fail,
-then implement.
-"""
+"""Story 1.5: Studio base styles and vendored Figtree, checked on the served shell."""
 
 import pytest
 from playwright.sync_api import Page, expect
@@ -12,15 +8,13 @@ from tests.support import viewports
 from tests.support.dom import append_to_body, computed_style, px, settle_fonts
 from tests.support.network import record_resources
 
-RED_PHASE = pytest.mark.skip(
-    reason="ATDD red phase, story 1.5: un-skip with static/css and static/vendor/figtree"
-)
-
 # EXPERIENCE.md a11y floor: "Visible focus ring on every control ({colors.accent} 2px)"
 ACCENT = "rgb(90, 69, 200)"  # colors.accent #5A45C8
 FOCUS_RING = {"outlineStyle": "solid", "outlineWidth": "2px", "outlineColor": ACCENT}
 # Below 16px, iOS Safari zooms the page when a field takes focus (DESIGN.md Typography)
 MIN_FIELD_FONT_PX = 16
+# WebKit's Tab skips buttons and links by default (as Safari does); Alt+Tab reaches every control
+TAB_KEY = {"webkit": "Alt+Tab"}
 FIGTREE_WEIGHTS = (400, 500, 600, 700)
 
 # Reports which Figtree faces rendered text has loaded, then which weights load on request
@@ -44,21 +38,19 @@ def open_shell(page: Page) -> None:
     settle_fonts(page)
 
 
-@RED_PHASE
 @pytest.mark.p2
-def test_keyboard_focus_shows_accent_ring(page: Page) -> None:
+def test_keyboard_focus_shows_accent_ring(page: Page, browser_name: str) -> None:
     """AC-2: base styles give a visible focus ring."""
     page.goto("/")
     append_to_body(page, '<button type="button">Focus probe</button>')
     probe = page.get_by_role("button", name="Focus probe")
 
-    page.keyboard.press("Tab")
+    page.keyboard.press(TAB_KEY.get(browser_name, "Tab"))
     expect(probe).to_be_focused()
 
     assert computed_style(probe, *FOCUS_RING) == FOCUS_RING
 
 
-@RED_PHASE
 @pytest.mark.p2
 def test_form_fields_use_at_least_16px_text(page: Page) -> None:
     """AC-3: base styles set inputs at 16px or more."""
@@ -79,7 +71,6 @@ def test_form_fields_use_at_least_16px_text(page: Page) -> None:
     assert {name: size for name, size in sizes.items() if size < MIN_FIELD_FONT_PX} == {}
 
 
-@RED_PHASE
 @pytest.mark.p2
 def test_shell_renders_in_vendored_figtree(page: Page) -> None:
     """AC-6: the shell loads Figtree, and Figtree is applied."""
@@ -94,7 +85,6 @@ def test_shell_renders_in_vendored_figtree(page: Page) -> None:
     assert fonts["weightsLoaded"] == {str(weight): True for weight in FIGTREE_WEIGHTS}
 
 
-@RED_PHASE
 @pytest.mark.p2
 def test_styles_and_fonts_come_from_the_app(page: Page, base_url: str) -> None:
     """AC-8: every request the served shell makes goes to the app, none to an external host."""
