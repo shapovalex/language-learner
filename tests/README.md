@@ -41,7 +41,8 @@ tests/
   support/
     live_server.py     run_live_server(): uvicorn in a thread on a pre-bound socket
     app_env.py         config_values() factory, write_dotenv(), dotenv_keys(), isolated_environ()
-    network.py         stub_api_error() (AD-15 envelope), record_requests()
+    network.py         stub_api_error() (AD-15 envelope, returned), record_requests()
+    probes.py          add_probe_routes(): test-only /api routes for validation and crash paths; sentinel(), error_envelope()
     startup.py         run_language_lab(): main() in a subprocess, killed if it keeps running
     viewports.py       PHONE 390 / TABLET 820 / DESKTOP 1280
     fixtures/          pytest fixtures, one concern per module
@@ -57,7 +58,8 @@ Write the function first, then the fixture.
 | `settings_factory` | function | `make(env={...}, **overrides) -> Settings` with every app variable (`LANGUAGE_LAB_*`, `ANKI_*`, `AZURE_SPEECH_*`, `OPENROUTER_*`) cleared and HOME/cwd in `tmp_path`. Cleaned up by monkeypatch |
 | `config_files` | function | `.home` (`~/.config/language-lab/.env`) and `.repo` (`./.env`) inside the isolated HOME/cwd, with `write_home(values)` / `write_repo(values)` |
 | `settings_loader` | function | `load(env={...}) -> Settings` through `load_settings()`, the startup path, in the same isolation |
-| `log_capture` | function | `.records` / `.messages` from `language_lab.*` loggers at INFO+. Use `capsys` for stdout |
+| `log_capture` | function | `.records` / `.messages` from `language_lab.*` loggers at INFO+, `.request_lines` (the AD-15 per-request JSON lines, parsed), `.all_text` (every logger, for leak checks). Use `capsys` for stdout |
+| `probe_client` | function | `TestClient` over `create_app(...)` plus the probe routes, with `raise_server_exceptions=False` so a crash comes back as its 500 response |
 | `live_server` | session | The real `create_app(settings)` on a free port. `settings.port` is the served port, so the AD-16 allow-list accepts it (R-14) |
 | `live_server_settings` | session | Override it to change what the live server runs with |
 | `base_url` (in `e2e/conftest.py`) | session | `--base-url` / `PYTEST_BASE_URL` if given, else `live_server.url`. `page.goto("/x")` resolves against it |

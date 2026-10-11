@@ -7,6 +7,7 @@ import pytest
 pytest_plugins = [
     "tests.support.fixtures.settings",
     "tests.support.fixtures.logs",
+    "tests.support.fixtures.api",
     "tests.support.fixtures.live_server",
 ]
 
