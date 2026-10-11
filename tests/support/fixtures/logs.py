@@ -1,11 +1,14 @@
 """`log_capture`: the app's own log records, without third-party noise."""
 
+import json
 import logging
+from collections.abc import Iterator
 from dataclasses import dataclass
 
 import pytest
 
 APP_LOGGER = "language_lab"
+REQUEST_LOGGER = f"{APP_LOGGER}.request"  # AD-15: one JSON line per request
 
 
 @dataclass
@@ -24,6 +27,16 @@ class LogCapture:
     def messages(self) -> list[str]:
         return [r.getMessage() for r in self.records]
 
+    @property
+    def request_lines(self) -> list[dict]:
+        """The per-request lines, parsed from JSON, in order."""
+        return [json.loads(r.getMessage()) for r in self.records if r.name == REQUEST_LOGGER]
+
+    @property
+    def all_text(self) -> str:
+        """Every captured record from every logger, for leak checks (R-02)."""
+        return self.caplog.text
+
     def clear(self) -> None:
         self.caplog.clear()
 
@@ -33,3 +46,13 @@ def log_capture(caplog: pytest.LogCaptureFixture) -> LogCapture:
     """Capture `language_lab.*` records at INFO and above. For stdout/stderr use `capsys`."""
     caplog.set_level(logging.INFO, logger=APP_LOGGER)
     return LogCapture(caplog)
+
+
+@pytest.fixture(autouse=True)
+def restore_app_logger() -> Iterator[None]:
+    """Undo what `main()` does to the process-wide `language_lab` logger (handlers, level)."""
+    logger = logging.getLogger(APP_LOGGER)
+    handlers, level = list(logger.handlers), logger.level
+    yield
+    logger.handlers[:] = handlers
+    logger.setLevel(level)

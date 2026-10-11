@@ -103,7 +103,7 @@ def test_main_prints_url_and_binds_settings(
     monkeypatch.setattr(app_module.uvicorn, "run", lambda app, **kwargs: calls.append(kwargs))
     app_module.main()
     assert "http://127.0.0.2:9123/" in capsys.readouterr().out
-    assert calls == [{"host": "127.0.0.2", "port": 9123}]
+    assert calls == [{"host": "127.0.0.2", "port": 9123, "access_log": False}]
 
 
 def test_port_in_use_exits_non_zero(tmp_path: Path) -> None:
