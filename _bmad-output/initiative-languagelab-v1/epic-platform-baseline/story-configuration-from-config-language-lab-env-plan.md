@@ -3,7 +3,7 @@ title: 'Configuration from ~/.config/language-lab/.env'
 type: 'feature'
 ticket: '2'
 created: '2026-10-10'
-status: 'in-review'
+status: 'built'
 baseline_revision: '5a3bfc15349dae338f5130983060955e8792a8e0'
 route: 'full'
 route_source: 'auto'
@@ -89,6 +89,14 @@ context:
 ## Plan Change Log
 
 ## Review Triage Log
+
+Pass 1 (quick): high 0, medium 2, low 1, false 0, maybe-false 0.
+
+| # | Location | Finding | Verdict | Route | Evidence |
+|---|----------|---------|---------|-------|----------|
+| 1 | `settings.py` `_dev_mode()` | The flag lookup is case-sensitive, but `Settings` is not, so `language_lab_dev=1` loads the release file with `dev=True` | medium | patch | Reproduced: home `.env` loaded, `dev True`. Fixed by a case-insensitive lookup. |
+| 2 | `settings.py` `load_settings()` / `app.py` `main()` | An unreadable `.env` raises `PermissionError`, and the user sees a traceback | medium | patch | Reproduced with `chmod 000`: the traceback appears. Fixed: `OSError` becomes `ConfigError` naming the path. |
+| 3 | `settings.py` `public_host` vs `.env.example` | An empty `LANGUAGE_LAB_PUBLIC_HOST=` loads as `""`, not `None` | low | patch | Reproduced `public_host ''`. Entry 4 consumes it; the fix is a before-validator, blank → `None`. |
 
 ## Design Notes
 

@@ -48,6 +48,13 @@ class Settings(BaseSettings):
         default_factory=list, validation_alias="OPENROUTER_MODELS"
     )
 
+    @field_validator("public_host", mode="before")
+    @classmethod
+    def _blank_public_host_is_none(cls, value: object) -> object:
+        if isinstance(value, str) and not value.strip():
+            return None
+        return value
+
     @field_validator("openrouter_models", mode="before")
     @classmethod
     def _split_models(cls, value: object) -> object:
@@ -71,7 +78,9 @@ class _DevFlag(TypedDict, total=False):
 
 def _dev_mode() -> bool:
     """`LANGUAGE_LAB_DEV` from the process env, parsed with the same rules as `Settings.dev`."""
-    raw = os.environ.get(DEV_ENV)
+    # Settings matches env keys case-insensitively (later keys win), so match the same way.
+    env = {key.lower(): value for key, value in os.environ.items()}
+    raw = env.get(DEV_ENV.lower())
     if raw is None:
         return False
     return TypeAdapter(_DevFlag).validate_python({DEV_ENV: raw})[DEV_ENV]
@@ -85,12 +94,16 @@ def config_path(dev: bool) -> Path:
 def load_settings() -> Settings:
     """Settings from the current mode's `.env`; the process env overrides the file.
 
-    Raises `ConfigError` if that file is missing and `ValidationError` if a value is invalid.
+    Raises `ConfigError` if that file is missing or unreadable, and `ValidationError` if a
+    value is invalid.
     """
     path = config_path(_dev_mode())
     if not path.is_file():
         raise ConfigError(f"no config at {path}; copy .env.example")
-    return Settings(_env_file=path)
+    try:
+        return Settings(_env_file=path)
+    except OSError as exc:
+        raise ConfigError(f"cannot read config at {path}: {exc.strerror}") from exc
 
 
 def _env_key(field_or_alias: str) -> str:

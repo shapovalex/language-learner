@@ -1,5 +1,6 @@
 """Story 1.2: configuration from ~/.config/language-lab/.env."""
 
+import os
 from pathlib import Path
 
 import pytest
@@ -292,3 +293,41 @@ def test_env_example_has_no_stale_keys() -> None:
     stale = sorted(dotenv_keys(ENV_EXAMPLE) - settings_env_names())
 
     assert stale == []
+
+
+@pytest.mark.p1
+def test_lowercase_dev_flag_picks_dev_file_like_settings_does(
+    config_files: ConfigFiles, settings_loader: SettingsLoader
+) -> None:
+    """File choice and `settings.dev` agree: env keys match case-insensitively."""
+    config_files.write_home(config_values())
+    config_files.write_repo(config_values(ANKI_PREFIX=DEV_PREFIX))
+
+    settings = settings_loader(env={"language_lab_dev": "1"})
+
+    assert (settings.dev, settings.anki_prefix) == (True, DEV_PREFIX)
+
+
+@pytest.mark.p1
+@pytest.mark.skipif(os.geteuid() == 0, reason="root can read a chmod 000 file")
+def test_unreadable_config_is_a_config_error(
+    config_files: ConfigFiles, settings_loader: SettingsLoader
+) -> None:
+    path = config_files.write_home(config_values())
+    path.chmod(0)
+    try:
+        with pytest.raises(ConfigError, match=f"cannot read config at {path}"):
+            settings_loader()
+    finally:
+        path.chmod(0o600)
+
+
+@pytest.mark.p1
+@pytest.mark.parametrize("blank", ["", "   "])
+def test_blank_public_host_is_none(
+    config_files: ConfigFiles, settings_loader: SettingsLoader, blank: str
+) -> None:
+    """.env.example ships LANGUAGE_LAB_PUBLIC_HOST= empty; that means "not set"."""
+    config_files.write_home(config_values(LANGUAGE_LAB_PUBLIC_HOST=blank))
+
+    assert settings_loader().public_host is None
