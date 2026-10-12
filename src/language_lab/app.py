@@ -5,6 +5,7 @@ import logging
 import sys
 import time
 import uuid
+from collections.abc import Callable
 from importlib.resources import files
 from typing import TextIO
 
@@ -22,6 +23,7 @@ from starlette.exceptions import HTTPException as StarletteHTTPException
 from starlette.types import ASGIApp, Message, Receive, Scope, Send
 
 from language_lab import __version__
+from language_lab.adapters import tailscale
 from language_lab.domain.errors import ErrorCode, error_envelope
 from language_lab.settings import ConfigError, Settings, describe_errors, load_settings
 
@@ -131,6 +133,76 @@ class RequestLogMiddleware:
             _request_log.info(json.dumps(line))
 
 
+def _normalise_host(value: str) -> str:
+    """Lowercase, and drop an explicit `:443` (browsers omit Serve's default HTTPS port)."""
+    host = value.strip().lower()
+    return host.removesuffix(":443")
+
+
+def _origin_host(origin: str) -> str | None:
+    """`host[:port]` of an Origin, scheme ignored; None when it has no scheme (e.g. `null`)."""
+    _, sep, rest = origin.partition("://")
+    if not sep or not rest:
+        return None
+    return rest.split("/", 1)[0]
+
+
+def allowed_hosts(settings: Settings) -> frozenset[str]:
+    """The AD-16 allow-list, from settings alone: loopback on the app's port and the tailnet."""
+    hosts = {f"127.0.0.1:{settings.port}", f"localhost:{settings.port}"}
+    if settings.public_host:
+        hosts.add(settings.public_host)
+    return frozenset(_normalise_host(host) for host in hosts)
+
+
+class AllowListMiddleware:
+    """Reject requests whose Host, X-Forwarded-Host or (on non-GET /api) Origin isn't on the
+    allow-list (AD-16), with 403 `forbidden_origin`.
+
+    Runs inside `RequestLogMiddleware`, so a rejection gets a request id and one log line.
+    No header value is ever echoed into the body or the log.
+    """
+
+    def __init__(self, app: ASGIApp, allowed: frozenset[str]) -> None:
+        self.app = app
+        self.allowed = allowed
+
+    def _is_allowed(self, value: str | None) -> bool:
+        return value is not None and _normalise_host(value) in self.allowed
+
+    def _permits(self, scope: Scope) -> bool:
+        # Every copy of a repeated header is checked, so a second foreign copy can't slip by
+        headers: dict[str, list[str]] = {}
+        for name, value in scope["headers"]:
+            headers.setdefault(name.decode("latin-1").lower(), []).append(value.decode("latin-1"))
+        hosts = headers.get("host", [])
+        if not hosts or not all(self._is_allowed(host) for host in hosts):
+            return False
+        if not all(self._is_allowed(host) for host in headers.get("x-forwarded-host", [])):
+            return False
+        if scope["method"] != "GET" and _is_api(scope["path"]):
+            origins = headers.get("origin", [])
+            if not origins or not all(self._is_allowed(_origin_host(o)) for o in origins):
+                return False
+        return True
+
+    async def __call__(self, scope: Scope, receive: Receive, send: Send) -> None:
+        if scope["type"] != "http" or self._permits(scope):
+            await self.app(scope, receive, send)
+            return
+        state = scope.setdefault("state", {})
+        state[_ERROR_CODE] = ErrorCode.FORBIDDEN_ORIGIN.value
+        response: Response
+        if _is_api(scope["path"]):
+            request_id = state.get(_REQUEST_ID) or uuid.uuid4().hex
+            response = JSONResponse(
+                error_envelope(ErrorCode.FORBIDDEN_ORIGIN, request_id), status_code=403
+            )
+        else:
+            response = PlainTextResponse("Forbidden", status_code=403)
+        await response(scope, receive, send)
+
+
 class _StdoutHandler(logging.StreamHandler):
     """Writes to whatever `sys.stdout` is at emit time, so a swapped stdout is followed."""
 
@@ -165,6 +237,8 @@ def create_app(settings: Settings) -> FastAPI:
         title="LanguageLab", version=version, docs_url=None, redoc_url=None, openapi_url=None
     )
 
+    # Last added is outermost: the allow-list runs inside the request log (AD-15, AD-16)
+    app.add_middleware(AllowListMiddleware, allowed=allowed_hosts(settings))
     app.add_middleware(RequestLogMiddleware)
     app.add_exception_handler(RequestValidationError, _on_validation_error)
     app.add_exception_handler(StarletteHTTPException, _on_http_error)
@@ -184,6 +258,13 @@ def create_app(settings: Settings) -> FastAPI:
     return app
 
 
+def with_tailnet_host(settings: Settings, discover: Callable[[], str | None]) -> Settings:
+    """`settings` with the tailnet host: LANGUAGE_LAB_PUBLIC_HOST if set, else `discover()`."""
+    if settings.public_host:
+        return settings
+    return settings.model_copy(update={"public_host": discover()})
+
+
 def main() -> None:
     try:
         settings = load_settings()
@@ -194,6 +275,9 @@ def main() -> None:
         for line in describe_errors(exc):
             print(line, file=sys.stderr)
         sys.exit(1)
+    settings = with_tailnet_host(settings, tailscale.discover_tailnet_host)
     _configure_logging()
     print(f"LanguageLab running at http://{settings.host}:{settings.port}/", flush=True)
+    if settings.public_host:
+        print(f"On your tailnet: https://{settings.public_host}/", flush=True)
     uvicorn.run(create_app(settings), host=settings.host, port=settings.port, access_log=False)
