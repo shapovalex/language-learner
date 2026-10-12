@@ -88,6 +88,31 @@ def non_loopback_address() -> str | None:
     return None if address.startswith("127.") or address == "0.0.0.0" else address
 
 
+def _uvx_command(wheel: Path) -> list[str]:
+    return ["uvx", "--python", sys.executable, "--from", str(wheel), "language-lab"]
+
+
+@dataclass(frozen=True)
+class ReleasedRun:
+    returncode: int
+    output: str  # stdout and stderr together
+
+
+def run_released_until_exit(wheel: Path, *, env: Mapping[str, str], cwd: Path) -> ReleasedRun:
+    """`uvx --from <wheel> language-lab` with no terminal on stdin, for a startup that exits."""
+    proc = subprocess.run(
+        _uvx_command(wheel),
+        env=dict(env),
+        cwd=cwd,
+        stdin=subprocess.DEVNULL,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.STDOUT,
+        text=True,
+        timeout=RELEASE_START_TIMEOUT_S,
+    )
+    return ReleasedRun(returncode=proc.returncode, output=proc.stdout)
+
+
 @dataclass
 class ReleasedApp:
     url: str
@@ -108,9 +133,10 @@ def run_released_app(
     app is serving when the block starts; a startup that exits first raises with its output.
     """
     proc = subprocess.Popen(
-        ["uvx", "--python", sys.executable, "--from", str(wheel), "language-lab"],
+        _uvx_command(wheel),
         env=dict(env),
         cwd=cwd,
+        stdin=subprocess.DEVNULL,
         stdout=subprocess.PIPE,
         stderr=subprocess.STDOUT,
         text=True,

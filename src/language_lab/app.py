@@ -1,5 +1,6 @@
 """Composition root: the only place routes are wired (AD-13)."""
 
+import getpass
 import json
 import logging
 import sys
@@ -7,7 +8,8 @@ import time
 import uuid
 from collections.abc import Callable
 from importlib.resources import files
-from typing import TextIO
+from pathlib import Path
+from typing import NoReturn, TextIO
 
 import uvicorn
 from fastapi import FastAPI, HTTPException, Request
@@ -25,7 +27,18 @@ from starlette.types import ASGIApp, Message, Receive, Scope, Send
 from language_lab import __version__
 from language_lab.adapters import tailscale
 from language_lab.domain.errors import ErrorCode, error_envelope
-from language_lab.settings import ConfigError, Settings, describe_errors, load_settings
+from language_lab.settings import (
+    NECESSARY_KEYS,
+    ConfigError,
+    Settings,
+    active_config_path,
+    create_config,
+    describe_errors,
+    is_dev_mode,
+    is_safe_value,
+    load_settings,
+    render_config,
+)
 
 _STATIC = files("language_lab") / "static"
 _RESERVED_PREFIXES = ("api/", "static/")
@@ -265,8 +278,58 @@ def with_tailnet_host(settings: Settings, discover: Callable[[], str | None]) ->
     return settings.model_copy(update={"public_host": discover()})
 
 
+def _fail(message: str) -> NoReturn:
+    print(message, file=sys.stderr)
+    sys.exit(1)
+
+
+def _ask(
+    key: str, secret: bool, read_line: Callable[[str], str], read_secret: Callable[[str], str]
+) -> str:
+    """One answer for `key`, asked again until it can be written. Never echoes the answer."""
+    while True:
+        value = (read_secret if secret else read_line)(f"{key} (empty to set later): ")
+        if is_safe_value(value):
+            return value
+        print(
+            f"{key}: no whitespace, quotes, backticks, #, $, backslashes, or control or "
+            "non-printable characters; try again",
+            file=sys.stderr,
+        )
+
+
+def _setup_config(
+    path: Path,
+    dev: bool,
+    read_line: Callable[[str], str],
+    read_secret: Callable[[str], str],
+    is_tty: Callable[[], bool],
+) -> None:
+    """Create the missing config at `path` from the packaged template.
+
+    In a terminal, asks for the necessary keys first, then writes the file and returns so
+    startup continues. Without one, writes the template and exits 1 naming what to set.
+    Raises `ConfigError` if the file cannot be created.
+    """
+    names = ", ".join(key for key, _ in NECESSARY_KEYS)
+    if not is_tty():
+        create_config(path, render_config(dev, {}))
+        _fail(f"created config at {path}; set {names} in it, then start language-lab again")
+    print(f"No config at {path}. Enter {names} to create it.", file=sys.stderr)
+    try:
+        values = {key: _ask(key, secret, read_line, read_secret) for key, secret in NECESSARY_KEYS}
+    except KeyboardInterrupt, EOFError:
+        print(file=sys.stderr)  # end the unanswered prompt's line
+        _fail(f"setup cancelled; no config written to {path}")
+    create_config(path, render_config(dev, values))
+    print(f"Created config at {path}.", file=sys.stderr)
+
+
 def main() -> None:
     try:
+        path = active_config_path()
+        if not path.exists() and not path.is_symlink():
+            _setup_config(path, is_dev_mode(), input, getpass.getpass, sys.stdin.isatty)
         settings = load_settings()
     except ConfigError as exc:
         print(exc, file=sys.stderr)
