@@ -9,6 +9,7 @@ pytest_plugins = [
     "tests.support.fixtures.logs",
     "tests.support.fixtures.api",
     "tests.support.fixtures.live_server",
+    "tests.support.fixtures.release",
 ]
 
 _TESTS = Path(__file__).resolve().parent
@@ -23,6 +24,12 @@ def pytest_addoption(parser: pytest.Parser) -> None:
         action="store_true",
         default=False,
         help="Run tests marked live_anki against a real Anki with the dev Prefix.",
+    )
+    parser.addoption(
+        "--wheel",
+        default=None,
+        metavar="PATH",
+        help="Smoke this built wheel instead of building one (release.yml passes dist/<wheel>).",
     )
 
 

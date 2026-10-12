@@ -24,6 +24,7 @@ make browsers           # uv run playwright install chromium webkit (once per Pl
 | `PWDEBUG=1 uv run pytest tests/e2e -k shell` | Playwright Inspector, step through |
 | `uv run pytest tests/e2e --base-url http://127.0.0.1:8787` | E2E against an app you started yourself |
 | `uv run pytest --live-anki -m live_anki` | Opt-in tests against a real Anki (dev Prefix) |
+| `uv run pytest tests/integration --wheel dist/<wheel>` | Smoke a wheel you built instead of building a fresh one (release.yml does this) |
 
 A failed E2E test leaves a trace and a screenshot under `test-results/`.
 Open the trace with `uv run playwright show-trace test-results/<test>/trace.zip`.
@@ -51,6 +52,7 @@ tests/
     unsaved.py         the router's setDirty / confirmLeave / navigate from the page, the alert's locators, LEAVE_PATHS per width (R-03)
     probes.py          add_probe_routes(): test-only /api routes for validation and crash paths; sentinel(), error_envelope()
     startup.py         run_language_lab(): main() in a subprocess, killed if it keeps running
+    release.py         pyproject_version(), run_tag_check() (the release guard), build_wheel(), run_released_app() (uvx --from <wheel>), non_loopback_address()
     hosts.py           app_client() (allowed Host + same-origin Origin, AD-16), local_hosts(), TAILNET_HOST, FOREIGN_HOST, recorded Tailscale inputs
     viewports.py       PHONE 390 / TABLET 820 / DESKTOP 1280
     fixtures/          pytest fixtures, one concern per module
@@ -70,6 +72,8 @@ Write the function first, then the fixture.
 | `probe_client` | function | `TestClient` over `create_app(...)` plus the probe routes, with `raise_server_exceptions=False` so a crash comes back as its 500 response |
 | `live_server` | session | The real `create_app(settings)` on a free port. `settings.port` is the served port, so the AD-16 allow-list accepts it (R-14) |
 | `live_server_settings` | session | Override it to change what the live server runs with |
+| `release_wheel` | session | The wheel from `--wheel PATH`, else a fresh `uv build --wheel` into a temp dir |
+| `released_app` | module | `release_wheel` under `uvx --from <wheel> language-lab`, temp HOME whose `~/.config/language-lab/.env` is the only config (port and tailnet host set there only); `.app.url`, `.app.output`, `.port`, `.config` |
 | `base_url` (in `e2e/conftest.py`) | session | `--base-url` / `PYTEST_BASE_URL` if given, else `live_server.url`. `page.goto("/x")` resolves against it |
 | `page`, `context` | function | From pytest-playwright. Timeouts: action 15 s, navigation 30 s, `expect` 10 s |
 
