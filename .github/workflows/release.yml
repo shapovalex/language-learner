@@ -1,0 +1,109 @@
+# Release pipeline for LanguageLab (story 1.8).
+#
+# On a vX.Y.Z tag: check the tag equals the pyproject version, lint, build the wheel with uv,
+# then run the whole suite on Chromium and WebKit with `--wheel` so the built-wheel smoke runs
+# against the exact file that gets released (R-04, R-09). Only when all of that passes does the
+# separate publish job attach the wheel to a GitHub release. The publish job alone has
+# `contents: write`, and it runs no repo code.
+
+name: Release
+
+on:
+  push:
+    tags: ["v*.*.*"]
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+env:
+  FORCE_COLOR: "1"
+  UV_LOCKED: "1" # fail if uv.lock is out of date with pyproject.toml
+
+jobs:
+  build:
+    name: Check, test and build
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    permissions:
+      contents: read
+
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Set up uv and Python
+        uses: astral-sh/setup-uv@v10
+        with:
+          enable-cache: true
+          cache-dependency-glob: uv.lock
+
+      - name: Install dependencies
+        run: uv sync
+
+      # The tag goes through env, never interpolated into the script.
+      - name: Check tag matches pyproject version
+        env:
+          TAG: ${{ github.ref_name }}
+        run: uv run python scripts/check_release_tag.py "$TAG"
+
+      - name: Ruff lint
+        run: uv run ruff check --output-format=github .
+
+      - name: Ruff format check
+        run: uv run ruff format --check .
+
+      - name: Cache Playwright browsers
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/ms-playwright
+          key: ${{ runner.os }}-playwright-release-${{ hashFiles('uv.lock') }}
+
+      - name: Install Playwright browsers
+        run: uv run playwright install --with-deps chromium webkit
+
+      - name: Build wheel
+        run: uv build --wheel
+
+      - name: Run tests on Chromium and WebKit against the built wheel
+        run: uv run pytest --browser chromium --browser webkit --wheel dist/language_lab-*.whl --junitxml=test-results/junit-release.xml
+
+      - name: Upload wheel
+        uses: actions/upload-artifact@v4
+        with:
+          name: wheel
+          path: dist/*.whl
+          if-no-files-found: error
+          retention-days: 30
+
+      - name: Upload test results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: test-results-release
+          path: test-results/
+          if-no-files-found: warn
+          retention-days: 30
+
+  publish:
+    name: Publish GitHub release
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    needs: build
+    permissions:
+      contents: write
+
+    steps:
+      - name: Download wheel
+        uses: actions/download-artifact@v4
+        with:
+          name: wheel
+          path: dist
+
+      - name: Create release with the wheel
+        uses: softprops/action-gh-release@v3
+        with:
+          files: dist/*.whl
+          fail_on_unmatched_files: true

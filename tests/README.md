@@ -17,7 +17,7 @@ make browsers           # uv run playwright install chromium webkit (once per Pl
 | `make test` / `uv run pytest` | Everything; E2E on Chromium |
 | `make test-fast` | Everything except E2E (no browser) |
 | `make test-e2e` | E2E only |
-| `make test-webkit` | E2E on Chromium and WebKit (tag runs; iPhone/iPad Safari proxy) |
+| `make test-webkit` | E2E on Chromium and WebKit (covered by release.yml's tag run; iPhone/iPad Safari proxy) |
 | `make test-cov` | Fast suite with branch coverage of `language_lab` |
 | `uv run pytest -m p0` | One priority |
 | `uv run pytest tests/e2e --headed --slowmo 300` | Watch the browser |
@@ -106,26 +106,31 @@ Don't edit the hook itself: `hookSha256` detects a drifted copy.
 
 ## CI
 
-GitHub Actions, in `.github/workflows/test.yml`. It follows the Epic 1 test design: one job, Chromium, and no Node.
+GitHub Actions. `.github/workflows/test.yml` covers pushes to `main` and PRs. It follows the Epic 1 test design: one job, Chromium, and no Node.
+Tag runs are `.github/workflows/release.yml` only (see Release below).
 
 | Trigger | Jobs |
 | --- | --- |
 | Push to `main` | lint → test (Chromium) → report |
 | Pull request to `main` | lint → test → burn-in (E2E ×10) → report |
-| `vX.Y.Z` tag | lint → test → E2E on Chromium + WebKit (R-09) → report |
 
 - **Lint:** `ruff check` and `ruff format --check`. Findings show as PR annotations.
 - **Test:** `make test-ci`. Afterwards the job checks that the JUnit report holds every collected test, so a suite that silently stops running part of itself fails.
 - **Burn-in:** `make burn-in` runs the E2E suite 10 times, and one failure fails the job. Nothing is retried: a flaky test should fail here, not be rerun into green.
 - **Gates:** every test must pass, so P0 is 100% and P1 is held to 100%, stricter than the ≥95% in the design. The report job fails if any job failed or was cancelled.
-- **Artifacts:** `test-results-chromium` and `test-results-webkit` are always uploaded: JUnit, plus a trace, screenshot and video for failed E2E tests. `burn-in-failures` is uploaded on failure. Each is kept 30 days and linked from the run summary.
+- **Artifacts:** `test-results-chromium` is always uploaded: JUnit, plus a trace, screenshot and video for failed E2E tests. `burn-in-failures` is uploaded on failure. Each is kept 30 days and linked from the run summary.
 - **Caching:** uv's cache keyed on `uv.lock`, and Playwright browsers in `~/.cache/ms-playwright`.
 - **Secrets:** none. Tests never reach real externals.
 - **Notifications:** GitHub's default emails for failed runs on your own pushes and PRs.
 
 Run the same thing locally with `make ci-local` (lint, `test-ci`, then 3 burn-in iterations), or `make burn-in BURN_IN=20` to hunt a flake.
 
-Not in CI yet: the built-wheel smoke test and the release upload belong to entry 8 (R-04), along with an optional `macos-14` smoke job.
+### Release
+
+`.github/workflows/release.yml` runs on a `vX.Y.Z` tag: the tag guard (`scripts/check_release_tag.py`, tag must equal `v<pyproject version>`) → ruff → `uv build --wheel` → pytest on Chromium + WebKit (R-09) with `--wheel dist/<wheel>`, so the built-wheel smoke (R-04) runs on the exact file released → a separate publish job (the only one with `contents: write`) attaches the wheel to the GitHub release.
+Artifacts: `wheel` and `test-results-release`, each kept 30 days.
+
+Not in CI yet: an optional `macos-14` smoke job.
 
 ## Troubleshooting
 
