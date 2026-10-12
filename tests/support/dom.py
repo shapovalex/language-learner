@@ -8,6 +8,11 @@ def append_to_body(page: Page, html: str) -> None:
     page.evaluate("(html) => document.body.insertAdjacentHTML('beforeend', html)", html)
 
 
+def prepend_to_body(page: Page, html: str) -> None:
+    """Add markup at the start of `<body>`, so it comes first in the Tab order."""
+    page.evaluate("(html) => document.body.insertAdjacentHTML('afterbegin', html)", html)
+
+
 def computed_style(locator: Locator, *props: str) -> dict[str, str]:
     """`getComputedStyle` values by camelCase name, e.g. `computed_style(el, "fontSize")`."""
     return locator.evaluate(

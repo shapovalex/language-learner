@@ -23,12 +23,14 @@ class TestShell:
         page.set_viewport_size(viewport)
         # Network-first: arm the wait before the navigation that triggers the request
         with page.expect_response("**/api/health") as health:
-            page.goto("/captures")
+            page.goto("/setup")
         assert health.value.ok
-        expect(page.get_by_role("main")).to_have_text(f"LanguageLab v{__version__}")
+        expect(page.get_by_role("main").get_by_text(f"LanguageLab v{__version__}")).to_be_visible()
 
     @pytest.mark.p1
     def test_shows_message_when_api_fails(self, page: Page) -> None:
         stub_api_error(page, "/api/health", status=500, code="internal_error")
-        page.goto("/")
-        expect(page.get_by_role("main")).to_have_text("LanguageLab could not reach the server.")
+        page.goto("/setup")
+        expect(
+            page.get_by_role("main").get_by_text("LanguageLab could not reach the server.")
+        ).to_be_visible()
