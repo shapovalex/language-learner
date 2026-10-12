@@ -225,7 +225,8 @@ Dependency rule: `routes → service → {ports, domain}`. Adapters depend on `p
 - **Rule:**
   - **Bind.** The server binds `LANGUAGE_LAB_HOST` (default `127.0.0.1`) only. Remote access goes through Tailscale Serve.
   - **Allow-list.** The host allow-list contains `127.0.0.1:<port>`, `localhost:<port>`, and the tailnet host, which comes from `LANGUAGE_LAB_PUBLIC_HOST` or is discovered at startup.
-  - **Checks.** Every request's effective host (`X-Forwarded-Host` if present, else `Host`) must be on the allow-list. Every non-GET `/api` request must carry an `Origin` whose `host[:port]` is on the allow-list, compared without scheme. Failures return `403 forbidden_origin`.
+  - **Checks.** Every request's `Host` must be on the allow-list, and so must its `X-Forwarded-Host` when present (amended 2026-10-11, test design Q1: taking XFH in place of `Host` let a DNS-rebinding page pass by setting it). Every non-GET `/api` request must carry an `Origin` whose `host[:port]` is on the allow-list, compared without scheme. Failures return `403 forbidden_origin`.
+  - **Discovery.** Without `LANGUAGE_LAB_PUBLIC_HOST`, startup runs `tailscale status --json` with a 2 s timeout (test design Q2). Any failure means no tailnet host, and startup continues.
   - **No login.** There are no accounts, sessions, or CORS.
 
 ### AD-17 — The sync feature owns every Sync and coalesces requests

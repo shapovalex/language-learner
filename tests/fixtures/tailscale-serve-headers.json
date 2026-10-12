@@ -1,0 +1,14 @@
+{
+  "request": {"method": "POST", "url": "https://mac-mini.tail1234.ts.net/api/_echo"},
+  "upstream": "http://127.0.0.1:8787",
+  "headers": {
+    "host": "mac-mini.tail1234.ts.net",
+    "x-forwarded-host": "mac-mini.tail1234.ts.net",
+    "x-forwarded-proto": "https",
+    "x-forwarded-for": "100.64.0.2",
+    "origin": "https://mac-mini.tail1234.ts.net",
+    "sec-fetch-site": "same-origin",
+    "tailscale-user-login": "user@example.com",
+    "tailscale-user-name": "Example User"
+  }
+}

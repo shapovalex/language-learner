@@ -38,6 +38,7 @@ tests/
   integration/         adapters against recorded HTTP fixtures (from Epic 2)
   e2e/                 Playwright against the live server; conftest sets timeouts
   fakes/               one in-memory fake per port (AD-1)
+  fixtures/            recorded inputs from real externals (Tailscale status and Serve headers; see its README)
   support/
     live_server.py     run_live_server(): uvicorn in a thread on a pre-bound socket
     app_env.py         config_values() factory, write_dotenv(), dotenv_keys(), isolated_environ()
@@ -47,6 +48,7 @@ tests/
     dom.py             append_to_body() for test-only markup, computed_style(), px(), settle_fonts()
     probes.py          add_probe_routes(): test-only /api routes for validation and crash paths; sentinel(), error_envelope()
     startup.py         run_language_lab(): main() in a subprocess, killed if it keeps running
+    hosts.py           app_client() (allowed Host + same-origin Origin, AD-16), local_hosts(), TAILNET_HOST, FOREIGN_HOST, recorded Tailscale inputs
     viewports.py       PHONE 390 / TABLET 820 / DESKTOP 1280
     fixtures/          pytest fixtures, one concern per module
 ```
@@ -80,6 +82,7 @@ Priority markers come from the test design: `smoke`, `p0` to `p3`. Within a run,
 - **No real externals.** Tests never reach real Anki, OpenRouter, Azure or Tailscale. Services use `tests/fakes/`, and adapters use recorded HTTP fixtures under `tests/fixtures/`.
 - **Network-first.** Arm the wait before the action that triggers the request (`with page.expect_response("**/api/x"): page.goto(...)`), and register `stub_api_error` before `goto`. Never `time.sleep` or `page.wait_for_timeout`.
 - **Selectors.** Use roles and accessible names first (`get_by_role`, `get_by_label`); the UI's a11y floor makes them stable. Fall back to `data-testid` only where there is no accessible name.
+- **Allowed hosts.** Build every `TestClient` with `app_client(app, settings)`. A bare `TestClient` sends `Host: testserver`, which the AD-16 allow-list rejects with 403.
 - **Isolation.** Build settings and env through `settings_factory`, never `os.environ` directly. Each test's data comes from its own factory call. Use unique IDs (`uuid.uuid4()`) when data only needs to be unique, and named constants when the value *is* the requirement.
 - **One concern per test.** Group three or more tests in a `Test…` class, and use `pytest.mark.parametrize` for tables. Keep assertions in the test body.
 - **Skips carry a reason.** Write `pytest.mark.skip(reason="… until X")`. Don't commit a bare skip.

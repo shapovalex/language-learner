@@ -15,6 +15,7 @@ from language_lab.app import create_app
 from language_lab.settings import Settings
 from tests.support.app_env import HOME_ENV_RELATIVE, config_values, isolated_environ, write_dotenv
 from tests.support.fixtures.settings import ConfigFiles, SettingsFactory
+from tests.support.hosts import app_client
 
 PYPROJECT = Path(__file__).resolve().parents[2] / "pyproject.toml"
 
@@ -27,7 +28,8 @@ def _clean_bind_env(monkeypatch: pytest.MonkeyPatch) -> None:
 
 @pytest.fixture
 def client() -> TestClient:
-    return TestClient(create_app(Settings()))
+    settings = Settings()
+    return app_client(create_app(settings), settings)
 
 
 def test_version_comes_from_pyproject() -> None:
@@ -129,7 +131,7 @@ def test_health_and_shell_expose_no_settings_values(settings_factory: SettingsFa
     """R-06: no configured value reaches /api/health or the shell."""
     values = config_values()
     settings = settings_factory(env=values)
-    client = TestClient(create_app(settings))
+    client = app_client(create_app(settings), settings)
     sentinels = [
         values[key]
         for key in (

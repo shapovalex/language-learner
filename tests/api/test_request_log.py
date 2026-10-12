@@ -17,6 +17,7 @@ from language_lab.app import create_app
 from tests.support.app_env import HOME_ENV_RELATIVE, config_values, isolated_environ, write_dotenv
 from tests.support.fixtures.logs import APP_LOGGER, LogCapture
 from tests.support.fixtures.settings import ConfigFiles, SettingsFactory
+from tests.support.hosts import app_client
 from tests.support.live_server import bind_free_port
 from tests.support.probes import (
     BOOM_ROUTE,
@@ -223,13 +224,14 @@ def test_non_api_crash_stays_plain_text_500(
 ) -> None:
     """R-07: outside /api a crash is a plain 500, not the envelope, and still leaks nothing."""
     secret = sentinel()
-    app = create_app(settings_factory())
+    settings = settings_factory()
+    app = create_app(settings)
 
     async def crash() -> None:
         raise RuntimeError(f"shell failure for {secret}")
 
     app.router.routes.insert(0, APIRoute("/_probe-shell-crash", crash))
-    client = TestClient(app, raise_server_exceptions=False)
+    client = app_client(app, settings, raise_server_exceptions=False)
 
     response = client.get("/_probe-shell-crash", params={"q": secret})
 

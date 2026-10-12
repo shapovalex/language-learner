@@ -1,0 +1,47 @@
+{
+  "Version": "1.88.1-t1234567ab-g89abcdef0",
+  "TUN": true,
+  "BackendState": "Running",
+  "HaveNodeKey": true,
+  "AuthURL": "",
+  "TailscaleIPs": ["100.101.102.103", "fd7a:115c:a1e0::1234:5678"],
+  "Self": {
+    "ID": "nAbCdEf1CNTRL",
+    "PublicKey": "nodekey:0000000000000000000000000000000000000000000000000000000000000001",
+    "HostName": "mac-mini",
+    "DNSName": "mac-mini.tail1234.ts.net.",
+    "OS": "macOS",
+    "UserID": 1234567890,
+    "TailscaleIPs": ["100.101.102.103", "fd7a:115c:a1e0::1234:5678"],
+    "Online": true,
+    "Active": true,
+    "InNetworkMap": true,
+    "InMagicSock": false,
+    "InEngine": false
+  },
+  "Health": [],
+  "MagicDNSSuffix": "tail1234.ts.net",
+  "CurrentTailnet": {
+    "Name": "user@example.com",
+    "MagicDNSSuffix": "tail1234.ts.net",
+    "MagicDNSEnabled": true
+  },
+  "CertDomains": ["mac-mini.tail1234.ts.net"],
+  "Peer": {
+    "nodekey:0000000000000000000000000000000000000000000000000000000000000002": {
+      "ID": "nGhIjKl2CNTRL",
+      "HostName": "iPhone",
+      "DNSName": "iphone.tail1234.ts.net.",
+      "OS": "iOS",
+      "TailscaleIPs": ["100.64.0.2"],
+      "Online": true
+    }
+  },
+  "User": {
+    "1234567890": {
+      "ID": 1234567890,
+      "LoginName": "user@example.com",
+      "DisplayName": "Example User"
+    }
+  }
+}

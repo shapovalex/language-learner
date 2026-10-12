@@ -5,6 +5,7 @@ from fastapi.testclient import TestClient
 
 from language_lab.app import create_app
 from tests.support.fixtures.settings import SettingsFactory
+from tests.support.hosts import app_client
 from tests.support.shell import fetch_stylesheets, parse_shell, viewport_directives
 
 SHELL_PATH = "/captures"
@@ -15,7 +16,8 @@ SAFE_AREA_SIDES = ("top", "right", "bottom", "left")
 
 @pytest.fixture
 def client(settings_factory: SettingsFactory) -> TestClient:
-    return TestClient(create_app(settings_factory()))
+    settings = settings_factory()
+    return app_client(create_app(settings), settings)
 
 
 @pytest.mark.p3
