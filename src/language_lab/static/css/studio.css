@@ -1,5 +1,6 @@
 /* Studio entry sheet: tokens, vendored Figtree, and base styles (story 1.5), then the shell
-   and navigation components (story 1.6). Screen-specific styles belong to the screen entries. */
+   and navigation components (story 1.6), the unsaved-changes alert and the success banner
+   (story 1.7). Screen-specific styles belong to the screen entries. */
 
 @import "tokens.css";
 
@@ -218,7 +219,106 @@ main h1 {
   background: var(--color-accent-soft);
 }
 
+/* Buttons (DESIGN.md Buttons). In-alert height: 44px. */
+.button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-height: var(--space-target-min);
+  padding: 0 var(--space-9);
+  border: 2px solid transparent;
+  border-radius: var(--radius-full);
+  font: inherit;
+  font-size: var(--font-size-button);
+  font-weight: var(--font-weight-button);
+  text-decoration: none;
+  cursor: pointer;
+}
+
+.button-destructive {
+  background: var(--color-danger);
+  color: var(--color-on-danger);
+}
+
+.button-secondary {
+  border-color: var(--color-border);
+  background: var(--color-surface);
+  color: var(--color-ink);
+}
+
+/* Alert dialog, unsaved-changes variant: no icon disc, no chips. A native modal <dialog>, so it
+   sits in the top layer over its own backdrop at every width (the .scrim is phone-only). */
+.alert-dialog {
+  width: calc(100% - 2 * var(--space-gutter-phone));
+  max-width: 420px;
+  margin: auto;
+  padding: var(--space-card-pad-phone);
+  border: 0;
+  border-radius: var(--radius-card-lg);
+  background: var(--color-surface);
+  color: var(--color-ink);
+}
+
+.alert-dialog::backdrop {
+  /* Literal fallback where ::backdrop does not inherit custom properties yet: the scrim token */
+  background: #221e2e6b;
+  background: var(--color-scrim, #221e2e6b);
+}
+
+.alert-dialog-title {
+  margin: 0;
+  font-size: var(--font-size-dialog-title);
+  font-weight: var(--font-weight-dialog-title);
+  line-height: var(--line-height-dialog-title);
+}
+
+.alert-dialog-body {
+  margin: var(--space-3) 0 0;
+  color: var(--color-ink-muted);
+}
+
+.alert-dialog-actions {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+  margin-top: var(--space-9);
+}
+
+.alert-dialog-actions .button {
+  width: 100%;
+}
+
+/* Success banner: role="status", no dismiss control (DESIGN.md Feedback) */
+.success-banner {
+  display: flex;
+  align-items: center;
+  gap: var(--space-4);
+  margin: var(--space-7) 0 0;
+  padding: var(--space-5) var(--space-7);
+  border-radius: var(--radius-inner);
+  background: var(--color-accent-soft);
+  color: var(--color-on-accent-soft);
+  font-size: var(--font-size-banner);
+  font-weight: var(--font-weight-banner);
+}
+
+/* Check icon, drawn so it adds nothing to the banner's text */
+.success-banner::before {
+  content: "";
+  flex: none;
+  width: 6px;
+  height: 11px;
+  margin: 0 var(--space-1) 3px;
+  border-right: 2px solid currentcolor;
+  border-bottom: 2px solid currentcolor;
+  transform: rotate(45deg);
+}
+
 @media (min-width: 600px) {
+  .alert-dialog {
+    padding: var(--space-card-pad-tablet);
+  }
+
   .app-header,
   main {
     padding-right: var(--space-gutter-tablet);

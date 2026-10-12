@@ -26,6 +26,14 @@
       <a class="list-row" href="/fr/items" data-area="fr">French</a>
       <a class="list-row" href="/setup" data-area="setup">Setup</a>
     </div>
+    <dialog class="alert-dialog" id="unsaved-alert" role="alertdialog" aria-labelledby="unsaved-alert-title" aria-describedby="unsaved-alert-body">
+      <h2 class="alert-dialog-title" id="unsaved-alert-title">Discard unsaved changes?</h2>
+      <p class="alert-dialog-body" id="unsaved-alert-body"></p>
+      <div class="alert-dialog-actions">
+        <button class="button button-destructive" type="button" value="discard">Discard</button>
+        <button class="button button-secondary" type="button" value="keep">Keep editing</button>
+      </div>
+    </dialog>
     <main id="app"></main>
   </body>
 </html>
