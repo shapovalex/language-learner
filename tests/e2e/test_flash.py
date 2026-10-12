@@ -2,8 +2,6 @@
 
 Decided 2026-10-11: router.js renders the flash as a role="status" banner in main, after the
 next screen mounts, and removes it on the next navigation.
-
-Skipped until router.js has the flash. Un-skip it, watch it fail, then implement.
 """
 
 import pytest
@@ -12,15 +10,10 @@ from playwright.sync_api import Page, expect
 from tests.support.navigation import CAPTURES, SETUP, go_by_nav, screen_heading
 from tests.support.unsaved import TARGET, navigate
 
-RED_PHASE = pytest.mark.skip(
-    reason="ATDD red phase, story 1.7: un-skip with the flash in router.js"
-)
-
 # The post-Save banner text (EXPERIENCE "Saved from a Capture")
 FLASH = f"Saved “{TARGET}” to Anki. Make another Item from this Capture, or delete it."
 
 
-@RED_PHASE
 @pytest.mark.p1
 def test_flash_shows_once_then_goes(page: Page) -> None:
     """AC-9: the flash shows on the screen navigated to, and is gone after the next navigation."""

@@ -1,5 +1,6 @@
 // Client-side routing for the shell (AD-13): History API, the Main nav and Menu sheet,
-// the per-Language Items / Pronunciation nav, and mounting one screen module at a time.
+// the per-Language Items / Pronunciation nav, mounting one screen module at a time, the
+// unsaved-changes guard on every way off a dirty screen, and the one-shot flash (story 1.7).
 
 const ROUTES = [
   [/^\/captures$/, "captures", () => ({})],
@@ -22,6 +23,23 @@ let menuButton;
 let menuSheet;
 let scrim;
 let menuRows = [];
+
+// Unsaved-changes guard: null, or { kind, count, target } from the mounted screen
+let dirty = null;
+let currentPath = null;
+let pendingAnswer = null; // the open alert's answer, shared by every leave asked meanwhile
+let resolveAlert = null;
+let alertReturnFocus = null;
+let leaveSeq = 0;
+
+let alertDialog;
+let alertBody;
+let alertButtons = [];
+let keepButton;
+
+// Flash: handed over by navigate(path, { flash }), shown once on the next screen
+let pendingFlash = null;
+let flashBanner = null;
 
 function matchRoute(path) {
   for (const [pattern, name, toParams] of ROUTES) {
@@ -88,6 +106,13 @@ async function render() {
     return render();
   }
   const token = ++renderToken;
+  currentPath = location.pathname;
+  // Every completed navigation leaves the dirty state behind with the screen that set it
+  setDirty(null);
+  const flash = pendingFlash;
+  pendingFlash = null;
+  flashBanner?.remove();
+  flashBanner = null;
 
   if (unmountScreen) {
     unmountScreen();
@@ -111,11 +136,135 @@ async function render() {
   // A later navigation started while the module loaded: only the latest render mounts
   if (token !== renderToken) return;
   unmountScreen = screen.mount(screenRoot, route.params);
+  if (flash) showFlash(flash);
 }
 
-export function navigate(path) {
+function showFlash(message) {
+  flashBanner = document.createElement("p");
+  flashBanner.className = "success-banner";
+  flashBanner.setAttribute("role", "status");
+  flashBanner.textContent = message;
+  main.prepend(flashBanner);
+}
+
+// Unsaved-changes guard
+
+function onBeforeUnload(event) {
+  event.preventDefault();
+  event.returnValue = "";
+}
+
+export function setDirty(state) {
+  dirty = state ?? null;
+  if (dirty) {
+    window.addEventListener("beforeunload", onBeforeUnload);
+  } else {
+    window.removeEventListener("beforeunload", onBeforeUnload);
+  }
+}
+
+function describeLoss({ kind, count, target }) {
+  if (kind === "draft") return "This Draft isn't saved.";
+  return `${count} unsaved ${count === 1 ? "change" : "changes"} to “${target}”`;
+}
+
+function openAlert(trigger) {
+  alertBody.textContent = describeLoss(dirty);
+  alertReturnFocus = trigger;
+  return new Promise((resolve) => {
+    resolveAlert = resolve;
+    alertDialog.showModal();
+    keepButton.focus();
+  });
+}
+
+// The one place the alert answers: its buttons, Esc, and a close the browser forces
+function answerAlert(discard) {
+  const resolve = resolveAlert;
+  if (!resolve) return;
+  resolveAlert = null;
+  if (alertDialog.open) alertDialog.close();
+  if (discard) setDirty(null);
+  const trigger = alertReturnFocus;
+  alertReturnFocus = null;
+  if (trigger?.isConnected && trigger.checkVisibility?.() !== false) trigger.focus();
+  // Settle now, not on the async close event, so a leave right after this one asks afresh
+  pendingAnswer = null;
+  resolve(discard);
+}
+
+function onAlertKeydown(event) {
+  // Keep focus on Discard / Keep editing; any modifiers, as WebKit reaches buttons with Alt+Tab
+  if (event.key !== "Tab") return;
+  event.preventDefault();
+  const index = alertButtons.indexOf(document.activeElement);
+  const step = event.shiftKey ? -1 : 1;
+  const next =
+    index === -1 ? 0 : (index + step + alertButtons.length) % alertButtons.length;
+  alertButtons[next].focus();
+}
+
+function setUpAlert() {
+  alertDialog = document.getElementById("unsaved-alert");
+  alertBody = document.getElementById("unsaved-alert-body");
+  alertButtons = [...alertDialog.querySelectorAll("button")];
+  keepButton = alertDialog.querySelector('button[value="keep"]');
+
+  for (const button of alertButtons) {
+    button.addEventListener("click", () => answerAlert(button.value === "discard"));
+  }
+  // Esc is Keep editing
+  alertDialog.addEventListener("cancel", (event) => {
+    event.preventDefault();
+    answerAlert(false);
+  });
+  // A close the browser forces counts as Keep editing. The close event is queued, so it can
+  // arrive after the alert reopened for the next leave: that one is not answered by it.
+  alertDialog.addEventListener("close", () => {
+    if (!alertDialog.open) answerAlert(false);
+  });
+  alertDialog.addEventListener("keydown", onAlertKeydown);
+}
+
+function ask(trigger) {
+  if (!dirty) return Promise.resolve(true);
+  pendingAnswer ??= openAlert(trigger);
+  return pendingAnswer;
+}
+
+// Resolves true when the screen may be left: clean, or the user chose Discard. Never navigates.
+export function confirmLeave() {
+  return ask(null);
+}
+
+async function go(path, { flash, trigger } = {}) {
   if (path === location.pathname) return;
+  if (dirty) {
+    const seq = ++leaveSeq;
+    // Only the latest leave asked while the alert was open goes ahead on Discard
+    if (!(await ask(trigger)) || seq !== leaveSeq) return;
+  }
+  pendingFlash = flash ?? null;
   history.pushState(null, "", path);
+  render();
+}
+
+export function navigate(path, { flash } = {}) {
+  return go(path, { flash });
+}
+
+async function onPopState() {
+  closeMenu();
+  if (dirty && location.pathname !== currentPath) {
+    // Put the dirty screen's URL back (this drops the entry history just moved off), then ask
+    history.pushState(null, "", currentPath);
+    // The alert is already asking about another leave: this one is undone, that one stands
+    if (pendingAnswer) return;
+    const seq = ++leaveSeq;
+    // Discard cleared the dirty state, so this back is a clean one; a later leave wins
+    if ((await ask(null)) && seq === leaveSeq) history.back();
+    return;
+  }
   render();
 }
 
@@ -137,8 +286,12 @@ function onLinkClick(event) {
   if (url.pathname.startsWith("/api/") || url.pathname.startsWith("/static/")) return;
 
   event.preventDefault();
-  if (menuSheet.contains(link)) closeMenu();
-  navigate(url.pathname);
+  let trigger = link;
+  if (menuSheet.contains(link)) {
+    closeMenu();
+    trigger = menuButton;
+  }
+  go(url.pathname, { trigger });
 }
 
 // Menu sheet (phone)
@@ -209,10 +362,8 @@ export function start() {
   main.replaceChildren(screenRoot);
 
   setUpMenu();
+  setUpAlert();
   document.addEventListener("click", onLinkClick);
-  window.addEventListener("popstate", () => {
-    closeMenu();
-    render();
-  });
+  window.addEventListener("popstate", onPopState);
   render();
 }
