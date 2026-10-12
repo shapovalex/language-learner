@@ -297,7 +297,7 @@ Dependency rule: `routes → service → {ports, domain}`. Adapters depend on `p
 | ruff | 0.16.10 |
 | uv (build + `uvx` run) | 0.12.24 |
 | AnkiConnect | API version 6 |
-| GitHub Actions | actions/checkout v7, astral-sh/setup-uv v10, softprops/action-gh-release v3 |
+| GitHub Actions | actions/checkout v7, astral-sh/setup-uv v7, softprops/action-gh-release v3 |
 
 ## Structural Seed
 
