@@ -1,5 +1,5 @@
-/* Studio entry sheet: tokens, vendored Figtree, and base styles (story 1.5).
-   Component and layout styles belong to the screen entries, not here. */
+/* Studio entry sheet: tokens, vendored Figtree, and base styles (story 1.5), then the shell
+   and navigation components (story 1.6). Screen-specific styles belong to the screen entries. */
 
 @import "tokens.css";
 
@@ -48,6 +48,7 @@ body {
 /* EXPERIENCE.md a11y floor: a visible focus ring on every control */
 :focus-visible {
   outline: 2px solid var(--color-accent);
+  outline-offset: 2px;
 }
 
 /* Below 16px, iOS Safari zooms the page when a field takes focus */
@@ -56,4 +57,186 @@ textarea,
 select {
   font: inherit;
   font-size: max(16px, 1em);
+}
+
+[hidden] {
+  display: none !important;
+}
+
+/* Shell and navigation (story 1.6, DESIGN.md Navigation). Breakpoint: 600px. */
+
+.app-header {
+  position: relative;
+  z-index: 3; /* above the scrim, so Menu can close the sheet */
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-5);
+  max-width: var(--space-content-max);
+  margin: 0 auto;
+  padding: var(--space-5) var(--space-gutter-phone);
+}
+
+.wordmark {
+  font-size: var(--font-size-wordmark);
+  font-weight: var(--font-weight-wordmark);
+}
+
+.main-nav {
+  display: none;
+  gap: var(--space-2);
+}
+
+.nav-pill,
+.menu-button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: var(--space-target-min);
+  min-height: var(--space-target-min);
+  padding: 0 var(--space-7);
+  border: 0;
+  border-radius: var(--radius-full);
+  background: var(--color-surface-sunken);
+  color: var(--color-ink);
+  font: inherit;
+  font-size: var(--font-size-label);
+  font-weight: var(--font-weight-label);
+  text-decoration: none;
+  cursor: pointer;
+}
+
+.nav-pill[aria-current="page"] {
+  background: var(--color-accent);
+  color: var(--color-on-accent);
+}
+
+main {
+  max-width: var(--space-content-max);
+  margin: 0 auto;
+  padding: 0 var(--space-gutter-phone) var(--space-10);
+}
+
+main h1 {
+  margin: var(--space-7) 0;
+  font-size: var(--font-size-display-phone);
+  font-weight: var(--font-weight-display-phone);
+}
+
+/* Segmented control, navigation use: Items / Pronunciation */
+.segmented-control {
+  display: inline-flex;
+  padding: 4px;
+  border-radius: var(--radius-full);
+  background: var(--color-surface-sunken);
+}
+
+.segment {
+  display: inline-flex;
+  align-items: center;
+  min-height: var(--space-target-min);
+  padding: 0 var(--space-7);
+  border-radius: var(--radius-full);
+  color: var(--color-ink);
+  font-size: var(--font-size-label);
+  font-weight: var(--font-weight-label);
+  text-decoration: none;
+}
+
+.segment[aria-current="page"] {
+  background: var(--color-surface);
+}
+
+/* Menu bottom sheet (phone) */
+.scrim {
+  position: fixed;
+  inset: 0;
+  z-index: 1;
+  background: var(--color-scrim);
+}
+
+.menu-sheet {
+  position: fixed;
+  right: 0;
+  bottom: 0;
+  left: 0;
+  z-index: 2;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+  padding: var(--space-5) var(--space-gutter-phone)
+    calc(var(--space-10) + env(safe-area-inset-bottom));
+  border-radius: var(--radius-card-lg) var(--radius-card-lg) 0 0;
+  background: var(--color-ground);
+}
+
+/* Handle */
+.menu-sheet::before {
+  content: "";
+  align-self: center;
+  width: 40px;
+  height: 5px;
+  border-radius: var(--radius-full);
+  background: var(--color-border);
+}
+
+.menu-sheet-title {
+  margin: var(--space-3) 0;
+  font-size: var(--font-size-dialog-title);
+  font-weight: var(--font-weight-dialog-title);
+  line-height: var(--line-height-dialog-title);
+}
+
+.list-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  min-height: var(--space-target-min);
+  padding: var(--space-6) var(--space-7);
+  border: 2px solid transparent;
+  border-radius: var(--radius-row);
+  background: var(--color-surface);
+  color: var(--color-ink);
+  font-size: var(--font-size-body);
+  font-weight: 600;
+  text-decoration: none;
+}
+
+/* Trailing chevron, drawn so it adds nothing to the link's accessible name */
+.list-row::after {
+  content: "";
+  width: 8px;
+  height: 8px;
+  border-top: 2px solid var(--color-ink-muted);
+  border-right: 2px solid var(--color-ink-muted);
+  transform: rotate(45deg);
+}
+
+.list-row[aria-current="page"] {
+  border-color: var(--color-accent);
+  border-radius: var(--radius-inner);
+  background: var(--color-accent-soft);
+}
+
+@media (min-width: 600px) {
+  .app-header,
+  main {
+    padding-right: var(--space-gutter-tablet);
+    padding-left: var(--space-gutter-tablet);
+  }
+
+  .main-nav {
+    display: flex;
+  }
+
+  .menu-button,
+  .menu-sheet,
+  .scrim {
+    display: none;
+  }
+
+  main h1 {
+    font-size: var(--font-size-display);
+    font-weight: var(--font-weight-display);
+  }
 }

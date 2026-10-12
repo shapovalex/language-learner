@@ -2,8 +2,6 @@
 
 Decided 2026-10-11: router.js replaces `/` and unknown paths with /captures; the server
 version renders on the Setup screen; English and French lead to their Items section.
-
-Skipped until router.js and the screens land. Un-skip one per task, watch it fail, then implement.
 """
 
 import pytest
@@ -27,8 +25,6 @@ from tests.support.navigation import (
     path_pattern,
     screen_heading,
 )
-
-RED_PHASE = pytest.mark.skip(reason="ATDD red phase, story 1.6: un-skip with router.js")
 
 VERSION_TEXT = f"LanguageLab v{__version__}"
 LANGUAGES = {"English": "en", "French": "fr"}
@@ -68,7 +64,6 @@ def expect_at(page: Page, destination: Destination) -> None:
     expect(screen_heading(page)).to_have_text(destination.heading)
 
 
-@RED_PHASE
 @pytest.mark.p1
 def test_nav_links_route_without_reloading(page: Page) -> None:
     """AC-1: router.js routes with the History API, so following a link keeps the document."""
@@ -83,7 +78,6 @@ def test_nav_links_route_without_reloading(page: Page) -> None:
     expect(screen_heading(page)).to_have_text(SETUP.heading)
 
 
-@RED_PHASE
 @pytest.mark.p1
 @pytest.mark.parametrize(
     "viewport", [viewports.TABLET, viewports.DESKTOP], ids=["tablet", "desktop"]
@@ -98,7 +92,6 @@ def test_header_shows_pills_on_tablet_and_desktop(page: Page, viewport: Viewport
     expect(menu_button(page)).to_be_hidden()
 
 
-@RED_PHASE
 @pytest.mark.p1
 @pytest.mark.parametrize("area", LANGUAGES, ids=LANGUAGES.values())
 def test_language_nav_switches_section(page: Page, area: str) -> None:
@@ -118,7 +111,6 @@ def test_language_nav_switches_section(page: Page, area: str) -> None:
     expect(screen_heading(page)).to_have_text(f"{area} Items")
 
 
-@RED_PHASE
 @pytest.mark.p1
 @BY_DESTINATION
 def test_aria_current_marks_area_and_section(page: Page, destination: Destination) -> None:
@@ -132,7 +124,6 @@ def test_aria_current_marks_area_and_section(page: Page, destination: Destinatio
         expect(sections.locator("[aria-current='page']")).to_have_text([destination.section])
 
 
-@RED_PHASE
 @pytest.mark.p2
 @pytest.mark.parametrize(
     ("module", "params", "heading"),
@@ -157,7 +148,6 @@ def test_screen_module_mounts_and_unmounts(
     }
 
 
-@RED_PHASE
 @pytest.mark.p1
 @WIDTHS
 def test_every_destination_reachable_by_nav(page: Page, viewport: ViewportSize) -> None:
@@ -170,7 +160,6 @@ def test_every_destination_reachable_by_nav(page: Page, viewport: ViewportSize) 
         expect_at(page, destination)
 
 
-@RED_PHASE
 @pytest.mark.p1
 @WIDTHS
 def test_every_destination_loads_directly(page: Page, viewport: ViewportSize) -> None:
@@ -182,7 +171,6 @@ def test_every_destination_loads_directly(page: Page, viewport: ViewportSize) ->
         expect_at(page, destination)
 
 
-@RED_PHASE
 @pytest.mark.p1
 @WIDTHS
 def test_browser_back_returns_through_destinations(page: Page, viewport: ViewportSize) -> None:
@@ -199,7 +187,6 @@ def test_browser_back_returns_through_destinations(page: Page, viewport: Viewpor
         expect_at(page, previous)
 
 
-@RED_PHASE
 @pytest.mark.p2
 @pytest.mark.parametrize("path", ["/", "/nowhere", "/de/items"])
 def test_root_and_unknown_paths_redirect_to_captures(page: Page, path: str) -> None:
@@ -210,7 +197,6 @@ def test_root_and_unknown_paths_redirect_to_captures(page: Page, path: str) -> N
     expect(screen_heading(page)).to_have_text(CAPTURES.heading)
 
 
-@RED_PHASE
 @pytest.mark.p1
 def test_server_version_shows_on_setup_only(page: Page) -> None:
     """AC-12: the version from /api/health renders on the Setup screen, not in the shell."""
@@ -223,3 +209,66 @@ def test_server_version_shows_on_setup_only(page: Page) -> None:
     with page.expect_response("**/api/health"):
         page.goto(SETUP.path)
     expect(page.get_by_role("main").get_by_text(VERSION_TEXT)).to_be_visible()
+
+
+@pytest.mark.p2
+def test_redirect_leaves_no_history_entry(page: Page) -> None:
+    """AC-11: the redirect replaces the unknown path, so back never returns to it."""
+    page.set_viewport_size(viewports.DESKTOP)
+    page.goto(SETUP.path)
+    screen_heading(page).filter(has_text=SETUP.heading).wait_for()
+    page.evaluate(
+        "() => { history.pushState(null, '', '/nowhere');"
+        " dispatchEvent(new PopStateEvent('popstate')); }"
+    )
+    expect(page).to_have_url(path_pattern(CAPTURES.path))
+
+    page.go_back()
+
+    expect_at(page, SETUP)
+
+
+@pytest.mark.p2
+def test_same_path_click_pushes_no_history_entry(page: Page) -> None:
+    """AC-1: following a link to the current path adds no history entry."""
+    page.set_viewport_size(viewports.DESKTOP)
+    page.goto(SETUP.path)
+    main_nav(page).get_by_role("link", name=CAPTURES.area, exact=True).click()
+    expect_at(page, CAPTURES)
+
+    main_nav(page).get_by_role("link", name=CAPTURES.area, exact=True).click()
+    page.go_back()
+
+    expect_at(page, SETUP)
+
+
+# Mounts Setup with /api/health held open, unmounts it, then lets the response arrive
+LATE_HEALTH = """async (url) => {
+  const { mount } = await import(url);
+  let respond;
+  const realFetch = window.fetch;
+  window.fetch = () => new Promise((resolve) => { respond = resolve; });
+  const root = document.createElement("div");
+  let status;
+  try {
+    const unmount = mount(root, {});
+    status = root.querySelector("p");
+    unmount();
+    respond(new Response(JSON.stringify({ version: "9.9.9" }), { status: 200 }));
+    await new Promise((resolve) => setTimeout(resolve, 50));
+  } finally {
+    window.fetch = realFetch;
+  }
+  const empty = !root.hasChildNodes();
+  return { called: respond !== undefined, statusText: status.textContent, empty };
+}"""
+
+
+@pytest.mark.p2
+def test_setup_ignores_health_after_unmount(page: Page) -> None:
+    """AC-6: a /api/health response that arrives after unmount writes nothing."""
+    page.goto(CAPTURES.path)
+
+    result = page.evaluate(LATE_HEALTH, f"/static/{__version__}/screens/setup.js")
+
+    assert result == {"called": True, "statusText": "", "empty": True}
