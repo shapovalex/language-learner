@@ -48,6 +48,7 @@ tests/
     dom.py             append_to_body() / prepend_to_body() for test-only markup, computed_style(), px(), settle_fonts()
     navigation.py      the six DESTINATIONS, nav locators (main_nav, language_nav, menu_button, menu_sheet), go_by_nav() per width
     keys.py            tab() / shift_tab() per browser (WebKit's Tab skips links)
+    unsaved.py         the router's setDirty / confirmLeave / navigate from the page, the alert's locators, LEAVE_PATHS per width (R-03)
     probes.py          add_probe_routes(): test-only /api routes for validation and crash paths; sentinel(), error_envelope()
     startup.py         run_language_lab(): main() in a subprocess, killed if it keeps running
     hosts.py           app_client() (allowed Host + same-origin Origin, AD-16), local_hosts(), TAILNET_HOST, FOREIGN_HOST, recorded Tailscale inputs
