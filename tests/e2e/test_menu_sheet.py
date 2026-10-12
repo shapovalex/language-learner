@@ -2,8 +2,6 @@
 
 Decided 2026-10-11: the Menu button stays above the scrim and toggles the sheet closed, and the
 Tab trap cycles through the sheet's rows only.
-
-Skipped until router.js and the screens land. Un-skip one per task, watch it fail, then implement.
 """
 
 import pytest
@@ -22,8 +20,6 @@ from tests.support.navigation import (
     screen_heading,
 )
 
-RED_PHASE = pytest.mark.skip(reason="ATDD red phase, story 1.6: un-skip with the Menu sheet")
-
 
 def tap_scrim(page: Page) -> None:
     """Tap just above the sheet, where only the scrim is (the sheet sits at the bottom)."""
@@ -39,7 +35,6 @@ CLOSE_PATHS = {
 }
 
 
-@RED_PHASE
 @pytest.mark.p1
 def test_phone_menu_sheet_lists_areas_and_navigates(page: Page) -> None:
     """AC-3: on phone a Menu bottom sheet replaces the pills; a row navigates and closes it."""
@@ -59,7 +54,6 @@ def test_phone_menu_sheet_lists_areas_and_navigates(page: Page) -> None:
     expect(sheet).to_be_hidden()
 
 
-@RED_PHASE
 @pytest.mark.p1
 @pytest.mark.parametrize("close", CLOSE_PATHS.values(), ids=CLOSE_PATHS.keys())
 def test_menu_sheet_traps_and_returns_focus(page: Page, browser_name: str, close) -> None:

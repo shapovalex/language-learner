@@ -8,6 +8,24 @@
     <script type="module" src="/static/{{VERSION}}/main.js"></script>
   </head>
   <body>
-    <main id="app">LanguageLab</main>
+    <header class="app-header">
+      <span class="wordmark">LanguageLab</span>
+      <nav class="main-nav" aria-label="Main">
+        <a class="nav-pill" href="/captures" data-area="captures">Captures</a>
+        <a class="nav-pill" href="/en/items" data-area="en">English</a>
+        <a class="nav-pill" href="/fr/items" data-area="fr">French</a>
+        <a class="nav-pill" href="/setup" data-area="setup">Setup</a>
+      </nav>
+      <button class="menu-button" type="button" aria-expanded="false" aria-controls="menu-sheet">Menu</button>
+    </header>
+    <div class="scrim" hidden></div>
+    <div class="menu-sheet" id="menu-sheet" role="dialog" aria-modal="true" aria-labelledby="menu-sheet-title" hidden>
+      <h2 class="menu-sheet-title" id="menu-sheet-title">Menu</h2>
+      <a class="list-row" href="/captures" data-area="captures">Captures</a>
+      <a class="list-row" href="/en/items" data-area="en">English</a>
+      <a class="list-row" href="/fr/items" data-area="fr">French</a>
+      <a class="list-row" href="/setup" data-area="setup">Setup</a>
+    </div>
+    <main id="app"></main>
   </body>
 </html>
