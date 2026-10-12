@@ -68,7 +68,11 @@ jobs:
         run: uv build --wheel
 
       - name: Run tests on Chromium and WebKit against the built wheel
-        run: uv run pytest --browser chromium --browser webkit --wheel dist/language_lab-*.whl --junitxml=test-results/junit-release.xml
+        # --wheel=<path>, not "--wheel <path>": pytest's early parse would take an existing path
+        # as the test path, skip testpaths, and never load tests/conftest.py, which adds --wheel.
+        run: |
+          wheel=$(echo dist/language_lab-*.whl)
+          uv run pytest --browser chromium --browser webkit --wheel="$wheel" --junitxml=test-results/junit-release.xml
 
       - name: Upload wheel
         uses: actions/upload-artifact@v4
