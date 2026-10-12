@@ -4,8 +4,8 @@ The wheel is built with `uv build`, or given with `--wheel dist/<wheel>` (releas
 the exact file it attaches). It starts under `uvx --from <wheel> language-lab` with a temp HOME
 whose ~/.config/language-lab/.env is its only config. The Mac Mini run stays manual.
 
-The behaviour predates this story (entries 1 and 2). It is skipped so it is switched on with
-release.yml, the story's own change, which runs it before the upload.
+The behaviour predates this story (entries 1 and 2). release.yml runs these tests against the
+wheel it uploads, before the upload.
 """
 
 import socket
@@ -16,16 +16,11 @@ import pytest
 from tests.support.fixtures.release import ReleaseRun
 from tests.support.release import non_loopback_address, pyproject_version
 
-RED_PHASE = pytest.mark.skip(
-    reason="ATDD red phase, story 1.8: un-skip with release.yml running pytest --wheel"
-)
-
 VERSION = pyproject_version()
 DEEP_CLIENT_PATH = "/any/deep/path"
 SERVING_ON = "Uvicorn running on http://127.0.0.1:"  # uvicorn's line: the socket it bound
 
 
-@RED_PHASE
 @pytest.mark.p0
 def test_built_wheel_serves_its_version_assets_and_shell(released_app: ReleaseRun) -> None:
     """AC-3: the uv-built wheel reports the pyproject version and ships its static assets."""
@@ -43,7 +38,6 @@ def test_built_wheel_serves_its_version_assets_and_shell(released_app: ReleaseRu
     assert f'src="/static/{VERSION}/main.js"' in shell.text
 
 
-@RED_PHASE
 @pytest.mark.p0
 def test_uvx_start_loads_the_home_config(released_app: ReleaseRun) -> None:
     """AC-5: `uvx --from <wheel> language-lab` reads ~/.config/language-lab/.env."""
@@ -55,7 +49,6 @@ def test_uvx_start_loads_the_home_config(released_app: ReleaseRun) -> None:
     assert "Traceback" not in output
 
 
-@RED_PHASE
 @pytest.mark.p0
 def test_uvx_start_listens_on_loopback_only(released_app: ReleaseRun) -> None:
     """AC-6: the released app answers on 127.0.0.1 and refuses this machine's LAN address."""

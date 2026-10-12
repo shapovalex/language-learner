@@ -11,7 +11,7 @@ test-fast:
 test-e2e:
 	uv run pytest -m e2e
 
-# Tag runs: E2E under WebKit as well (R-09).
+# E2E under WebKit as well (R-09); release.yml's tag run covers this.
 test-webkit:
 	uv run pytest -m e2e --browser chromium --browser webkit
 
