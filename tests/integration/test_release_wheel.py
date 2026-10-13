@@ -9,12 +9,20 @@ wheel it uploads, before the upload.
 """
 
 import socket
+import stat
+from pathlib import Path
 
 import httpx
 import pytest
 
+from tests.support.app_env import HOME_ENV_RELATIVE, isolated_environ
 from tests.support.fixtures.release import ReleaseRun
-from tests.support.release import non_loopback_address, pyproject_version
+from tests.support.release import (
+    non_loopback_address,
+    pyproject_version,
+    run_released_until_exit,
+    uv_cache_dir,
+)
 
 VERSION = pyproject_version()
 DEEP_CLIENT_PATH = "/any/deep/path"
@@ -60,3 +68,23 @@ def test_uvx_start_listens_on_loopback_only(released_app: ReleaseRun) -> None:
         socket.create_connection((lan_address, released_app.port), timeout=5).close()
     assert httpx.get(f"{released_app.app.url}/api/health").status_code == 200
     assert f"{SERVING_ON}{released_app.port}" in released_app.app.output
+
+
+@pytest.mark.p0
+def test_uvx_start_on_a_bare_home_creates_the_config(release_wheel: Path, tmp_path: Path) -> None:
+    """A fresh machine, no terminal: the wheel writes ~/.config/language-lab/.env from its own
+    template, mode 0600, names the three variables to set, and exits 1."""
+    home = tmp_path / "home"
+    home.mkdir()
+    env = isolated_environ(home, {"UV_CACHE_DIR": uv_cache_dir()})
+
+    run = run_released_until_exit(release_wheel, env=env, cwd=tmp_path)
+
+    config = home / HOME_ENV_RELATIVE
+    assert run.returncode == 1, run.output
+    assert stat.S_IMODE(config.stat().st_mode) == 0o600
+    assert "ANKI_PREFIX=LanguageLab" in config.read_text(encoding="utf-8").splitlines()
+    assert f"created config at {config}" in run.output
+    for variable in ("AZURE_SPEECH_KEY", "AZURE_SPEECH_REGION", "OPENROUTER_API_KEY"):
+        assert variable in run.output
+    assert "Traceback" not in run.output

@@ -1,6 +1,9 @@
 """Application configuration (AD-18): the only module that reads the environment or a `.env`."""
 
 import os
+import re
+from collections.abc import Mapping
+from importlib.resources import files
 from pathlib import Path
 from typing import Annotated, Self, TypedDict
 
@@ -19,10 +22,25 @@ DEV_ENV = f"{ENV_PREFIX}DEV"
 HOME_ENV_RELATIVE = Path(".config/language-lab/.env")
 RELEASE_PREFIX = "LanguageLab"  # dev mode may never write this Prefix (AD-4, Q5)
 PREFIX_PATTERN = r"^[A-Za-z][A-Za-z0-9]*$"
+DEV_PREFIX = "LanguageLabDev"  # what a created dev config uses, so it passes the dev-prefix rule
+
+# The config template, shipped in the package: the one source of truth for a new `.env`.
+TEMPLATE = files("language_lab") / "env.example"
+
+# What first-start setup asks for, in order: (key, secret). Secrets are read without echo.
+NECESSARY_KEYS: tuple[tuple[str, bool], ...] = (
+    ("AZURE_SPEECH_KEY", True),
+    ("AZURE_SPEECH_REGION", False),
+    ("OPENROUTER_API_KEY", True),
+)
+
+# Characters an unquoted dotenv value cannot carry unchanged: quotes, comments, escapes, and
+# `$` (python-dotenv interpolates `${VAR}`). Whitespace and control characters are checked apart.
+_UNSAFE_CHARS = frozenset("'\"`#\\$")
 
 
 class ConfigError(ValueError):
-    """The configuration file the current mode needs does not exist."""
+    """The configuration file the current mode needs is missing, unreadable, or not creatable."""
 
 
 class Settings(BaseSettings):
@@ -91,6 +109,60 @@ def config_path(dev: bool) -> Path:
     return Path.cwd() / ".env" if dev else Path.home() / HOME_ENV_RELATIVE
 
 
+def is_dev_mode() -> bool:
+    """Whether `LANGUAGE_LAB_DEV` is on in the process env. Raises `ValidationError` if invalid."""
+    return _dev_mode()
+
+
+def active_config_path() -> Path:
+    """The `.env` the current mode reads: `config_path()` for `LANGUAGE_LAB_DEV`."""
+    return config_path(_dev_mode())
+
+
+def is_safe_value(value: str) -> bool:
+    """Whether `value` can be written as an unquoted `KEY=value` line and read back unchanged."""
+    return all(ch.isprintable() and not ch.isspace() and ch not in _UNSAFE_CHARS for ch in value)
+
+
+def render_config(dev: bool, values: Mapping[str, str]) -> str:
+    """The template with each `KEY=` line in `values` set to its value.
+
+    Dev mode also sets `ANKI_PREFIX` to the dev Prefix. Every other line is the template's.
+    Raises `ValueError` for an unknown key or a value `is_safe_value()` rejects.
+    """
+    replace = dict(values)
+    if dev:
+        replace.setdefault("ANKI_PREFIX", DEV_PREFIX)
+    text = TEMPLATE.read_text(encoding="utf-8")
+    for key, value in replace.items():
+        if not is_safe_value(value):
+            raise ValueError(f"{key}: value cannot be written to a .env file unquoted")
+        # A safe value has no backslash, so it is literal as a replacement string.
+        text, count = re.subn(rf"^{re.escape(key)}=.*$", f"{key}={value}", text, flags=re.M)
+        if count != 1:
+            raise ValueError(f"{key}: not a key of the config template")
+    return text
+
+
+def create_config(path: Path, text: str) -> None:
+    """Write `text` to a new file at `path`, mode 0600, creating its parent directories.
+
+    Never touches an existing file. Raises `ConfigError` naming `path` on any OS failure,
+    including `path` already existing.
+    """
+    try:
+        path.parent.mkdir(parents=True, exist_ok=True)
+        fd = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
+    except OSError as exc:
+        raise ConfigError(f"cannot create config at {path}: {exc.strerror}") from exc
+    try:
+        with os.fdopen(fd, "w", encoding="utf-8") as f:
+            f.write(text)
+    except OSError as exc:
+        path.unlink(missing_ok=True)  # ours: O_EXCL created it; leave no half-written config
+        raise ConfigError(f"cannot create config at {path}: {exc.strerror}") from exc
+
+
 def load_settings() -> Settings:
     """Settings from the current mode's `.env`; the process env overrides the file.
 
@@ -99,7 +171,7 @@ def load_settings() -> Settings:
     """
     path = config_path(_dev_mode())
     if not path.is_file():
-        raise ConfigError(f"no config at {path}; copy .env.example")
+        raise ConfigError(f"no config at {path}: not a regular file")
     try:
         return Settings(_env_file=path)
     except OSError as exc:

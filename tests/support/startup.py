@@ -19,11 +19,15 @@ class StartupRun:
 def run_language_lab(
     *, env: Mapping[str, str], cwd: Path, timeout_s: float = STARTUP_ABORT_TIMEOUT_S
 ) -> StartupRun:
-    """Run the console entry point's `main()` with exactly `env` until it exits or times out."""
+    """Run the console entry point's `main()` with exactly `env` until it exits or times out.
+
+    stdin is not a terminal, so a missing config is created from the template, not prompted for.
+    """
     proc = subprocess.Popen(
         [sys.executable, "-c", "from language_lab.app import main; main()"],
         env=dict(env),
         cwd=cwd,
+        stdin=subprocess.DEVNULL,
         stdout=subprocess.PIPE,
         stderr=subprocess.STDOUT,
         text=True,

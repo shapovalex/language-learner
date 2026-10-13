@@ -1,15 +1,23 @@
 """Story 1.2: configuration from ~/.config/language-lab/.env."""
 
 import os
+import stat
 from pathlib import Path
 
 import pytest
 
-from language_lab.settings import ConfigError
+from language_lab.settings import (
+    NECESSARY_KEYS,
+    ConfigError,
+    create_config,
+    is_safe_value,
+    render_config,
+)
 from tests.support.app_env import config_values, dotenv_keys, settings_env_names
 from tests.support.fixtures.settings import ConfigFiles, SettingsFactory, SettingsLoader
 
-ENV_EXAMPLE = Path(__file__).resolve().parents[2] / ".env.example"
+# The config template, shipped inside the package (the wheel's only copy).
+ENV_EXAMPLE = Path(__file__).resolve().parents[2] / "src" / "language_lab" / "env.example"
 RELEASE_PREFIX = "LanguageLab"  # AD-4 / epic note: dev mode may never write this Prefix
 DEV_PREFIX = "LanguageLabDev"
 DEV_ON = {"LANGUAGE_LAB_DEV": "1"}
@@ -115,7 +123,7 @@ def test_openrouter_models_parse_in_order(
 
 @pytest.mark.p1
 def test_env_example_documents_every_settings_field() -> None:
-    """AC-8: every Settings field has its key in .env.example."""
+    """AC-8: every Settings field has its key in the config template."""
     missing = sorted(settings_env_names() - dotenv_keys(ENV_EXAMPLE))
 
     assert missing == []
@@ -289,7 +297,7 @@ def test_repr_and_str_hide_secrets(
 
 @pytest.mark.p2
 def test_env_example_has_no_stale_keys() -> None:
-    """AC-8: every key in .env.example maps to a Settings field."""
+    """AC-8: every key in the config template maps to a Settings field."""
     stale = sorted(dotenv_keys(ENV_EXAMPLE) - settings_env_names())
 
     assert stale == []
@@ -327,7 +335,119 @@ def test_unreadable_config_is_a_config_error(
 def test_blank_public_host_is_none(
     config_files: ConfigFiles, settings_loader: SettingsLoader, blank: str
 ) -> None:
-    """.env.example ships LANGUAGE_LAB_PUBLIC_HOST= empty; that means "not set"."""
+    """The config template ships LANGUAGE_LAB_PUBLIC_HOST= empty; that means "not set"."""
     config_files.write_home(config_values(LANGUAGE_LAB_PUBLIC_HOST=blank))
 
     assert settings_loader().public_host is None
+
+
+# Create-from-template (first start without a config).
+
+
+def _lines(text: str) -> set[str]:
+    return set(text.splitlines())
+
+
+@pytest.mark.p0
+def test_render_config_places_the_given_values() -> None:
+    values = {"AZURE_SPEECH_KEY": "azkey123", "AZURE_SPEECH_REGION": "westeurope"}
+
+    lines = _lines(render_config(False, values))
+
+    assert {"AZURE_SPEECH_KEY=azkey123", "AZURE_SPEECH_REGION=westeurope"} <= lines
+    assert "OPENROUTER_API_KEY=" in lines
+    assert f"ANKI_PREFIX={RELEASE_PREFIX}" in lines
+
+
+@pytest.mark.p1
+def test_render_config_keeps_every_other_template_line() -> None:
+    template = ENV_EXAMPLE.read_text(encoding="utf-8")
+    rendered = render_config(False, {"OPENROUTER_API_KEY": "sk-or-1"})
+
+    assert rendered == template.replace("\nOPENROUTER_API_KEY=\n", "\nOPENROUTER_API_KEY=sk-or-1\n")
+
+
+@pytest.mark.p0
+def test_render_config_in_dev_mode_uses_the_dev_prefix() -> None:
+    lines = _lines(render_config(True, {}))
+
+    assert f"ANKI_PREFIX={DEV_PREFIX}" in lines
+    assert f"ANKI_PREFIX={RELEASE_PREFIX}" not in lines
+
+
+@pytest.mark.p1
+def test_rendered_dev_config_loads_in_dev_mode(
+    config_files: ConfigFiles, settings_loader: SettingsLoader
+) -> None:
+    config_files.repo.write_text(render_config(True, {"AZURE_SPEECH_REGION": "westeurope"}))
+
+    settings = settings_loader(env=DEV_ON)
+
+    assert (settings.anki_prefix, settings.azure_speech_region) == (DEV_PREFIX, "westeurope")
+
+
+@pytest.mark.p1
+def test_render_config_rejects_unsafe_values_and_unknown_keys() -> None:
+    with pytest.raises(ValueError, match="AZURE_SPEECH_KEY"):
+        render_config(False, {"AZURE_SPEECH_KEY": "a b"})
+    with pytest.raises(ValueError, match="NOT_A_KEY"):
+        render_config(False, {"NOT_A_KEY": "x"})
+
+
+@pytest.mark.p1
+@pytest.mark.parametrize("value", ["a b", "a\tb", "a\nb", "'a'", '"a"', "a#b", "a\\b", "${HOME}"])
+def test_unsafe_values_are_rejected(value: str) -> None:
+    assert not is_safe_value(value)
+
+
+@pytest.mark.p1
+@pytest.mark.parametrize("value", ["", "westeurope", "sk-or-v1-0123abcdef", "a_b.c/d+e=f"])
+def test_safe_values_are_accepted(value: str) -> None:
+    assert is_safe_value(value)
+
+
+@pytest.mark.p1
+def test_necessary_keys_are_the_three_service_keys_in_prompt_order() -> None:
+    assert NECESSARY_KEYS == (
+        ("AZURE_SPEECH_KEY", True),
+        ("AZURE_SPEECH_REGION", False),
+        ("OPENROUTER_API_KEY", True),
+    )
+
+
+@pytest.mark.p0
+def test_create_config_creates_the_directory_and_a_0600_file(tmp_path: Path) -> None:
+    path = tmp_path / "home" / ".config" / "language-lab" / ".env"
+
+    create_config(path, "KEY=value\n")
+
+    assert path.read_text(encoding="utf-8") == "KEY=value\n"
+    assert stat.S_IMODE(path.stat().st_mode) == 0o600
+
+
+@pytest.mark.p0
+def test_create_config_never_touches_an_existing_file(tmp_path: Path) -> None:
+    path = tmp_path / ".env"
+    path.write_bytes(b"")
+    path.chmod(0o644)
+
+    with pytest.raises(ConfigError, match=f"cannot create config at {path}"):
+        create_config(path, "KEY=value\n")
+
+    assert path.read_bytes() == b""
+    assert stat.S_IMODE(path.stat().st_mode) == 0o644
+
+
+@pytest.mark.p1
+@pytest.mark.skipif(os.geteuid() == 0, reason="root can write a read-only directory")
+def test_create_config_in_an_unwritable_directory_is_a_config_error(tmp_path: Path) -> None:
+    parent = tmp_path / "locked"
+    parent.mkdir()
+    parent.chmod(0o500)
+    path = parent / "language-lab" / ".env"
+    try:
+        with pytest.raises(ConfigError, match=f"cannot create config at {path}"):
+            create_config(path, "KEY=value\n")
+    finally:
+        parent.chmod(0o700)
+    assert not path.exists()

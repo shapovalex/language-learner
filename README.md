@@ -23,23 +23,20 @@ HTTPS. Browsers only allow microphone access over HTTPS.
 git clone git@github.com:shapovalex/language-learner.git
 cd language-learner
 uv sync                       # creates .venv and installs the app plus dev tools
-
-cp .env.example .env          # dev mode reads ./.env (gitignored)
 ```
 
-Edit `.env` and set a **dev** Anki prefix so dev work never touches your real decks:
-
-```sh
-ANKI_PREFIX=LanguageLabDev
-```
-
-In dev mode the app refuses to start if `ANKI_PREFIX` is `LanguageLab` (in any letter case).
-
-Start the server:
+Start the server in dev mode:
 
 ```sh
 LANGUAGE_LAB_DEV=1 uv run language-lab
 ```
+
+Dev mode reads `./.env` (gitignored). On the first start, if it is missing, the app asks in the
+terminal for `AZURE_SPEECH_KEY`, `AZURE_SPEECH_REGION` and `OPENROUTER_API_KEY` (keys are not
+shown as you type; leave any empty to set it later), creates `./.env` from the template with
+`ANKI_PREFIX=LanguageLabDev`, and starts. The dev Prefix keeps dev work away from your real
+decks: in dev mode the app refuses to start if `ANKI_PREFIX` is `LanguageLab` (in any letter
+case).
 
 Open <http://127.0.0.1:8787/>. Check it with `curl http://127.0.0.1:8787/api/health`.
 
@@ -72,16 +69,15 @@ Copy the wheel to the host machine (`scp`, AirDrop, a GitHub release asset, etc.
 
 ### 2. Create the config
 
-On the host machine:
+Nothing to do by hand: the first start (step 3) creates `~/.config/language-lab/.env` from the
+template inside the wheel. It asks in the terminal for `AZURE_SPEECH_KEY`, `AZURE_SPEECH_REGION`
+and `OPENROUTER_API_KEY` (keys are not shown as you type; leave any empty to set it later),
+writes the file with mode `600`, and starts. Without a terminal (e.g. under a service manager)
+it writes the file with those keys empty, tells you to set them, and exits; edit the file and
+start again.
 
-```sh
-mkdir -p ~/.config/language-lab
-cp .env.example ~/.config/language-lab/.env     # get .env.example from this repo
-chmod 600 ~/.config/language-lab/.env
-```
-
-Edit `~/.config/language-lab/.env`. For release use, keep `ANKI_PREFIX=LanguageLab` and fill in
-your keys. See [Configuration](#configuration) for every key.
+For release use, keep `ANKI_PREFIX=LanguageLab`. See [Configuration](#configuration) for every
+key.
 
 ### 3. Run it
 
@@ -123,7 +119,10 @@ requests addressed to `127.0.0.1:<port>`, `localhost:<port>`, or that name. Othe
 
 The app reads `~/.config/language-lab/.env` (release) or `./.env` (dev, with
 `LANGUAGE_LAB_DEV=1`). Variables in the process environment override the file. If the file is
-missing, the app exits with an error that names the path it looked for.
+missing, the app creates it from the template shipped in the package (`language_lab/env.example`,
+which documents every key) and asks for the three service keys, as described above; without a
+terminal it creates the file, names the path and the keys to set, and exits. An existing file,
+even an empty one, is never changed.
 
 | Key | Default | Meaning |
 | --- | --- | --- |
