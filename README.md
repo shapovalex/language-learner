@@ -82,7 +82,7 @@ key.
 ### 3. Run it
 
 ```sh
-uvx --from /path/to/language_lab-0.1.0-py3-none-any.whl language-lab
+uvx --from /path/to/language_lab-0.2.0-py3-none-any.whl language-lab
 ```
 
 `uvx` also accepts a URL to the wheel. The app prints the address it listens on, and, if it

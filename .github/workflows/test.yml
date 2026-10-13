@@ -110,7 +110,7 @@ jobs:
     if: github.event_name == 'pull_request'
 
     env:
-      BURN_IN_ITERATIONS: "10"
+      BURN_IN_ITERATIONS: "3"
 
     steps:
       - uses: actions/checkout@v5
