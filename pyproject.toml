@@ -16,6 +16,7 @@ dependencies = [
 
 [project.scripts]
 language-lab = "language_lab.app:main"
+language-lab-record-fixtures = "language_lab.tools.record_tailscale_fixtures:main"
 
 [dependency-groups]
 dev = [

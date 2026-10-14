@@ -60,6 +60,10 @@ def tailscale_status(**overrides: object) -> str:
     return json.dumps({**json.loads(tailscale_status_text()), **overrides})
 
 
-def serve_headers() -> dict[str, str]:
-    """The headers Tailscale Serve forwarded for a tailnet browser's POST."""
-    return json.loads(TAILSCALE_SERVE_HEADERS.read_text(encoding="utf-8"))["headers"]
+def serve_headers(recording: Path = TAILSCALE_SERVE_HEADERS) -> dict[str, str]:
+    """The headers Tailscale Serve forwarded for a tailnet browser's POST.
+
+    Without `content-length`: it framed the recorded body, and the client sets its own.
+    """
+    headers = json.loads(recording.read_text(encoding="utf-8"))["headers"]
+    return {name: value for name, value in headers.items() if name != "content-length"}
