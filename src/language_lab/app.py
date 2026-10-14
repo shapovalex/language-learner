@@ -31,7 +31,7 @@ from language_lab.settings import (
     NECESSARY_KEYS,
     ConfigError,
     Settings,
-    active_config_path,
+    config_path,
     create_config,
     describe_errors,
     is_dev_mode,
@@ -70,6 +70,14 @@ def _envelope_response(
 ) -> JSONResponse:
     request_id = getattr(request.state, _REQUEST_ID, None) or uuid.uuid4().hex
     return JSONResponse(error_envelope(code, request_id), status_code=status, headers=headers)
+
+
+def _error_response(scope: Scope, status: int, code: ErrorCode, text: str) -> Response:
+    """The envelope on `/api` paths, `text` as plain text elsewhere, for the middlewares."""
+    if not _is_api(scope["path"]):
+        return PlainTextResponse(text, status_code=status)
+    request_id = scope.get("state", {}).get(_REQUEST_ID) or uuid.uuid4().hex
+    return JSONResponse(error_envelope(code, request_id), status_code=status)
 
 
 async def _on_validation_error(request: Request, exc: Exception) -> Response:
@@ -125,12 +133,8 @@ class RequestLogMiddleware:
             state[_ERROR_CODE] = ErrorCode.INTERNAL_ERROR.value
             status = 500
             if not started:
-                response: Response = (
-                    JSONResponse(
-                        error_envelope(ErrorCode.INTERNAL_ERROR, request_id), status_code=500
-                    )
-                    if _is_api(scope["path"])
-                    else PlainTextResponse("Internal Server Error", status_code=500)
+                response = _error_response(
+                    scope, 500, ErrorCode.INTERNAL_ERROR, "Internal Server Error"
                 )
                 await response(scope, receive, send)
         finally:
@@ -203,16 +207,8 @@ class AllowListMiddleware:
         if scope["type"] != "http" or self._permits(scope):
             await self.app(scope, receive, send)
             return
-        state = scope.setdefault("state", {})
-        state[_ERROR_CODE] = ErrorCode.FORBIDDEN_ORIGIN.value
-        response: Response
-        if _is_api(scope["path"]):
-            request_id = state.get(_REQUEST_ID) or uuid.uuid4().hex
-            response = JSONResponse(
-                error_envelope(ErrorCode.FORBIDDEN_ORIGIN, request_id), status_code=403
-            )
-        else:
-            response = PlainTextResponse("Forbidden", status_code=403)
+        scope.setdefault("state", {})[_ERROR_CODE] = ErrorCode.FORBIDDEN_ORIGIN.value
+        response = _error_response(scope, 403, ErrorCode.FORBIDDEN_ORIGIN, "Forbidden")
         await response(scope, receive, send)
 
 
@@ -327,9 +323,10 @@ def _setup_config(
 
 def main() -> None:
     try:
-        path = active_config_path()
+        dev = is_dev_mode()
+        path = config_path(dev)
         if not path.exists() and not path.is_symlink():
-            _setup_config(path, is_dev_mode(), input, getpass.getpass, sys.stdin.isatty)
+            _setup_config(path, dev, input, getpass.getpass, sys.stdin.isatty)
         settings = load_settings()
     except ConfigError as exc:
         print(exc, file=sys.stderr)
