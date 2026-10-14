@@ -5,7 +5,7 @@ browser over Tailscale Serve, and from nowhere else. It covers the epic's Done-w
 the risks R-05 (real Serve headers), R-09 (real iOS Safari) and R-12 (LAN exposure).
 
 - **Release under test:** `v0.2.1`, the first release with the recorder command used in part E
-- **Run on:** _date_
+- **Run on:** 2026-10-14
 - **Devices:** Mac Mini (host), iPhone Safari, iPad Safari, desktop browser on another computer
 
 This repository is public. Do not write your real tailnet name, machine name, login or any
@@ -108,34 +108,36 @@ Note in Findings which headers Serve sent that the synthetic fixture did not hav
 
 | Step | Mac Mini | iPhone | iPad | Desktop | Notes |
 | --- | --- | --- | --- | --- | --- |
-| A1 install and start | | n/a | n/a | n/a | |
-| A2 config mode 600 | | n/a | n/a | n/a | |
-| A3 Tailscale Serve | | n/a | n/a | n/a | |
-| A4 both startup lines | | n/a | n/a | n/a | |
-| A5 local health | | n/a | n/a | n/a | |
-| B1 HTTPS shell loads | n/a | | | | |
-| B2 every destination by nav | n/a | | | | |
-| B3 every destination by direct URL | n/a | | | | |
-| B4 unknown path | n/a | | | | |
-| B5 Setup shows the version | n/a | | | | |
-| B6 secure context on the shell | n/a | n/a | n/a | | |
-| B7 Menu sheet | n/a | | n/a | n/a | |
-| B8 safe-area insets | n/a | | n/a | n/a | |
-| B9 swipe back and forward | n/a | | | n/a | |
-| B10 return from background | n/a | | | n/a | |
-| C1 browser POST not forbidden | n/a | n/a | n/a | | |
-| C2 foreign Origin forbidden | n/a | n/a | n/a | | |
-| C3 missing Origin forbidden | n/a | n/a | n/a | | |
-| C4 tailnet Origin not forbidden | n/a | n/a | n/a | | |
-| C5 content-free log lines | | n/a | n/a | n/a | |
-| D1 AnkiConnect live locally | | n/a | n/a | n/a | |
-| D2 LAN 8787 unreachable | n/a | n/a | n/a | | |
-| D3 LAN 8765 unreachable | n/a | n/a | n/a | | |
-| E2 secure context | n/a | | | | |
-| E3 headers recorded | n/a | n/a | n/a | | |
-| E4 status recorded | | n/a | n/a | n/a | |
-| E5 nothing private | | n/a | n/a | n/a | |
-| E6 files sent back | | n/a | n/a | n/a | |
+| A1 install and start | not run | n/a | n/a | n/a | Postponed by the user on 2026-10-14; see the note below. |
+| A2 config mode 600 | not run | n/a | n/a | n/a | Postponed by the user on 2026-10-14; see the note below. |
+| A3 Tailscale Serve | not run | n/a | n/a | n/a | Postponed by the user on 2026-10-14; see the note below. |
+| A4 both startup lines | not run | n/a | n/a | n/a | Postponed by the user on 2026-10-14; see the note below. |
+| A5 local health | not run | n/a | n/a | n/a | Postponed by the user on 2026-10-14; see the note below. |
+| B1 HTTPS shell loads | n/a | not run | not run | not run | Postponed by the user on 2026-10-14; see the note below. |
+| B2 every destination by nav | n/a | not run | not run | not run | Postponed by the user on 2026-10-14; see the note below. |
+| B3 every destination by direct URL | n/a | not run | not run | not run | Postponed by the user on 2026-10-14; see the note below. |
+| B4 unknown path | n/a | not run | not run | not run | Postponed by the user on 2026-10-14; see the note below. |
+| B5 Setup shows the version | n/a | not run | not run | not run | Postponed by the user on 2026-10-14; see the note below. |
+| B6 secure context on the shell | n/a | n/a | n/a | not run | Postponed by the user on 2026-10-14; see the note below. |
+| B7 Menu sheet | n/a | not run | n/a | n/a | Postponed by the user on 2026-10-14; see the note below. |
+| B8 safe-area insets | n/a | not run | n/a | n/a | Postponed by the user on 2026-10-14; see the note below. |
+| B9 swipe back and forward | n/a | not run | not run | n/a | Postponed by the user on 2026-10-14; see the note below. |
+| B10 return from background | n/a | not run | not run | n/a | Postponed by the user on 2026-10-14; see the note below. |
+| C1 browser POST not forbidden | n/a | n/a | n/a | not run | Postponed by the user on 2026-10-14; see the note below. |
+| C2 foreign Origin forbidden | n/a | n/a | n/a | not run | Postponed by the user on 2026-10-14; see the note below. |
+| C3 missing Origin forbidden | n/a | n/a | n/a | not run | Postponed by the user on 2026-10-14; see the note below. |
+| C4 tailnet Origin not forbidden | n/a | n/a | n/a | not run | Postponed by the user on 2026-10-14; see the note below. |
+| C5 content-free log lines | not run | n/a | n/a | n/a | Postponed by the user on 2026-10-14; see the note below. |
+| D1 AnkiConnect live locally | not run | n/a | n/a | n/a | Postponed by the user on 2026-10-14; see the note below. |
+| D2 LAN 8787 unreachable | n/a | n/a | n/a | not run | Postponed by the user on 2026-10-14; see the note below. |
+| D3 LAN 8765 unreachable | n/a | n/a | n/a | not run | Postponed by the user on 2026-10-14; see the note below. |
+| E2 secure context | n/a | not run | not run | not run | Postponed by the user on 2026-10-14; see the note below. |
+| E3 headers recorded | n/a | n/a | n/a | pass | `tailscale-serve-headers.json` received: a same-origin POST, `host` and `x-forwarded-host` both the tailnet name. |
+| E4 status recorded | pass | n/a | n/a | n/a | `tailscale-status.json` received: `BackendState` `Running`, Tailscale 1.104.1. |
+| E5 nothing private | pass | n/a | n/a | n/a | Re-checked on the development machine: no tailnet name but the placeholder, no login, no LAN address. |
+| E6 files sent back | pass | n/a | n/a | n/a | Now `tests/fixtures/`; the allow-list, discovery and recorder tests pass on them (59 passed), full suite 330 passed. |
+
+**Status (2026-10-14):** the user ran the release on the Mac Mini, reached it from their devices, and recorded both fixtures (E3 to E6). They were satisfied with how it works and postponed reporting the individual steps, and will report anything wrong later. Every step marked "not run" has no recorded result. It is not a pass.
 
 ## Not covered by this run
 

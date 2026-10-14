@@ -1,14 +1,30 @@
 {
-  "request": {"method": "POST", "url": "https://mac-mini.tail1234.ts.net/api/_echo"},
+  "request": {
+    "method": "POST",
+    "url": "https://mac-mini.tail1234.ts.net/api/_echo"
+  },
   "upstream": "http://127.0.0.1:8787",
   "headers": {
     "host": "mac-mini.tail1234.ts.net",
-    "x-forwarded-host": "mac-mini.tail1234.ts.net",
-    "x-forwarded-proto": "https",
-    "x-forwarded-for": "100.64.0.2",
+    "user-agent": "redacted",
+    "content-length": "2",
+    "accept": "redacted",
+    "accept-encoding": "redacted",
+    "accept-language": "redacted",
+    "content-type": "application/json",
     "origin": "https://mac-mini.tail1234.ts.net",
+    "priority": "redacted",
+    "referer": "https://mac-mini.tail1234.ts.net/",
+    "sec-fetch-dest": "empty",
+    "sec-fetch-mode": "cors",
     "sec-fetch-site": "same-origin",
+    "tailscale-headers-info": "redacted",
     "tailscale-user-login": "user@example.com",
-    "tailscale-user-name": "Example User"
+    "tailscale-user-name": "Example User",
+    "tailscale-user-profile-pic": "redacted",
+    "te": "redacted",
+    "x-forwarded-for": "100.64.0.2",
+    "x-forwarded-host": "mac-mini.tail1234.ts.net",
+    "x-forwarded-proto": "https"
   }
 }

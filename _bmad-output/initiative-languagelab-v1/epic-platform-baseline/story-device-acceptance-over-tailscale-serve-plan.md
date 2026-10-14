@@ -62,7 +62,7 @@ context: []
 - [x] `src/language_lab/tools/record_tailscale_fixtures.py`, `pyproject.toml` `[project.scripts]` -- the recorder: `serve` (page showing `window.isSecureContext` and a POST button; writes the sanitised headers file) and `status` (stdin to sanitised status JSON); binds `127.0.0.1` only -- R-05, AC2
 - [x] `tests/integration/test_record_tailscale_fixtures.py`, `tests/support/` helper -- sanitising removes a real tailnet name, login, display name and IPs and keeps header names; the output loads through `serve_headers()` and passes discovery -- R-05
 - [ ] HITL: the user releases `v0.2.1` from this branch's work, runs the runbook, and reports results, findings and the two recorded files
-- [ ] `tests/fixtures/*.json`, `tests/fixtures/README.md` -- replace with the sanitised recordings; rewrite the synthetic note as how they were recorded -- R-05
+- [x] `tests/fixtures/*.json`, `tests/fixtures/README.md` -- replace with the sanitised recordings; rewrite the synthetic note as how they were recorded -- R-05
 - [ ] Findings -- fix each (docs, `src/`, tests) or append it to `_bmad-output/initiative-languagelab-v1/deferred-work.md`; add the R-03 dirty swipe-back entry
 - [ ] `_bmad-output/test-artifacts/acceptance/device-acceptance-1-10.md` -- fill in results and the disposition of each finding
 
@@ -81,7 +81,9 @@ context: []
 - The R-03 dirty swipe-back entry is in `deferred-work.md`.
 - After the user's amendment the recorder moved from `scripts/` into the package (`language_lab.tools`, console script `language-lab-record-fixtures`), and was run from a locally built wheel through `uvx`. `tests/unit/test_docs_consistency.py` picked the single console script by unpacking; it now picks the one that targets `language_lab.app:main`.
 - The version is not bumped here; the release bump is its own change, as for 0.2.0, and it must update the asset URL in the docs.
-- Waiting on the HITL task: the device run, the two recordings, and the findings.
+- 2026-10-14: the user recorded both fixtures on the Mac Mini with 0.2.1. Serve keeps the tailnet name in `Host` and sends the same `X-Forwarded-Host`; it also sends `content-length`, which `serve_headers()` already drops. The allow-list tests pass unchanged on the recordings.
+- 2026-10-14: the user postponed reporting the per-step results (satisfied with how it works; will report problems later). The runbook marks those steps "not run", and a deferred-work entry tracks recording them. No findings were reported, so none were fixed or ticketed.
+- Still open from the HITL task: the device run, the two recordings, and the findings.
 
 ## Plan Change Log
 

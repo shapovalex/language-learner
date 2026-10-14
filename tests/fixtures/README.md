@@ -7,18 +7,21 @@ Inputs captured from real externals, replayed by tests so nothing reaches them (
 | `tailscale-status.json` | `tailscale status --json` on the Mac Mini | `tests/unit/test_tailscale_discovery.py` |
 | `tailscale-serve-headers.json` | The request headers Tailscale Serve forwards to `127.0.0.1:8787` for a browser `POST` | `tests/api/test_host_origin_allow_list.py` |
 
-## Synthetic until recorded (R-05)
+## Recorded on the Mac Mini (R-05)
 
-Both Tailscale files are **synthetic**. They were written from Tailscale's documented formats on 2026-10-11, because the Mac Mini recordings weren't available yet.
-Replace them with real recordings before entry 10 (device acceptance), keeping the tailnet name `mac-mini.tail1234.ts.net` or updating `TAILNET_HOST` in `tests/support/hosts.py` to match.
+Both Tailscale files were recorded on the Mac Mini on 2026-10-14 during story 1.10 (device acceptance), with Tailscale 1.104.1 and LanguageLab 0.2.1. They replaced synthetic files written from Tailscale's documented formats.
 
-Recording, on the Mac Mini:
+They come from the `language-lab-record-fixtures` command in the wheel, which replaces the tailnet name, logins, display names, addresses, keys and ids with the placeholders the tests use (`mac-mini.tail1234.ts.net`, `user@example.com`, ...). Every other header value and status string is `redacted`. Header names and status keys are as Tailscale sent them.
+
+What the recording showed: Tailscale Serve keeps the tailnet name in `Host` and sends the same name in `X-Forwarded-Host`, with `X-Forwarded-Proto: https` and the browser's `https://` Origin. It also adds `Tailscale-User-Login`, `Tailscale-User-Name`, `Tailscale-User-Profile-Pic` and `Tailscale-Headers-Info`.
+
+To record them again, on the host machine, with `WHEEL` set to the release asset URL:
 
 ```bash
-tailscale status --json > tests/fixtures/tailscale-status.json
-# Headers: start the app, run `tailscale serve --bg 8787`, then POST from a tailnet browser and
-# copy the request headers the app received (a temporary echo route or a debug log line).
+# Stop language-lab, then:
+uvx --from "$WHEEL" language-lab-record-fixtures serve
+# open https://<tailnet>/ in a tailnet browser and press "Record headers"; Ctrl-C to stop
+tailscale status --json | uvx --from "$WHEEL" language-lab-record-fixtures status > tailscale-status.json
 ```
 
-Strip anything you don't want committed (peer names, login) before saving.
-Under the Q1 rule (both `Host` and `X-Forwarded-Host` must be allowed), the tests pass whether Serve keeps the public `Host` or rewrites it to loopback.
+Read both files before committing them.
