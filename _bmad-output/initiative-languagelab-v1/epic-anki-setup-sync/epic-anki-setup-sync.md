@@ -34,11 +34,20 @@ The user previews and applies every Managed resource change with confirmation, a
 
 - parent — _bmad-output/initiative-languagelab-v1/spec-languagelab/spec-languagelab.md, CAP-2, CAP-11; Assumptions (unrecognized content rows)
 - prd — prd-languagelab/prd-languagelab.md, FR-5–FR-8, FR-36, NFR-1–NFR-3, AC3, AC7, AC20, AC22; addendum.md A3 (note types, fields, deck tree)
-- architecture — architecture-languagelab/architecture-languagelab.md, AD-1, AD-3, AD-4, AD-5, AD-9, AD-17, AD-19
+- architecture — architecture-languagelab/architecture-languagelab.md, AD-1, AD-2, AD-3, AD-4, AD-5, AD-7, AD-9, AD-10, AD-17, AD-19
 - ux — ux-languagelab/mockups/S-Setup.dc.html, S-SetupStates.dc.html; EXPERIENCE.md Setup states
 
 ## Notes
 
 - Decision (2026-10-08): the readiness check tests only that Azure and OpenRouter keys are configured, no live calls.
 - Decision (2026-10-08): this epic owns `manifest.py` and ships working template files; epic-capture-to-item writes their final markup and CSS as a template-only change with no SchemaVersion bump.
+- Decision (2026-10-14): real Anki with AnkiConnect runs only on the Mac Mini; live checks and AnkiConnect fixture recording go through a wheel command there (see memory: Mac Mini is uvx and wheels only), and development tests run against fakes and recorded fixtures.
+- Decision (2026-10-14): AnkiConnect behavior on schema changes, Sync results (full sync required, not logged in, offline), and deck-config bury fields is settled by a hitl spike right after the tracer, not by unknowns on entries.
+- Decision (2026-10-14): `newer_schema` shows a blocking inline alert on Setup ("Anki was set up by a newer LanguageLab. Install the latest release."), Apply hidden, writes gated; visual pattern from the failing readiness tile.
+- Decision (2026-10-14): opt-in repairs (orphan media, misplaced or unsuspended managed cards) are change rows with an unchecked checkbox each; only checked rows enter the plan and its hash; non-managed rows stay read-only.
+- Decision (2026-10-14): entry 1 is the tracer; the Sync feature (10) follows the spike and goes before the guard-and-preview entry (6) because both edit the adapter, port, and fake; the manifest (4) is a parallel lane after the tracer; repairs (11) follow migrations (9) because they share the setup service and screen.
+- Decision (2026-10-14): the user merged the field codec into the manifest entry (4) and the Prefix guard into the preview entry (6), giving 12 entries; ids 3 and 5 are retired.
+- Decision (2026-10-14): spike 2 probes in a throwaway Anki profile logged in to a throwaway AnkiWeb account, so the real collection and LanguageLabDev stay untouched.
+- Decision (2026-10-14): entry 6 stays merged and carries `refine = true`, so it gets full acceptance criteria before the build.
+- Decision (2026-10-14): the Refactor sweep (14) runs after device acceptance (13), as in epic 1; CI covers the sweep.
 - Waits on epic-platform-baseline because: it needs the composition root, settings, error envelope, shell, and test harness.
