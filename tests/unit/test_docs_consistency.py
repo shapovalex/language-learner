@@ -147,6 +147,14 @@ def _console_scripts() -> set[str]:
         return set(tomllib.load(f)["project"]["scripts"])
 
 
+def _app_script() -> str:
+    """The console script that starts the app, not the tools installed beside it."""
+    with PYPROJECT.open("rb") as f:
+        scripts = tomllib.load(f)["project"]["scripts"]
+    (script,) = (name for name, target in scripts.items() if target == "language_lab.app:main")
+    return script
+
+
 def _expected_asset_url() -> str:
     return RELEASE_ASSET_URL.format(version=pyproject_version())
 
@@ -154,7 +162,7 @@ def _expected_asset_url() -> str:
 class TestReleaseCommand:
     def test_install_page_gives_the_command_for_the_current_release(self) -> None:
         """Matrix: docs match repo. The command is the uvx line for this pyproject version."""
-        (script,) = _console_scripts()
+        script = _app_script()
 
         assert f"uvx --from {_expected_asset_url()} {script}" in _shell_lines(_text(INSTALL))
 
@@ -180,7 +188,7 @@ class TestReleaseCommand:
         assert [found for found in commands if found[1] not in scripts] == []
 
     def test_development_page_runs_the_console_script_in_dev_mode(self) -> None:
-        (script,) = _console_scripts()
+        script = _app_script()
 
         assert f"LANGUAGE_LAB_DEV=1 uv run {script}" in _shell_lines(_text(DEVELOPMENT))
 
