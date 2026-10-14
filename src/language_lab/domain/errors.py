@@ -35,6 +35,14 @@ MESSAGES: dict[ErrorCode, str] = {
 }
 
 
+class AppError(Exception):
+    """A typed domain failure. Its text is the fixed message for `code`, never upstream text."""
+
+    def __init__(self, code: ErrorCode) -> None:
+        super().__init__(MESSAGES[code])
+        self.code = code
+
+
 def error_envelope(code: ErrorCode, request_id: str) -> dict[str, dict[str, str]]:
     """The AD-15 body `{"error": {"code", "message", "requestId"}}` for `code`."""
     return {"error": {"code": code.value, "message": MESSAGES[code], "requestId": request_id}}

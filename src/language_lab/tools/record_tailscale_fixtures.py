@@ -1,10 +1,11 @@
-"""Record the two Tailscale test fixtures on the host machine, private values replaced (R-05).
+"""Record the test fixtures on the host machine, private values replaced (R-05).
 
 Installed with the app as `language-lab-record-fixtures`, so the host machine runs it from the
 same wheel:
 
   language-lab-record-fixtures serve [--port 8787] [--out FILE]
   tailscale status --json | language-lab-record-fixtures status > FILE
+  language-lab-record-fixtures anki [--url http://127.0.0.1:8765] > FILE
 
 `serve` stands in for the app on its port while the app is stopped, behind `tailscale serve`.
 Every page shows whether the browser treats the origin as a secure context, and its button
@@ -14,16 +15,23 @@ Ctrl-C.
 
 `status` reads `tailscale status --json` on stdin and prints the fixture on stdout.
 
-Neither writes a value as received unless it is known to be harmless: the tailnet name, logins,
-display names, addresses, keys and ids become the placeholders the tests use, and any other
-header value or status string becomes "redacted". Header names and status keys are kept, since
-they are what the recording is for. Read the output before committing it. Stdlib only.
+`anki` sends AnkiConnect one API v6 `version` request and prints the exchange,
+`{"request": ..., "response": ...}`, on stdout (tests/fixtures/anki/version.json). Anki must be
+open with the AnkiConnect add-on.
+
+`serve` and `status` never write a value as received unless it is known to be harmless: the
+tailnet name, logins, display names, addresses, keys and ids become the placeholders the tests
+use, and any other header value or status string becomes "redacted". Header names and status
+keys are kept, since they are what the recording is for. `anki` prints AnkiConnect's reply
+unchanged: it carries no private values. Read the output before committing it. Stdlib only.
 """
 
 import argparse
+import http.client
 import json
 import re
 import sys
+import urllib.request
 from http.server import BaseHTTPRequestHandler, HTTPServer
 from pathlib import Path
 from typing import Any
@@ -31,6 +39,9 @@ from typing import Any
 HEADERS_FILE = Path("tailscale-serve-headers.json")
 DEFAULT_PORT = 8787
 ECHO_PATH = "/api/_echo"
+ANKI_CONNECT_URL = "http://127.0.0.1:8765"  # AnkiConnect's default
+ANKI_CONNECT_VERSION = 6
+ANKI_TIMEOUT_S = 10.0
 
 # The placeholders the test suite and its fixtures agree on
 TAILNET_SUFFIX = "tail1234.ts.net"
@@ -272,16 +283,39 @@ def _status() -> int:
     return 0
 
 
+def _anki(url: str) -> int:
+    request = {"action": "version", "version": ANKI_CONNECT_VERSION}
+    http_request = urllib.request.Request(
+        url,
+        data=json.dumps(request).encode("utf-8"),
+        headers={"Content-Type": "application/json"},
+        method="POST",
+    )
+    try:
+        with urllib.request.urlopen(http_request, timeout=ANKI_TIMEOUT_S) as reply:
+            response = json.loads(reply.read())
+    except OSError, ValueError, http.client.HTTPException:
+        # OSError: refused, timed out, HTTP errors; ValueError: not JSON; HTTPException: not HTTP
+        print(f"cannot reach AnkiConnect at {url}; open Anki with AnkiConnect", file=sys.stderr)
+        return 1
+    print(json.dumps({"request": request, "response": response}, indent=2))
+    return 0
+
+
 def run(argv: list[str]) -> int:
-    parser = argparse.ArgumentParser(description="Record the Tailscale fixtures (R-05).")
+    parser = argparse.ArgumentParser(description="Record the test fixtures (R-05).")
     commands = parser.add_subparsers(dest="command", required=True)
     serve = commands.add_parser("serve", help="record the headers Tailscale Serve forwards")
     serve.add_argument("--port", type=int, default=DEFAULT_PORT)
     serve.add_argument("--out", type=Path, default=HEADERS_FILE)
     commands.add_parser("status", help="sanitise `tailscale status --json` from stdin")
+    anki = commands.add_parser("anki", help="record AnkiConnect's reply to a version request")
+    anki.add_argument("--url", default=ANKI_CONNECT_URL)
     args = parser.parse_args(argv)
     if args.command == "serve":
         return _serve(args.port, args.out)
+    if args.command == "anki":
+        return _anki(args.url)
     return _status()
 
 

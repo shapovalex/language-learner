@@ -11,6 +11,7 @@ import uvicorn
 
 from language_lab.app import create_app
 from language_lab.settings import Settings
+from tests.fakes.anki_store import FakeAnkiStore
 
 STARTUP_TIMEOUT_S = 10.0
 
@@ -31,16 +32,31 @@ def bind_free_port(host: str = "127.0.0.1") -> socket.socket:
     return sock
 
 
+def closed_port(host: str = "127.0.0.1") -> int:
+    """A port nothing listens on, so a connection is refused at once.
+
+    The socket is closed before returning: on macOS a bound but non-listening port drops the
+    connection attempt, which then waits out its timeout instead of being refused.
+    """
+    with bind_free_port(host) as sock:
+        return sock.getsockname()[1]
+
+
 @contextmanager
 def run_live_server(settings: Settings, sock: socket.socket) -> Iterator[LiveServer]:
     """Serve `create_app(settings)` on `sock` until the block exits.
+
+    The AnkiStore is the in-memory fake (all checks reachable), so no E2E test reaches the
+    developer's real AnkiConnect. A test that needs another state stubs the API in the browser.
 
     `settings.port` must equal the socket's port: the host allow-list (AD-16) is built
     from settings, so a mismatch rejects every request (R-14).
     """
     if sock.getsockname()[1] != settings.port:
         raise ValueError("settings.port must match the bound socket")
-    config = uvicorn.Config(create_app(settings), log_config=None, access_log=False)
+    config = uvicorn.Config(
+        create_app(settings, anki_store=FakeAnkiStore()), log_config=None, access_log=False
+    )
     server = uvicorn.Server(config)
     thread = threading.Thread(target=server.run, kwargs={"sockets": [sock]}, daemon=True)
     thread.start()

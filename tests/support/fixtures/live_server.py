@@ -18,7 +18,14 @@ def live_server_socket() -> socket.socket:
 def live_server_settings(live_server_socket: socket.socket) -> Settings:
     """Settings for the live server. Override this fixture to change what the app runs with."""
     host, port = live_server_socket.getsockname()
-    return Settings(host=host, port=port)
+    # Placeholder keys so Setup's readiness passes; this story makes no Azure or OpenRouter call
+    return Settings(
+        host=host,
+        port=port,
+        azure_speech_key="e2e-azure-key",
+        azure_speech_region="e2e-region",
+        openrouter_api_key="e2e-openrouter-key",
+    )
 
 
 @pytest.fixture(scope="session")

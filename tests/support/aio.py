@@ -2,6 +2,7 @@
 
 import asyncio
 from collections.abc import Awaitable
+from concurrent.futures import ThreadPoolExecutor
 
 
 async def settled[T](awaitable: Awaitable[T]) -> T | Exception:
@@ -13,5 +14,10 @@ async def settled[T](awaitable: Awaitable[T]) -> T | Exception:
 
 
 def settle[T](awaitable: Awaitable[T]) -> T | Exception:
-    """`settled()` on a fresh event loop."""
-    return asyncio.run(settled(awaitable))
+    """`settled()` on a fresh event loop, in its own thread.
+
+    Once the E2E session starts, Playwright's sync API keeps an event loop running in the main
+    thread, where `asyncio.run()` refuses to start another.
+    """
+    with ThreadPoolExecutor(max_workers=1) as worker:
+        return worker.submit(asyncio.run, settled(awaitable)).result()

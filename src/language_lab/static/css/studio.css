@@ -314,7 +314,178 @@ main h1 {
   transform: rotate(45deg);
 }
 
+/* Inline alert, error variant: role="alert" at the place that failed (DESIGN.md Feedback) */
+.inline-alert-error {
+  margin: 0 0 var(--space-7);
+  padding: var(--space-5) var(--space-6);
+  border-radius: var(--radius-inner);
+  background: var(--color-danger-soft);
+  color: var(--color-on-feedback-poor-strong);
+  font-size: var(--font-size-body-sm);
+  font-weight: 600;
+}
+
+/* Skeleton: spinner arc and label, then 14px bars at 80/60/70% (DESIGN.md Loading) */
+.skeleton {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-5);
+  margin: 0 0 var(--space-7);
+}
+
+.skeleton-label {
+  display: flex;
+  align-items: center;
+  gap: var(--space-5);
+  margin: 0;
+  color: var(--color-ink-muted);
+  font-size: var(--font-size-body-sm);
+  font-weight: 600;
+}
+
+.skeleton-label::before {
+  content: "";
+  flex: none;
+  width: 18px;
+  height: 18px;
+  border: 2.5px solid transparent;
+  border-top-color: var(--color-accent);
+  border-right-color: var(--color-accent);
+  border-radius: var(--radius-full);
+  animation: skeleton-spin 0.9s linear infinite;
+}
+
+.skeleton-bars {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+}
+
+.skeleton-bar {
+  height: 14px;
+  border-radius: var(--radius-bar);
+  background: var(--color-surface-sunken);
+}
+
+.skeleton-bar:nth-child(1) {
+  width: 80%;
+}
+
+.skeleton-bar:nth-child(2) {
+  width: 60%;
+}
+
+.skeleton-bar:nth-child(3) {
+  width: 70%;
+}
+
+@keyframes skeleton-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .skeleton-label::before {
+    animation: none;
+  }
+}
+
+/* Setup (DESIGN.md Setup): subtitle naming the Prefix, then the readiness card */
+.setup-subtitle {
+  margin: calc(-1 * var(--space-5)) 0 var(--space-7);
+  color: var(--color-ink-muted);
+  font-size: var(--font-size-body-sm);
+}
+
+.setup-subtitle b {
+  color: var(--color-ink);
+}
+
+.setup-card {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-5);
+  margin: 0 0 var(--space-7);
+  padding: var(--space-card-pad-phone);
+  border-radius: var(--radius-card);
+  background: var(--color-surface);
+}
+
+.setup-card-title {
+  margin: 0;
+  font-size: var(--font-size-section-title);
+  font-weight: var(--font-weight-section-title);
+}
+
+.readiness-tiles {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+  gap: var(--space-4);
+  align-items: start;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.readiness-item {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+}
+
+/* Readiness tile: pass in accent-soft with a check; fail in feedback-poor with a cross */
+.readiness-tile {
+  display: flex;
+  align-items: center;
+  gap: var(--space-4);
+  padding: var(--space-5) var(--space-6);
+  border: 2px solid transparent;
+  border-radius: var(--radius-inner);
+}
+
+.readiness-tile-pass {
+  background: var(--color-accent-soft);
+  color: var(--color-on-accent-soft);
+  font-weight: 600;
+}
+
+.readiness-tile-fail {
+  border-color: var(--color-feedback-poor-strong);
+  background: var(--color-feedback-poor);
+  color: var(--color-on-feedback-poor);
+  font-weight: 700;
+}
+
+.readiness-icon {
+  flex: none;
+  width: 20px;
+  height: 20px;
+  fill: none;
+  stroke: currentcolor;
+  stroke-width: 2.4;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+.readiness-fix-hint {
+  margin: 0;
+  padding: var(--space-5) var(--space-6);
+  border-radius: var(--radius-hint);
+  background: var(--color-feedback-panel);
+  color: var(--color-on-feedback-poor-strong);
+  font-size: var(--font-size-label);
+}
+
+.setup-version {
+  color: var(--color-ink-muted);
+}
+
 @media (min-width: 600px) {
+  .setup-card {
+    padding: var(--space-card-pad-desktop);
+  }
+
   .alert-dialog {
     padding: var(--space-card-pad-tablet);
   }

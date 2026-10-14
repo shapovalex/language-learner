@@ -49,3 +49,8 @@ export async function request(path, options = {}) {
 export function getHealth() {
   return request("/api/health");
 }
+
+// `{prefix, checks: [{id, ok}]}`, the checks in tile order (FR-5)
+export function getReadiness() {
+  return request("/api/setup/readiness");
+}
