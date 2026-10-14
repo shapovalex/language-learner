@@ -2,31 +2,21 @@
 
 The tracer declares only `reachable()` and `sync()`. Later entries add methods to the port, the
 fake in tests/fakes/ and the AnkiConnect adapter together, and this test keeps them aligned.
-
-Skipped until the port, the fake and the adapter exist. Un-skip it, watch it fail, then
-implement. Hoist the imports once it's green.
 """
 
 import inspect
 
 import pytest
 
+from language_lab.adapters.anki.store import AnkiConnectStore
+from language_lab.ports.anki_store import AnkiStore
+from tests.fakes.anki_store import FakeAnkiStore
 from tests.support.ports import public_methods
 
-RED_PHASE = pytest.mark.skip(
-    reason="ATDD red phase, story 2.1: un-skip with ports/anki_store.py and tests/fakes/"
-)
 
-
-@RED_PHASE
 @pytest.mark.p1
 def test_anki_store_port_declares_readiness_and_sync_and_the_fake_matches() -> None:
     """AC-1: the port has exactly `reachable` and `sync`; the fake and the adapter match it."""
-    from language_lab.adapters.anki.store import AnkiConnectStore
-    from language_lab.ports.anki_store import AnkiStore
-
-    from tests.fakes.anki_store import FakeAnkiStore
-
     port = public_methods(AnkiStore)
 
     assert set(port) == {"reachable", "sync"}

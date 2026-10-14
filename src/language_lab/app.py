@@ -6,7 +6,8 @@ import logging
 import sys
 import time
 import uuid
-from collections.abc import Callable
+from collections.abc import AsyncIterator, Callable
+from contextlib import asynccontextmanager
 from importlib.resources import files
 from pathlib import Path
 from typing import NoReturn, TextIO
@@ -26,7 +27,13 @@ from starlette.types import ASGIApp, Message, Receive, Scope, Send
 
 from language_lab import __version__
 from language_lab.adapters import tailscale
-from language_lab.domain.errors import ErrorCode, error_envelope
+from language_lab.adapters.anki.client import AnkiConnectClient
+from language_lab.adapters.anki.lock import AnkiLock
+from language_lab.adapters.anki.store import AnkiConnectStore
+from language_lab.domain.errors import AppError, ErrorCode, error_envelope
+from language_lab.features.setup.routes import setup_router
+from language_lab.features.setup.service import SetupService
+from language_lab.ports.anki_store import AnkiStore
 from language_lab.settings import (
     NECESSARY_KEYS,
     ConfigError,
@@ -95,6 +102,16 @@ async def _on_http_error(request: Request, exc: Exception) -> Response:
     if not _is_api(request.url.path):
         return await http_exception_handler(request, exc)
     return _envelope_response(request, exc.status_code, code, exc.headers)
+
+
+# Domain failures that mean a dependency is down or busy, not a fault in the request
+_APP_ERROR_STATUS = {ErrorCode.ANKI_UNAVAILABLE: 503, ErrorCode.ANKI_BUSY: 503}
+
+
+async def _on_app_error(request: Request, exc: Exception) -> Response:
+    assert isinstance(exc, AppError)
+    setattr(request.state, _ERROR_CODE, exc.code.value)
+    return _envelope_response(request, _APP_ERROR_STATUS.get(exc.code, 500), exc.code)
 
 
 class RequestLogMiddleware:
@@ -238,12 +255,31 @@ def _render_shell(version: str) -> str:
     return (_STATIC / "index.html").read_text(encoding="utf-8").replace("{{VERSION}}", version)
 
 
-def create_app(settings: Settings) -> FastAPI:
+def create_app(settings: Settings, *, anki_store: AnkiStore | None = None) -> FastAPI:
+    """The app. Builds the AnkiConnect adapter from settings unless `anki_store` is given."""
     version = __version__
     shell = _render_shell(version)
 
+    anki_client: AnkiConnectClient | None = None
+    if anki_store is None:
+        anki_client = AnkiConnectClient(settings.anki_connect_url)
+        anki_store = AnkiConnectStore(anki_client, AnkiLock())
+
+    @asynccontextmanager
+    async def lifespan(_: FastAPI) -> AsyncIterator[None]:
+        try:
+            yield
+        finally:
+            if anki_client is not None:
+                await anki_client.aclose()
+
     app = FastAPI(
-        title="LanguageLab", version=version, docs_url=None, redoc_url=None, openapi_url=None
+        title="LanguageLab",
+        version=version,
+        docs_url=None,
+        redoc_url=None,
+        openapi_url=None,
+        lifespan=lifespan,
     )
 
     # Last added is outermost: the allow-list runs inside the request log (AD-15, AD-16)
@@ -251,10 +287,21 @@ def create_app(settings: Settings) -> FastAPI:
     app.add_middleware(RequestLogMiddleware)
     app.add_exception_handler(RequestValidationError, _on_validation_error)
     app.add_exception_handler(StarletteHTTPException, _on_http_error)
+    app.add_exception_handler(AppError, _on_app_error)
 
     @app.get("/api/health")
     async def health() -> dict[str, str]:
         return {"version": version}
+
+    setup = SetupService(
+        anki_store,
+        prefix=settings.anki_prefix,
+        azure_configured=bool(
+            settings.azure_speech_key.get_secret_value() and settings.azure_speech_region
+        ),
+        openrouter_configured=bool(settings.openrouter_api_key.get_secret_value()),
+    )
+    app.include_router(setup_router(setup))
 
     app.mount(f"/static/{version}", StaticFiles(directory=str(_STATIC)), name="static")
 

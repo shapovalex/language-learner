@@ -41,7 +41,7 @@ tests/
   fakes/               one in-memory fake per port (AD-1)
   fixtures/            recorded inputs from real externals (Tailscale status and Serve headers, AnkiConnect exchanges under anki/; see its README)
   support/
-    live_server.py     run_live_server(): uvicorn in a thread on a pre-bound socket
+    live_server.py     run_live_server(): uvicorn in a thread on a pre-bound socket, FakeAnkiStore() injected; bind_free_port(); closed_port() (refused at once)
     app_env.py         config_values() factory, write_dotenv(), dotenv_keys(), isolated_environ()
     network.py         stub_api_error() (AD-15 envelope, returned), HeldRoute (hold a request, see the loading state, then fulfill_json()), record_requests(), record_resources() (with resource type)
     design_tokens.py   DESIGN.md front matter -> expected --color/--space/--radius/--font-* properties; css_custom_properties()
@@ -74,8 +74,8 @@ Write the function first, then the fixture.
 | `settings_loader` | function | `load(env={...}) -> Settings` through `load_settings()`, the startup path, in the same isolation |
 | `log_capture` | function | `.records` / `.messages` from `language_lab.*` loggers at INFO+, `.request_lines` (the AD-15 per-request JSON lines, parsed), `.all_text` (every logger, for leak checks). Use `capsys` for stdout |
 | `probe_client` | function | `TestClient` over `create_app(...)` plus the probe routes, with `raise_server_exceptions=False` so a crash comes back as its 500 response |
-| `live_server` | session | The real `create_app(settings)` on a free port. `settings.port` is the served port, so the AD-16 allow-list accepts it (R-14) |
-| `live_server_settings` | session | Override it to change what the live server runs with |
+| `live_server` | session | The real `create_app(settings, anki_store=FakeAnkiStore())` on a free port, so no E2E test reaches a real Anki. `settings.port` is the served port, so the AD-16 allow-list accepts it (R-14) |
+| `live_server_settings` | session | Override it to change what the live server runs with. Placeholder Azure and OpenRouter keys are set, so Setup's readiness passes |
 | `release_wheel` | session | The wheel from `--wheel PATH`, else a fresh `uv build --wheel` into a temp dir |
 | `released_app` | module | `release_wheel` under `uvx --from <wheel> language-lab`, temp HOME whose `~/.config/language-lab/.env` is the only config (port and tailnet host set there only); `.app.url`, `.app.output`, `.port`, `.config` |
 | `base_url` (in `e2e/conftest.py`) | session | `--base-url` / `PYTEST_BASE_URL` if given, else `live_server.url`. `page.goto("/x")` resolves against it |
