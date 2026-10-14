@@ -54,14 +54,33 @@ function areaOf(route) {
   return route.params.lang ?? route.name;
 }
 
-function markCurrentArea(area) {
-  for (const link of document.querySelectorAll("a[data-area]")) {
-    if (link.dataset.area === area) {
+function markCurrent(links, isCurrent) {
+  for (const link of links) {
+    if (isCurrent(link)) {
       link.setAttribute("aria-current", "page");
     } else {
       link.removeAttribute("aria-current");
     }
   }
+}
+
+function markCurrentArea(area) {
+  markCurrent(document.querySelectorAll("a[data-area]"), (link) => link.dataset.area === area);
+}
+
+// Tab and Shift+Tab move focus round `items` only, entering at the first or last.
+// Any modifiers: WebKit reaches buttons and links with Alt+Tab
+function cycleFocus(event, items) {
+  event.preventDefault();
+  const index = items.indexOf(document.activeElement);
+  const step = event.shiftKey ? -1 : 1;
+  const next =
+    index === -1
+      ? event.shiftKey
+        ? items.length - 1
+        : 0
+      : (index + step + items.length) % items.length;
+  items[next].focus();
 }
 
 function renderLanguageNav(route) {
@@ -90,13 +109,7 @@ function renderLanguageNav(route) {
     }
     main.prepend(languageNav);
   }
-  for (const link of languageNav.querySelectorAll("a")) {
-    if (link.dataset.section === route.name) {
-      link.setAttribute("aria-current", "page");
-    } else {
-      link.removeAttribute("aria-current");
-    }
-  }
+  markCurrent(languageNav.querySelectorAll("a"), (link) => link.dataset.section === route.name);
 }
 
 async function render() {
@@ -194,14 +207,8 @@ function answerAlert(discard) {
 }
 
 function onAlertKeydown(event) {
-  // Keep focus on Discard / Keep editing; any modifiers, as WebKit reaches buttons with Alt+Tab
-  if (event.key !== "Tab") return;
-  event.preventDefault();
-  const index = alertButtons.indexOf(document.activeElement);
-  const step = event.shiftKey ? -1 : 1;
-  const next =
-    index === -1 ? 0 : (index + step + alertButtons.length) % alertButtons.length;
-  alertButtons[next].focus();
+  // Keep focus on Discard / Keep editing
+  if (event.key === "Tab") cycleFocus(event, alertButtons);
 }
 
 function setUpAlert() {
@@ -325,19 +332,7 @@ function onMenuKeydown(event) {
     closeMenu();
     return;
   }
-  // Any modifiers: WebKit reaches links with Alt+Tab
-  if (event.key === "Tab") {
-    event.preventDefault();
-    const index = menuRows.indexOf(document.activeElement);
-    const step = event.shiftKey ? -1 : 1;
-    const next =
-      index === -1
-        ? event.shiftKey
-          ? menuRows.length - 1
-          : 0
-        : (index + step + menuRows.length) % menuRows.length;
-    menuRows[next].focus();
-  }
+  if (event.key === "Tab") cycleFocus(event, menuRows);
 }
 
 function setUpMenu() {

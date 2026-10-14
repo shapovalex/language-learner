@@ -9,6 +9,7 @@ import pytest
 
 from language_lab import app as app_module
 from language_lab.adapters import tailscale
+from tests.fakes.discovery import FakeDiscovery
 from tests.support.app_env import config_values
 from tests.support.fixtures.settings import ConfigFiles
 from tests.support.hosts import TAILNET_HOST
@@ -37,18 +38,6 @@ def test_startup_prints_the_tailscale_url_when_known(
 
     assert f"https://{TAILNET_HOST}/" in capsys.readouterr().out
     assert len(serve.calls) == 1
-
-
-@dataclass
-class FakeDiscovery:
-    """Stands in for `tailscale.discover_tailnet_host`: counts calls and returns `host`."""
-
-    host: str | None
-    calls: int = 0
-
-    def __call__(self) -> str | None:
-        self.calls += 1
-        return self.host
 
 
 @pytest.mark.p1

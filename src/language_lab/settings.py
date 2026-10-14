@@ -94,8 +94,11 @@ class _DevFlag(TypedDict, total=False):
     LANGUAGE_LAB_DEV: bool
 
 
-def _dev_mode() -> bool:
-    """`LANGUAGE_LAB_DEV` from the process env, parsed with the same rules as `Settings.dev`."""
+def is_dev_mode() -> bool:
+    """Whether `LANGUAGE_LAB_DEV` is on in the process env.
+
+    Parsed with the same rules as `Settings.dev`. Raises `ValidationError` if invalid.
+    """
     # Settings matches env keys case-insensitively (later keys win), so match the same way.
     env = {key.lower(): value for key, value in os.environ.items()}
     raw = env.get(DEV_ENV.lower())
@@ -109,14 +112,9 @@ def config_path(dev: bool) -> Path:
     return Path.cwd() / ".env" if dev else Path.home() / HOME_ENV_RELATIVE
 
 
-def is_dev_mode() -> bool:
-    """Whether `LANGUAGE_LAB_DEV` is on in the process env. Raises `ValidationError` if invalid."""
-    return _dev_mode()
-
-
 def active_config_path() -> Path:
     """The `.env` the current mode reads: `config_path()` for `LANGUAGE_LAB_DEV`."""
-    return config_path(_dev_mode())
+    return config_path(is_dev_mode())
 
 
 def is_safe_value(value: str) -> bool:
@@ -169,7 +167,7 @@ def load_settings() -> Settings:
     Raises `ConfigError` if that file is missing or unreadable, and `ValidationError` if a
     value is invalid.
     """
-    path = config_path(_dev_mode())
+    path = active_config_path()
     if not path.is_file():
         raise ConfigError(f"no config at {path}: not a regular file")
     try:

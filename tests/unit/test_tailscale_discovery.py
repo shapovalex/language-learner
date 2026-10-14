@@ -12,6 +12,7 @@ import pytest
 
 from language_lab import app as app_module
 from language_lab.adapters import tailscale
+from tests.fakes.discovery import FakeDiscovery
 from tests.support.fixtures.settings import SettingsFactory
 from tests.support.hosts import (
     DISCOVERY_TIMEOUT_S,
@@ -37,18 +38,6 @@ class FakeRunner:
         if isinstance(self.outcome, Exception):
             raise self.outcome
         return self.outcome
-
-
-@dataclass
-class FakeDiscovery:
-    """Stands in for `discover_tailnet_host()`: counts calls and returns `host`."""
-
-    host: str | None
-    calls: int = 0
-
-    def __call__(self) -> str | None:
-        self.calls += 1
-        return self.host
 
 
 @pytest.mark.p1
