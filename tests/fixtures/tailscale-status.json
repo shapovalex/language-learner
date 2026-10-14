@@ -1,39 +1,116 @@
 {
-  "Version": "1.88.1-t1234567ab-g89abcdef0",
+  "Version": "1.104.1-t7f4efe814-g4939ea2e4",
   "TUN": true,
   "BackendState": "Running",
   "HaveNodeKey": true,
   "AuthURL": "",
-  "TailscaleIPs": ["100.101.102.103", "fd7a:115c:a1e0::1234:5678"],
+  "TailscaleIPs": [
+    "100.101.102.103",
+    "fd7a:115c:a1e0::1234:5678"
+  ],
   "Self": {
     "ID": "nAbCdEf1CNTRL",
+    "NodeID": 0,
     "PublicKey": "nodekey:0000000000000000000000000000000000000000000000000000000000000001",
     "HostName": "mac-mini",
     "DNSName": "mac-mini.tail1234.ts.net.",
     "OS": "macOS",
     "UserID": 1234567890,
-    "TailscaleIPs": ["100.101.102.103", "fd7a:115c:a1e0::1234:5678"],
+    "TailscaleIPs": [
+      "100.101.102.103",
+      "fd7a:115c:a1e0::1234:5678"
+    ],
+    "AllowedIPs": [
+      "redacted",
+      "redacted"
+    ],
+    "Addrs": [
+      "redacted",
+      "redacted",
+      "redacted"
+    ],
+    "CurAddr": "",
+    "Relay": "redacted",
+    "PeerRelay": "",
+    "RxBytes": 0,
+    "TxBytes": 0,
+    "Created": "redacted",
+    "LastWrite": "redacted",
+    "LastSeen": "redacted",
+    "LastHandshake": "redacted",
     "Online": true,
-    "Active": true,
+    "ExitNode": false,
+    "ExitNodeOption": false,
+    "Active": false,
+    "PeerAPIURL": [
+      "redacted",
+      "redacted"
+    ],
+    "TaildropTarget": 0,
+    "NoFileSharingReason": "",
+    "Capabilities": [
+      "redacted",
+      "redacted",
+      "redacted",
+      "redacted",
+      "redacted",
+      "redacted",
+      "redacted",
+      "redacted",
+      "redacted",
+      "redacted",
+      "redacted",
+      "redacted",
+      "redacted",
+      "redacted",
+      "redacted"
+    ],
+    "CapMap": {
+      "default-auto-update": [
+        true
+      ],
+      "funnel": null,
+      "https": null,
+      "https://tailscale.com/cap/file-sharing": null,
+      "https://tailscale.com/cap/funnel-ports?ports=443,8443,10000": null,
+      "https://tailscale.com/cap/is-admin": null,
+      "https://tailscale.com/cap/is-owner": null,
+      "https://tailscale.com/cap/ssh": null,
+      "https://tailscale.com/cap/tailnet-lock": null,
+      "probe-udp-lifetime": null,
+      "ssh-behavior-v1": null,
+      "ssh-env-vars": null,
+      "store-appc-routes": null,
+      "tailnet-display-name": [
+        "redacted"
+      ]
+    },
     "InNetworkMap": true,
     "InMagicSock": false,
-    "InEngine": false
+    "InEngine": false,
+    "KeyExpiry": "redacted"
   },
   "Health": [],
   "MagicDNSSuffix": "tail1234.ts.net",
   "CurrentTailnet": {
     "Name": "user@example.com",
+    "StableID": "redacted",
     "MagicDNSSuffix": "tail1234.ts.net",
     "MagicDNSEnabled": true
   },
-  "CertDomains": ["mac-mini.tail1234.ts.net"],
+  "CertDomains": [
+    "mac-mini.tail1234.ts.net"
+  ],
+  "ExtraRecords": null,
   "Peer": {
     "nodekey:0000000000000000000000000000000000000000000000000000000000000002": {
       "ID": "nGhIjKl2CNTRL",
       "HostName": "iPhone",
       "DNSName": "iphone.tail1234.ts.net.",
       "OS": "iOS",
-      "TailscaleIPs": ["100.64.0.2"],
+      "TailscaleIPs": [
+        "100.64.0.2"
+      ],
       "Online": true
     }
   },
@@ -43,5 +120,6 @@
       "LoginName": "user@example.com",
       "DisplayName": "Example User"
     }
-  }
+  },
+  "ClientVersion": null
 }

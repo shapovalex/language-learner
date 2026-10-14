@@ -7,3 +7,6 @@
 - source_plan: `_bmad-output/initiative-languagelab-v1/epic-platform-baseline/story-device-acceptance-over-tailscale-serve-plan.md`
   summary: Check the unsaved-changes alert on iOS Safari swipe-back and return-from-background on iPhone and iPad, in the first epic whose screen calls `setDirty` (R-03).
   evidence: Story 1.10's device run could not raise the alert, because no screen in v0.2.0 can have unsaved changes. Playwright WebKit covers browser back, but a real iOS edge swipe and bfcache restore are unverified.
+- source_plan: `_bmad-output/initiative-languagelab-v1/epic-platform-baseline/story-device-acceptance-over-tailscale-serve-plan.md`
+  summary: Record the per-step results of the story 1.10 device run (parts A to D and E2 of `_bmad-output/test-artifacts/acceptance/device-acceptance-1-10.md`) on iPhone, iPad and desktop, including the LAN probes for 8787 and 8765.
+  evidence: On 2026-10-14 the user ran v0.2.1 on the Mac Mini, recorded both Tailscale fixtures, said they were satisfied with how it works, and postponed reporting the steps. Those rows say "not run", so AC2 reach and R-12 have no recorded evidence yet.
