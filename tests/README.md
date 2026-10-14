@@ -39,11 +39,11 @@ tests/
   integration/         adapters against recorded HTTP fixtures (from Epic 2)
   e2e/                 Playwright against the live server; conftest sets timeouts
   fakes/               one in-memory fake per port (AD-1)
-  fixtures/            recorded inputs from real externals (Tailscale status and Serve headers; see its README)
+  fixtures/            recorded inputs from real externals (Tailscale status and Serve headers, AnkiConnect exchanges under anki/; see its README)
   support/
     live_server.py     run_live_server(): uvicorn in a thread on a pre-bound socket
     app_env.py         config_values() factory, write_dotenv(), dotenv_keys(), isolated_environ()
-    network.py         stub_api_error() (AD-15 envelope, returned), record_requests(), record_resources() (with resource type)
+    network.py         stub_api_error() (AD-15 envelope, returned), HeldRoute (hold a request, see the loading state, then fulfill_json()), record_requests(), record_resources() (with resource type)
     design_tokens.py   DESIGN.md front matter -> expected --color/--space/--radius/--font-* properties; css_custom_properties()
     shell.py           parse_shell() (viewport meta, stylesheet links), fetch_stylesheets() through a TestClient, following @import
     dom.py             append_to_body() / prepend_to_body() for test-only markup, computed_style(), px(), settle_fonts()
@@ -53,6 +53,10 @@ tests/
     probes.py          add_probe_routes(): test-only /api routes for validation and crash paths; sentinel(), error_envelope()
     startup.py         run_language_lab(): main() in a subprocess, killed if it keeps running
     release.py         pyproject_version(), run_tag_check() (the release guard), build_wheel(), run_released_app() (uvx --from <wheel>), non_loopback_address()
+    anki_connect.py    anki_fixture() (tests/fixtures/anki/), AnkiConnectReplay (httpx MockTransport: replies per action or a failure, records .sent), the failure kinds, run_stub_ankiconnect() (loopback server for the recorder)
+    aio.py             settle() / settled(): run a coroutine, get its result or its exception to assert on
+    ports.py           public_methods(): a port's, fake's or adapter's public functions with signatures (AD-1)
+    recorder.py        run_recorder_status(), run_recorder() (serve), run_recorder_anki()
     hosts.py           app_client() (allowed Host + same-origin Origin, AD-16), local_hosts(), TAILNET_HOST, FOREIGN_HOST, recorded Tailscale inputs
     viewports.py       PHONE 390 / TABLET 820 / DESKTOP 1280
     fixtures/          pytest fixtures, one concern per module

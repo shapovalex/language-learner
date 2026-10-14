@@ -6,6 +6,7 @@ Inputs captured from real externals, replayed by tests so nothing reaches them (
 | --- | --- | --- |
 | `tailscale-status.json` | `tailscale status --json` on the Mac Mini | `tests/unit/test_tailscale_discovery.py` |
 | `tailscale-serve-headers.json` | The request headers Tailscale Serve forwards to `127.0.0.1:8787` for a browser `POST` | `tests/api/test_host_origin_allow_list.py` |
+| `anki/version.json` | AnkiConnect's `version` exchange: `{"request", "response"}`. **Synthetic** (AnkiConnect's documented v6 reply) until recorded on the Mac Mini in story 2.1 | `tests/integration/test_anki_adapter.py`, `tests/integration/test_record_anki_fixtures.py` |
 
 ## Recorded on the Mac Mini (R-05)
 
@@ -25,3 +26,13 @@ tailscale status --json | uvx --from "$WHEEL" language-lab-record-fixtures statu
 ```
 
 Read both files before committing them.
+
+## AnkiConnect (story 2.1)
+
+`anki/version.json` is written by hand from AnkiConnect's documented API v6 reply. Replace it with the recording from the Mac Mini, with Anki open:
+
+```bash
+uvx --from "$WHEEL" language-lab-record-fixtures anki > version.json
+```
+
+The exchange holds nothing private. Read it before committing it anyway. Spike 2.2 records the other actions the epic uses into the same folder.

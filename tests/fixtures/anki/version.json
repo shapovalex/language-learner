@@ -1,0 +1,10 @@
+{
+  "request": {
+    "action": "version",
+    "version": 6
+  },
+  "response": {
+    "result": 6,
+    "error": null
+  }
+}

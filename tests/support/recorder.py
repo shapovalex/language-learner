@@ -1,4 +1,4 @@
-"""The Tailscale fixture recorder (R-05), run as its console script runs it."""
+"""The fixture recorder (R-05), run as its console script runs it: Tailscale and AnkiConnect."""
 
 import subprocess
 import sys
@@ -26,6 +26,18 @@ def run_recorder_status(stdin: str) -> RecorderRun:
     proc = subprocess.run(
         [*RECORDER_COMMAND, "status"],
         input=stdin,
+        capture_output=True,
+        text=True,
+        timeout=30,
+    )
+    return RecorderRun(proc.returncode, proc.stdout, proc.stderr)
+
+
+def run_recorder_anki(url: str) -> RecorderRun:
+    """`language-lab-record-fixtures anki --url <url>`: AnkiConnect's version exchange on stdout."""
+    proc = subprocess.run(
+        [*RECORDER_COMMAND, "anki", "--url", url],
+        stdin=subprocess.DEVNULL,
         capture_output=True,
         text=True,
         timeout=30,
