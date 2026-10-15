@@ -1,0 +1,15 @@
+{
+  "request": {
+    "action": "findNotes",
+    "version": 6,
+    "params": {
+      "query": "note:\"LLProbe Probe\""
+    }
+  },
+  "response": {
+    "result": [
+      1792093018310
+    ],
+    "error": null
+  }
+}

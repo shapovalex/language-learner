@@ -1,0 +1,14 @@
+{
+  "request": {
+    "action": "storeMediaFile",
+    "version": 6,
+    "params": {
+      "filename": "LLProbe_probe.mp3",
+      "data": "SUQzTExQcm9iZQ=="
+    }
+  },
+  "response": {
+    "result": "llprobe_probe.mp3",
+    "error": null
+  }
+}

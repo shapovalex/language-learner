@@ -1,0 +1,18 @@
+{
+  "request": {
+    "action": "modelFieldNames",
+    "version": 6,
+    "params": {
+      "modelName": "LLProbe Probe"
+    }
+  },
+  "response": {
+    "result": [
+      "Front",
+      "Back",
+      "LLProbeExtra2",
+      "LLProbeExtra1"
+    ],
+    "error": null
+  }
+}

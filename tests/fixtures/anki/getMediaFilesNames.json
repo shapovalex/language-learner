@@ -1,0 +1,13 @@
+{
+  "request": {
+    "action": "getMediaFilesNames",
+    "version": 6,
+    "params": {
+      "pattern": "LLProbe_*"
+    }
+  },
+  "response": {
+    "result": [],
+    "error": null
+  }
+}

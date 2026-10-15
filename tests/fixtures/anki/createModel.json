@@ -1,0 +1,94 @@
+{
+  "request": {
+    "action": "createModel",
+    "version": 6,
+    "params": {
+      "modelName": "LLProbe Probe",
+      "inOrderFields": [
+        "Front",
+        "Back"
+      ],
+      "css": ".card { font-family: sans-serif; }",
+      "isCloze": false,
+      "cardTemplates": [
+        {
+          "Name": "Card 1",
+          "Front": "{{Front}}",
+          "Back": "{{FrontSide}}<hr id=answer>{{Back}}"
+        }
+      ]
+    }
+  },
+  "response": {
+    "result": {
+      "id": 1792092985576,
+      "name": "LLProbe Probe",
+      "type": 0,
+      "mod": 1792092985,
+      "usn": -1,
+      "sortf": 0,
+      "did": null,
+      "tmpls": [
+        {
+          "name": "Card 1",
+          "ord": 0,
+          "qfmt": "{{Front}}",
+          "afmt": "{{FrontSide}}<hr id=answer>{{Back}}",
+          "bqfmt": "",
+          "bafmt": "",
+          "did": null,
+          "bfont": "",
+          "bsize": 0,
+          "id": -7060919170182640575
+        }
+      ],
+      "flds": [
+        {
+          "name": "Front",
+          "ord": 0,
+          "sticky": false,
+          "rtl": false,
+          "font": "Arial",
+          "size": 20,
+          "description": "",
+          "plainText": false,
+          "collapsed": false,
+          "excludeFromSearch": false,
+          "id": -1013105310536445517,
+          "tag": null,
+          "preventDeletion": false
+        },
+        {
+          "name": "Back",
+          "ord": 1,
+          "sticky": false,
+          "rtl": false,
+          "font": "Arial",
+          "size": 20,
+          "description": "",
+          "plainText": false,
+          "collapsed": false,
+          "excludeFromSearch": false,
+          "id": -876888592035708584,
+          "tag": null,
+          "preventDeletion": false
+        }
+      ],
+      "css": ".card { font-family: sans-serif; }",
+      "latexPre": "",
+      "latexPost": "",
+      "latexsvg": false,
+      "req": [
+        [
+          0,
+          "any",
+          [
+            0
+          ]
+        ]
+      ],
+      "originalStockKind": 1
+    },
+    "error": null
+  }
+}
