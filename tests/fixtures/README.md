@@ -36,3 +36,28 @@ uvx --from "$WHEEL" language-lab-record-fixtures anki > version.json
 ```
 
 The exchange holds nothing private. Read it before committing it anyway. Spike 2.2 records the other actions the epic uses into the same folder.
+
+## AnkiConnect probe (spike 2.2)
+
+**Pending the Mac Mini run.** None of these files exist yet. The spike's runbook,
+`_bmad-output/test-artifacts/spikes/spike-2-2-ankiconnect-findings.md`, records them in a
+throwaway Anki profile logged in to a throwaway AnkiWeb account:
+
+| File | What it is |
+| --- | --- |
+| `anki/<action>.json` | One `{"request", "response"}` per action Setup uses, in probe order: `getProfiles`, `getActiveProfile`, `modelNames`, `createModel`, `modelFieldNames`, `modelFieldAdd`, `modelFieldNames-after`, `modelTemplates`, `modelStyling`, `updateModelTemplates`, `updateModelStyling`, `createDeck`, `deckNames`, `getDeckConfig-initial`, `cloneDeckConfigId`, `setDeckConfigId`, `getDeckConfig` (before), `saveDeckConfig`, `getDeckConfig-after`, `addNote`, `findNotes`, `notesInfo`, `storeMediaFile`, `getMediaFilesNames`. An AnkiConnect error reply is kept as the response. |
+| `anki/sync-<label>.json` | `{"label", "v6": {"sync", "multi"}, "v1": {"collection.sync", "operations.get", "pollCount"}}`: v6 `sync` alone and inside `multi`, and API v1 `collection.sync` with the `operations.get` polls whose reply changed. Labels: `normal`, `after-field-change`, `logged-out`, `offline`. |
+| `anki/rerun/<action>.json` | The probe run a second time in the same profile. |
+
+The probe touches only `LLProbe`-prefixed note types, decks, presets and media. It refuses to run
+when the active profile isn't `--profile` or holds a `LanguageLab…` note type. It replaces profile
+names with `LLProbeProfile`, email addresses with `redacted@example.com` and the home folder with
+`/Users/redacted` (a profile name only where a value is exactly that name, so `LLProbe Probe`
+stays intact with `--profile Probe`). To record them again, on the host machine, in the throwaway profile named `Probe`:
+
+```bash
+uvx --from "$WHEEL" language-lab-record-fixtures anki probe --profile Probe --out anki
+uvx --from "$WHEEL" language-lab-record-fixtures anki sync --profile Probe --label normal --out anki
+```
+
+`sync` pauses for Enter after each of its three exchanges, so Anki's sync can finish and any dialog be noted before the next starts; `--yes` skips the pauses (the tests use it). The runbook gives the state Anki must be in for each sync label. Read every file before committing it.

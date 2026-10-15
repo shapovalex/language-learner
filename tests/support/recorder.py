@@ -45,6 +45,18 @@ def run_recorder_anki(url: str) -> RecorderRun:
     return RecorderRun(proc.returncode, proc.stdout, proc.stderr)
 
 
+def run_recorder_anki_args(url: str, *args: str) -> RecorderRun:
+    """`language-lab-record-fixtures anki --url <url> <args...>`, e.g. `probe --profile P`."""
+    proc = subprocess.run(
+        [*RECORDER_COMMAND, "anki", "--url", url, *args],
+        stdin=subprocess.DEVNULL,
+        capture_output=True,
+        text=True,
+        timeout=60,
+    )
+    return RecorderRun(proc.returncode, proc.stdout, proc.stderr)
+
+
 @dataclass(frozen=True)
 class Recorder:
     url: str  # http://127.0.0.1:<port>
