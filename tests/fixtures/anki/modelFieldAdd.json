@@ -1,0 +1,15 @@
+{
+  "request": {
+    "action": "modelFieldAdd",
+    "version": 6,
+    "params": {
+      "modelName": "LLProbe Probe",
+      "fieldName": "LLProbeExtra1",
+      "index": 2
+    }
+  },
+  "response": {
+    "result": null,
+    "error": null
+  }
+}

@@ -1,0 +1,16 @@
+{
+  "request": {
+    "action": "updateModelStyling",
+    "version": 6,
+    "params": {
+      "model": {
+        "name": "LLProbe Probe",
+        "css": ".card { font-family: serif; }"
+      }
+    }
+  },
+  "response": {
+    "result": null,
+    "error": null
+  }
+}

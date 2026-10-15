@@ -1,0 +1,23 @@
+{
+  "request": {
+    "action": "addNote",
+    "version": 6,
+    "params": {
+      "note": {
+        "deckName": "LLProbe::Study",
+        "modelName": "LLProbe Probe",
+        "fields": {
+          "Front": "LLProbe front",
+          "Back": "LLProbe back"
+        },
+        "tags": [
+          "LLProbe"
+        ]
+      }
+    }
+  },
+  "response": {
+    "result": 1792093018310,
+    "error": null
+  }
+}
