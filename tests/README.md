@@ -53,10 +53,10 @@ tests/
     probes.py          add_probe_routes(): test-only /api routes for validation and crash paths; sentinel(), error_envelope()
     startup.py         run_language_lab(): main() in a subprocess, killed if it keeps running
     release.py         pyproject_version(), run_tag_check() (the release guard), build_wheel(), run_released_app() (uvx --from <wheel>), non_loopback_address()
-    anki_connect.py    anki_fixture() (tests/fixtures/anki/), AnkiConnectReplay (httpx MockTransport: replies per action or a failure, records .sent), the failure kinds, run_stub_ankiconnect() (loopback server for the recorder)
+    anki_connect.py    anki_fixture() (tests/fixtures/anki/), AnkiConnectReplay (httpx MockTransport: replies per action or a failure, records .sent), the failure kinds, run_stub_ankiconnect() (loopback server for the recorder; replies keyed by v6 action or v1 JSON-RPC method, each a JSON value or a callable of the request body; records .received)
     aio.py             settle() / settled(): run a coroutine, get its result or its exception to assert on
     ports.py           public_methods(): a port's, fake's or adapter's public functions with signatures (AD-1)
-    recorder.py        run_recorder_status(), run_recorder() (serve), run_recorder_anki()
+    recorder.py        run_recorder_status(), run_recorder() (serve), run_recorder_anki(), run_recorder_anki_args() (anki with extra args, e.g. probe/sync)
     hosts.py           app_client() (allowed Host + same-origin Origin, AD-16), local_hosts(), TAILNET_HOST, FOREIGN_HOST, recorded Tailscale inputs
     viewports.py       PHONE 390 / TABLET 820 / DESKTOP 1280
     fixtures/          pytest fixtures, one concern per module

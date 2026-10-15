@@ -89,10 +89,18 @@ class StubAnkiConnect:
     received: list[Any] = field(default_factory=list)  # parsed JSON bodies, in order
 
 
+# A stub reply: the JSON to send, or a function of the request body returning it
+type StubReply = Any | Callable[[Any], Any]
+
+
 @contextmanager
-def run_stub_ankiconnect(replies: Mapping[str, Any]) -> Iterator[StubAnkiConnect]:
+def run_stub_ankiconnect(replies: Mapping[str, StubReply]) -> Iterator[StubAnkiConnect]:
     """A loopback HTTP server answering AnkiConnect actions from `replies`, for subprocesses
     (the fixture recorder) that can't take a MockTransport. Stops when the block exits.
+
+    A reply is keyed by the v6 `action`, or by the JSON-RPC `method` of an API v1 request. A
+    callable reply is called with the parsed request body, which lets one answer `multi` or
+    answer successive calls of one action differently.
     """
     stub_replies = dict(replies)
     received: list[Any] = []
@@ -101,8 +109,9 @@ def run_stub_ankiconnect(replies: Mapping[str, Any]) -> Iterator[StubAnkiConnect
         def do_POST(self) -> None:  # noqa: N802 -- http.server's naming
             body = json.loads(self.rfile.read(int(self.headers.get("Content-Length") or 0)))
             received.append(body)
-            action = body.get("action") if isinstance(body, dict) else None
-            payload = json.dumps(stub_replies.get(action, UNSUPPORTED)).encode("utf-8")
+            key = body.get("action", body.get("method")) if isinstance(body, dict) else None
+            reply = stub_replies.get(key, UNSUPPORTED)
+            payload = json.dumps(reply(body) if callable(reply) else reply).encode("utf-8")
             self.send_response(200)
             self.send_header("Content-Type", "application/json")
             self.send_header("Content-Length", str(len(payload)))
