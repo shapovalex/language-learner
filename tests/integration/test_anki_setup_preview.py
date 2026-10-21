@@ -207,7 +207,10 @@ def test_preview_sends_only_reads_and_exact_scope_queries() -> None:
     exact = [f'deck:"{d}"' for d in MANIFEST.decks] + [
         f'note:"{nt.name}"' for nt in MANIFEST.note_types
     ]
-    assert [q for q in sent_queries(sent) if not set(q.split(" ")) <= set(exact)] == []
+    # A note type's name has spaces: an exact `note:"<type>"` query is whole (story 2.8)
+    assert [
+        q for q in sent_queries(sent) if q not in exact and not set(q.split(" ")) <= set(exact)
+    ] == []
 
 
 @pytest.mark.p0

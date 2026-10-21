@@ -5,6 +5,10 @@ be polled to its end (spike 2.2, Q7).
 
 Every v6 request passes the AD-4 Prefix guard first (adapters/anki/guard.py). Without a guard
 the client sends reads only. v1 Sync is not a resource write and is not guarded.
+
+With a `SetupGate` (adapters/anki/setup_gate.py, AD-19), `invoke` then refuses every write with
+`AppError(SETUP_REQUIRED)` unless the SetupState is `ready`. `invoke_setup` is Setup's own
+write path: guarded, ungated. Without a gate the client behaves as `invoke_setup`.
 """
 
 import itertools
@@ -13,6 +17,7 @@ from typing import Any
 import httpx
 
 from language_lab.adapters.anki.guard import PrefixGuard, check_read_only
+from language_lab.adapters.anki.setup_gate import SetupGate
 from language_lab.domain.errors import AppError, ErrorCode
 
 API_VERSION = 6
@@ -27,29 +32,42 @@ class AnkiConnectClient:
         *,
         transport: httpx.AsyncBaseTransport | None = None,
         guard: PrefixGuard | None = None,
+        gate: SetupGate | None = None,
     ) -> None:
         self._url = url
         self._guard = guard
+        self._gate = gate
         self._v1_url = url.rstrip("/") + API_V1_PATH
         self._v1_ids = itertools.count(1)
         self._http = httpx.AsyncClient(transport=transport, timeout=DEFAULT_TIMEOUT_S)
 
     async def invoke(self, action: str, **params: Any) -> Any:
-        """POST one v6 action and return its `result`, once the guard allows it.
+        """POST one v6 action and return its `result`, once the guard and the gate allow it.
 
         Raises `PrefixViolation` before anything is sent for a request outside the Prefix (with
-        no guard: anything but a read). Raises `AppError(ANKI_UNAVAILABLE)` for an httpx error,
-        a non-2xx status, a body that isn't a JSON object, or a non-null `error`. No upstream
-        text is carried (AD-15).
+        no guard: anything but a read), then `AppError(SETUP_REQUIRED)` for a write the gate
+        refuses. Raises `AppError(ANKI_UNAVAILABLE)` for an httpx error, a non-2xx status, a
+        body that isn't a JSON object, or a non-null `error`. No upstream text is carried
+        (AD-15).
         """
+        await self._check_guard(action, params)
+        if self._gate is not None:
+            await self._gate.check(action, params, self._invoke_raw)
+        return await self._invoke_raw(action, **params)
+
+    async def invoke_setup(self, action: str, **params: Any) -> Any:
+        """`invoke` without the gate: Setup's own apply, which writes while not `ready`."""
+        await self._check_guard(action, params)
+        return await self._invoke_raw(action, **params)
+
+    async def _check_guard(self, action: str, params: dict[str, Any]) -> None:
         if self._guard is None:
             check_read_only(action, params)
         else:
             await self._guard.check(action, params, self._invoke_raw)
-        return await self._invoke_raw(action, **params)
 
     async def _invoke_raw(self, action: str, **params: Any) -> Any:
-        """`invoke` without the guard: for the guard's own lookups only."""
+        """`invoke` without the guard or the gate: for their own lookups only."""
         body: dict[str, Any] = {"action": action, "version": API_VERSION}
         if params:
             body["params"] = params

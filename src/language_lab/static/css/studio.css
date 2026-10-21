@@ -464,7 +464,8 @@ main h1 {
   font-weight: 600;
 }
 
-.readiness-tile-fail {
+.readiness-tile-fail,
+.newer-schema-alert {
   border-color: var(--color-feedback-poor-strong);
   background: var(--color-feedback-poor);
   color: var(--color-on-feedback-poor);

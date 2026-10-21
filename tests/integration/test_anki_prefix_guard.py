@@ -23,6 +23,7 @@ from language_lab import app as app_module
 from language_lab.adapters.anki.client import AnkiConnectClient
 from language_lab.adapters.anki.guard import PrefixGuard, PrefixViolation
 from language_lab.adapters.anki.manifest import build_manifest
+from language_lab.domain.errors import AppError
 from tests.support.aio import settle
 from tests.support.anki_connect import (
     ANKI_URL,
@@ -247,13 +248,21 @@ def test_composed_app_client_rejects_an_out_of_prefix_write(
 
         rogue = settle(client.invoke("createDeck", deck=f"{DEV}::Study"))
         sent_after_rogue = list(anki.received)
-        # A managed write goes through, so the guard is wired, not the client's read-only default
-        managed = settle(client.invoke("createDeck", deck=f"{RELEASE}::Study"))
+        # A managed write goes through Setup's path, so the guard is wired, not the client's
+        # read-only default
+        managed = settle(client.invoke_setup("createDeck", deck=f"{RELEASE}::Study"))
+        sent_after_managed = list(anki.received)
+        # Story 2.8: the SetupState gate is wired too, so a feature write isn't sent while the
+        # state can't be read as `ready` (this stub answers no reads)
+        gated = settle(client.invoke("createDeck", deck=f"{RELEASE}::Study"))
+        sent_after_gated = list(anki.received)
         settle(client.aclose())
 
     assert isinstance(rogue, PrefixViolation)
     assert sent_after_rogue == []
     assert str(rogue).find(DEV) == -1  # no target name (AD-15)
     assert not isinstance(managed, Exception), managed
-    assert [body["action"] for body in anki.received] == ["createDeck"]
-    assert anki.received[0]["params"] == {"deck": f"{RELEASE}::Study"}
+    assert [body["action"] for body in sent_after_managed] == ["createDeck"]
+    assert sent_after_managed[0]["params"] == {"deck": f"{RELEASE}::Study"}
+    assert isinstance(gated, AppError)
+    assert [body["action"] for body in sent_after_gated].count("createDeck") == 1

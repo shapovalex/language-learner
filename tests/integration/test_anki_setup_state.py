@@ -22,10 +22,7 @@ and from `setup_state()` (startup). While the state is unknown (`None`, e.g. Ank
 startup), the first gated write computes it under the call. `updateNoteFields` is refused when
 the note's stored `SchemaVersion` isn't the manifest's, even when `ready`.
 
-Anki is the in-memory collection in tests/support/anki_state.py. The gate, `SetupState` and
-`setup_state()` don't exist yet, so they're imported inside the tests.
-
-Skipped until the gate exists. Un-skip a test, watch it fail, then implement.
+Anki is the in-memory collection in tests/support/anki_state.py.
 """
 
 from typing import Any
@@ -33,27 +30,25 @@ from typing import Any
 import pytest
 
 from language_lab.adapters.anki.client import AnkiConnectClient
-from language_lab.adapters.anki.guard import PrefixGuard
+from language_lab.adapters.anki.guard import PrefixGuard, PrefixViolation
 from language_lab.adapters.anki.lock import AnkiLock
 from language_lab.adapters.anki.manifest import SCHEMA_VERSION, build_manifest
 from language_lab.adapters.anki.query import note_query
+from language_lab.adapters.anki.setup_gate import SetupGate
 from language_lab.adapters.anki.store import AnkiConnectStore
 from language_lab.domain.errors import AppError
-from language_lab.domain.setup import plan_hash
+from language_lab.domain.setup import SetupState, plan_hash
 from tests.support.aio import settle
-from tests.support.anki_connect import ANKI_URL, AnkiConnectReplay
+from tests.support.anki_connect import ANKI_URL, AnkiConnectReplay, refused
 from tests.support.anki_state import (
     Collection,
     apply_manifest,
     collection_replies,
     managed_collection,
     managed_note,
+    sent_actions,
     sent_writes,
     stock_collection,
-)
-
-RED_PHASE = pytest.mark.skip(
-    reason="ATDD red phase, story 2.8: un-skip with SetupState and the SetupGate"
 )
 
 PREFIX = "LanguageLab"
@@ -77,10 +72,6 @@ def wired(collection: Collection, state: str | None = None) -> tuple[Any, Any, A
     """The real client and store over `collection`, sharing one `SetupGate` set to `state`
     (unknown when None). Returns (client, store, gate, replay).
     """
-    from language_lab.adapters.anki.setup_gate import SetupGate
-
-    from language_lab.domain.setup import SetupState
-
     gate = SetupGate(MANIFEST)
     if state is not None:
         gate.set(SetupState(state))
@@ -161,7 +152,6 @@ STATE_CASES = {
 }
 
 
-@RED_PHASE
 @pytest.mark.p0
 @pytest.mark.parametrize(("build", "expected"), STATE_CASES.values(), ids=STATE_CASES.keys())
 def test_setup_state_is_computed_from_the_plan_and_each_notes_schema_version(
@@ -179,7 +169,6 @@ def test_setup_state_is_computed_from_the_plan_and_each_notes_schema_version(
 # ---- when it's computed (AC-3) -----------------------------------------------------------
 
 
-@RED_PHASE
 @pytest.mark.p0
 def test_the_gate_follows_each_setup_visit_and_each_apply() -> None:
     """AC-3: a preview (a Setup visit) and an apply each leave their fresh state in the gate."""
@@ -201,7 +190,6 @@ def test_the_gate_follows_each_setup_visit_and_each_apply() -> None:
 # ---- the gate (AC-4 to AC-8) -------------------------------------------------------------
 
 
-@RED_PHASE
 @pytest.mark.p0
 @pytest.mark.parametrize(
     ("state", "expected"),
@@ -220,7 +208,6 @@ def test_a_non_setup_write_is_refused_unless_setup_state_is_ready(
     assert sent_writes(replay.sent) == ([] if expected else ["addNote"])
 
 
-@RED_PHASE
 @pytest.mark.p0
 @pytest.mark.parametrize("state", [*GATED_STATES, "ready"])
 def test_reads_stay_allowed_in_every_setup_state(state: str) -> None:
@@ -234,7 +221,6 @@ def test_reads_stay_allowed_in_every_setup_state(state: str) -> None:
     assert outcome == [note_id]
 
 
-@RED_PHASE
 @pytest.mark.p1
 @pytest.mark.parametrize(
     ("build", "expected", "state"),
@@ -257,7 +243,6 @@ def test_an_unknown_state_is_computed_by_the_first_gated_write(
     assert str(gate.state) == state
 
 
-@RED_PHASE
 @pytest.mark.p0
 def test_setups_own_apply_is_not_gated() -> None:
     """AC-7: Setup's apply writes while the state is `needs_setup`, and verifies clean."""
@@ -274,7 +259,6 @@ def test_setups_own_apply_is_not_gated() -> None:
     assert sent_writes(replay.sent) != []
 
 
-@RED_PHASE
 @pytest.mark.p0
 @pytest.mark.parametrize(
     ("stored", "expected"),
@@ -299,7 +283,6 @@ def test_a_note_update_is_refused_when_its_schema_version_differs(
     assert collection.notes[note_id].fields["Hint"] == ("" if expected else "a hint")
 
 
-@RED_PHASE
 @pytest.mark.p0
 def test_apply_refuses_a_newer_schema_before_any_write() -> None:
     """AC-11: an older release never writes over a newer schema: apply is `setup_required`."""
@@ -315,3 +298,99 @@ def test_apply_refuses_a_newer_schema_before_any_write() -> None:
     assert code_of(outcome) == "setup_required"
     assert sent_writes(replay.sent) == []
     assert UNDERSTAND_DECK not in collection.decks
+
+
+# ---- secondary branches ------------------------------------------------------------------
+
+
+@pytest.mark.p1
+@pytest.mark.parametrize("state", GATED_STATES)
+def test_a_multi_holding_one_write_is_refused_whole(state: str) -> None:
+    """AC-4: a `multi` with a write among reads is `setup_required`, and nothing is sent."""
+    client, _, _, replay = wired(managed_collection(MANIFEST), state)
+    note = {"deckName": UNDERSTAND_DECK, "modelName": VOCABULARY, "fields": {"Target": "chat"}}
+    actions = [
+        {"action": "deckNames", "version": 6, "params": {}},
+        {"action": "addNote", "version": 6, "params": {"note": note}},
+    ]
+
+    outcome = settle(client.invoke("multi", actions=actions))
+
+    assert code_of(outcome) == "setup_required"
+    assert replay.sent == []
+
+
+@pytest.mark.p1
+@pytest.mark.parametrize("state", [*GATED_STATES, "ready"])
+def test_a_multi_of_reads_passes_in_every_state(state: str) -> None:
+    """AC-5: a `multi` of reads answers in every state."""
+    client, _, _, _ = wired(managed_collection(MANIFEST), state)
+    actions = [
+        {"action": "deckNames", "version": 6, "params": {}},
+        {"action": "modelNames", "version": 6, "params": {}},
+    ]
+
+    outcome = settle(client.invoke("multi", actions=actions))
+
+    assert isinstance(outcome, list)
+    assert [reply["error"] for reply in outcome] == [None, None]
+
+
+@pytest.mark.p1
+def test_an_out_of_prefix_write_meets_the_prefix_guard_first() -> None:
+    """AC-4: in `ready`, a `LanguageLabDev` target is a `PrefixViolation`, not let through."""
+    collection = apply_manifest(managed_collection(MANIFEST), DEV_MANIFEST)
+    client, _, _, replay = wired(collection, "ready")
+    note = {
+        "deckName": f"{DEV}::Study::English::Vocabulary::Understand",
+        "modelName": f"{DEV} English Vocabulary",
+        "fields": {"Target": "chat"},
+    }
+
+    outcome = settle(client.invoke("addNote", note=note))
+
+    assert isinstance(outcome, PrefixViolation)
+    assert replay.sent == []
+
+
+@pytest.mark.p1
+@pytest.mark.parametrize("value", [OLDER, NEWER, "", "one"], ids=["older", "newer", "empty", "nan"])
+def test_a_note_update_setting_schema_version_is_refused(value: str) -> None:
+    """AC-8: only migrations rewrite SchemaVersion: an update setting another value is refused."""
+    collection = managed_collection(MANIFEST)
+    note_id = managed_note(collection, MANIFEST, VOCABULARY, CURRENT)
+    client, _, _, replay = wired(collection, "ready")
+
+    note = {"id": note_id, "fields": {"SchemaVersion": value}}
+    outcome = settle(client.invoke("updateNoteFields", note=note))
+
+    assert code_of(outcome) == "setup_required"
+    assert sent_writes(replay.sent) == []
+    assert collection.notes[note_id].fields["SchemaVersion"] == CURRENT
+
+
+@pytest.mark.p1
+def test_an_on_demand_state_with_anki_down_stays_unknown() -> None:
+    """AC-6: Anki down while the gate computes the state is `anki_unavailable`, state None."""
+    gate = SetupGate(MANIFEST)
+    replay = AnkiConnectReplay(failure=refused)
+    client = AnkiConnectClient(
+        ANKI_URL, transport=replay.transport, guard=PrefixGuard(MANIFEST), gate=gate
+    )
+
+    outcome = add_vocabulary(client)
+
+    assert code_of(outcome) == "anki_unavailable"
+    assert gate.state is None
+    assert "addNote" not in sent_actions(replay.sent)
+
+
+@pytest.mark.p1
+def test_setup_state_sets_the_gate() -> None:
+    """AC-3: `setup_state()` (the startup path) leaves its state in the gate."""
+    _, store, gate, _ = wired(stock_collection(), "ready")
+
+    outcome = settle(store.setup_state())
+
+    assert outcome == SetupState.NEEDS_SETUP
+    assert gate.state == SetupState.NEEDS_SETUP

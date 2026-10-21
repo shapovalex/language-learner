@@ -15,7 +15,8 @@ from `state`, in this order, and skips Migrate (entry 9):
    that config read back with `getDeckConfig`, the three bury flags set off and the rest left
    as it is (FR-8), and `saveDeckConfig`.
 
-Every write is one `invoke` (the guarded client's), so each step fails alone. A failed step
+Every write is one `invoke` (the client's guarded, ungated path: Setup's apply writes while
+the SetupState isn't `ready`), so each step fails alone. A failed step
 (an `AppError` from a write, or a `false` answer where AnkiConnect reports success with `true`
 or an id) doesn't end the run: the verification that follows reports what didn't take. A read
 that fails raises `AppError(ANKI_UNAVAILABLE)`.
@@ -30,7 +31,7 @@ from language_lab.adapters.anki.setup_diff import AnkiState
 from language_lab.domain.errors import AppError, ErrorCode
 from language_lab.domain.setup import PlanAction, PlanItem, ResourceKind
 
-# `invoke(action, **params)`: one guarded v6 call returning its `result`
+# `invoke(action, **params)`: one guarded, ungated v6 call returning its `result`
 type Invoke = Callable[..., Awaitable[Any]]
 
 

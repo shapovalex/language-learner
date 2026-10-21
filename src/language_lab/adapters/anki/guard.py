@@ -71,7 +71,7 @@ def _ids(value: Any) -> list[int]:
     return value
 
 
-def _inner_actions(params: Mapping[str, Any]) -> list[tuple[Any, Mapping[str, Any]]]:
+def inner_actions(params: Mapping[str, Any]) -> list[tuple[Any, Mapping[str, Any]]]:
     actions = params.get("actions")
     _require(isinstance(actions, list))
     inner: list[tuple[Any, Mapping[str, Any]]] = []
@@ -86,7 +86,7 @@ def _inner_actions(params: Mapping[str, Any]) -> list[tuple[Any, Mapping[str, An
 def check_read_only(action: Any, params: Mapping[str, Any]) -> None:
     """What an unguarded client allows: reads, and `multi` of reads only."""
     if action == "multi":
-        for inner, inner_params in _inner_actions(params):
+        for inner, inner_params in inner_actions(params):
             check_read_only(inner, inner_params)
         return
     _require(isinstance(action, str))
@@ -107,7 +107,7 @@ class PrefixGuard:
         Id-targeted writes call `lookup` (reads only) before they pass.
         """
         if action == "multi":
-            for inner, inner_params in _inner_actions(params):
+            for inner, inner_params in inner_actions(params):
                 await self.check(inner, inner_params, lookup)
             return
         _require(isinstance(action, str))

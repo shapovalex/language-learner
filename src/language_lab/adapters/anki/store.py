@@ -1,5 +1,8 @@
 """`AnkiConnectStore`: the AnkiStore port over AnkiConnect. Each method is one use case, run
 entirely under the Anki lock (AD-5).
+
+With a `SetupGate` shared with the client (AD-19), every SetupState the store computes (the
+startup `setup_state()`, each preview, each apply's verification) is set in the gate.
 """
 
 import asyncio
@@ -9,9 +12,9 @@ from language_lab.adapters.anki.client import AnkiConnectClient
 from language_lab.adapters.anki.lock import AnkiLock
 from language_lab.adapters.anki.manifest import Manifest
 from language_lab.adapters.anki.setup_apply import run_plan
-from language_lab.adapters.anki.setup_diff import AnkiState, ModelState, diff
+from language_lab.adapters.anki.setup_gate import SetupGate, read_preview
 from language_lab.domain.errors import AppError, ErrorCode
-from language_lab.domain.setup import SetupPreview
+from language_lab.domain.setup import SetupPreview, SetupState
 from language_lab.domain.setup import plan_hash as _plan_hash
 from language_lab.domain.sync import SyncOutcome
 
@@ -24,9 +27,6 @@ _FAILED = "failed"
 # Decided 2026-10-21: a dialog in Anki or a cancelled Sync ends the Sync at once
 _GAVE_UP = frozenset({"waitingForUser", "cancelled"})
 _AUTH_REQUIRED_TYPE = "authenticationRequired"
-_INNER_VERSION = 6  # `multi` answers each inner action as `{result, error}` from version 6
-
-type Read = tuple[str, dict[str, Any]]
 
 
 def _failure_outcome(poll: dict[str, Any]) -> SyncOutcome:
@@ -39,35 +39,6 @@ def _failure_outcome(poll: dict[str, Any]) -> SyncOutcome:
     return SyncOutcome.ANKIWEB_UNREACHABLE
 
 
-_MODEL_READS = ("modelFieldNames", "modelTemplates", "modelStyling")
-
-
-def _names(value: Any) -> frozenset[str]:
-    if not isinstance(value, list) or not all(isinstance(n, str) for n in value):
-        raise AppError(ErrorCode.ANKI_UNAVAILABLE)
-    return frozenset(value)
-
-
-def _model_state(fields: Any, templates: Any, styling: Any) -> ModelState:
-    """A note type from `modelFieldNames`, `modelTemplates` and `modelStyling` (spike 2.2)."""
-    if not isinstance(fields, list) or not all(isinstance(f, str) for f in fields):
-        raise AppError(ErrorCode.ANKI_UNAVAILABLE)
-    if not isinstance(templates, dict) or not isinstance(styling, dict):
-        raise AppError(ErrorCode.ANKI_UNAVAILABLE)
-    sides: dict[str, tuple[str, str]] = {}
-    for card, template in templates.items():
-        if not isinstance(template, dict):
-            raise AppError(ErrorCode.ANKI_UNAVAILABLE)
-        front, back = template.get("Front"), template.get("Back")
-        if not isinstance(front, str) or not isinstance(back, str):
-            raise AppError(ErrorCode.ANKI_UNAVAILABLE)
-        sides[card] = (front, back)
-    css = styling.get("css")
-    if not isinstance(css, str):
-        raise AppError(ErrorCode.ANKI_UNAVAILABLE)
-    return ModelState(tuple(fields), sides, css)
-
-
 class AnkiConnectStore:
     def __init__(
         self,
@@ -75,12 +46,14 @@ class AnkiConnectStore:
         lock: AnkiLock,
         *,
         manifest: Manifest | None = None,
+        gate: SetupGate | None = None,
         poll_interval_s: float = POLL_INTERVAL_S,
         sync_budget_s: float = SYNC_BUDGET_S,
     ) -> None:
         self._client = client
         self._lock = lock
         self._manifest = manifest
+        self._gate = gate
         self._poll_interval_s = poll_interval_s
         self._sync_budget_s = sync_budget_s
 
@@ -94,71 +67,51 @@ class AnkiConnectStore:
                 raise
             return True
 
+    async def setup_state(self) -> SetupState:
+        """The SetupState, from reads only under the lock (AD-19), set in the gate. Raises
+        `AppError(ANKI_UNAVAILABLE | ANKI_BUSY)`.
+        """
+        return (await self.setup_preview()).state
+
     async def setup_preview(self) -> SetupPreview:
         """Read the managed state and diff it against the manifest, with reads only, under one
-        lock hold (AD-3, AD-5). Raises `AppError(ANKI_UNAVAILABLE | ANKI_BUSY)`.
+        lock hold (AD-3, AD-5), with its SetupState, which is set in the gate. Raises
+        `AppError(ANKI_UNAVAILABLE | ANKI_BUSY)`.
         """
         manifest = self._require_manifest()
         async with self._lock.hold():
-            state = await self._read_state(manifest)
-        return diff(manifest, state)
+            _, preview = await read_preview(self._client.invoke, manifest)
+        self._set_gate(preview)
+        return preview
 
     async def setup_apply(self, plan_hash: str) -> SetupPreview:
-        """Re-diff, refuse a stale `plan_hash` before any write, run the plan's Create and Repair
-        items through the guarded client, and verify by a fresh diff, all under one lock hold
-        (AD-3, AD-4, AD-5). Raises `AppError(PLAN_CHANGED | ANKI_UNAVAILABLE | ANKI_BUSY)`.
+        """Re-diff, refuse a stale `plan_hash` and then a `newer_schema` Anki before any write,
+        run the plan's Create and Repair items through the client's guarded, ungated path, and
+        verify by a fresh diff, all under one lock hold (AD-3, AD-4, AD-5, AD-19). Each fresh
+        SetupState is set in the gate. Raises
+        `AppError(PLAN_CHANGED | SETUP_REQUIRED | ANKI_UNAVAILABLE | ANKI_BUSY)`.
         """
         manifest = self._require_manifest()
         async with self._lock.hold():
-            state = await self._read_state(manifest)
-            before = diff(manifest, state)
+            state, before = await read_preview(self._client.invoke, manifest)
+            self._set_gate(before)
             if _plan_hash(before.items) != plan_hash:
                 raise AppError(ErrorCode.PLAN_CHANGED)
-            await run_plan(self._client.invoke, manifest, state, before.items)
-            verified = await self._read_state(manifest)
-        return diff(manifest, verified)
+            if before.state is SetupState.NEWER_SCHEMA:
+                raise AppError(ErrorCode.SETUP_REQUIRED)
+            await run_plan(self._client.invoke_setup, manifest, state, before.items)
+            _, verified = await read_preview(self._client.invoke, manifest)
+            self._set_gate(verified)
+        return verified
+
+    def _set_gate(self, preview: SetupPreview) -> None:
+        if self._gate is not None:
+            self._gate.set(preview.state)
 
     def _require_manifest(self) -> Manifest:
         if self._manifest is None:
             raise RuntimeError("AnkiConnectStore was built without a manifest")
         return self._manifest
-
-    async def _read_state(self, manifest: Manifest) -> AnkiState:
-        deck_names, model_names = await self._multi([("deckNames", {}), ("modelNames", {})])
-        decks, models = _names(deck_names), _names(model_names)
-        managed = [nt.name for nt in manifest.note_types if nt.name in models]
-        preset_decks = [deck for deck in manifest.preset.decks if deck in decks]
-        reads: list[Read] = []
-        for name in managed:
-            reads += [(action, {"modelName": name}) for action in _MODEL_READS]
-        reads += [("getDeckConfig", {"deck": deck}) for deck in preset_decks]
-        results = await self._multi(reads) if reads else []
-        per_model = len(_MODEL_READS)
-        managed_models = {
-            name: _model_state(*results[i * per_model : (i + 1) * per_model])
-            for i, name in enumerate(managed)
-        }
-        configs = results[len(managed) * per_model :]
-        preset_configs = {deck: config for deck, config in zip(preset_decks, configs, strict=True)}
-        if not all(isinstance(c, dict) for c in preset_configs.values()):
-            raise AppError(ErrorCode.ANKI_UNAVAILABLE)
-        return AnkiState(decks, models, managed_models, preset_configs)
-
-    async def _multi(self, reads: list[Read]) -> list[Any]:
-        """Send `reads` as one `multi` and return each inner `result`."""
-        actions = [
-            {"action": action, "version": _INNER_VERSION, "params": params}
-            for action, params in reads
-        ]
-        replies = await self._client.invoke("multi", actions=actions)
-        if not isinstance(replies, list) or len(replies) != len(reads):
-            raise AppError(ErrorCode.ANKI_UNAVAILABLE)
-        results = []
-        for reply in replies:
-            if not isinstance(reply, dict) or reply.get("error") is not None:
-                raise AppError(ErrorCode.ANKI_UNAVAILABLE)
-            results.append(reply.get("result"))
-        return results
 
     async def sync(self) -> SyncOutcome:
         async with self._lock.hold():
