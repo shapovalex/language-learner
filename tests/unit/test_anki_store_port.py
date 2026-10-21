@@ -25,3 +25,28 @@ def test_anki_store_port_declares_readiness_and_sync_and_the_fake_matches() -> N
     assert {name: fake.get(name) for name in port} == port
     adapter = public_methods(AnkiConnectStore)
     assert {name: adapter.get(name) for name in port} == port
+
+
+SETUP_RED_PHASE = pytest.mark.skip(
+    reason="ATDD red phase, story 2.6: un-skip with AnkiStore.setup_preview in port, fake, adapter"
+)
+
+
+@SETUP_RED_PHASE
+@pytest.mark.p1
+def test_anki_store_port_adds_the_setup_preview_read_and_the_fake_matches() -> None:
+    """AC-4: story 2.6 adds `setup_preview() -> SetupPreview`; the fake and the adapter match.
+
+    Green: the exact-set assertion above becomes this one, so drop it from the story 2.1 test.
+    """
+    from language_lab.domain.setup import SetupPreview
+
+    port = public_methods(AnkiStore)
+
+    assert set(port) == {"reachable", "sync", "setup_preview"}
+    assert inspect.iscoroutinefunction(AnkiStore.setup_preview)
+    assert inspect.get_annotations(AnkiStore.setup_preview, eval_str=True)["return"] is SetupPreview
+    fake = public_methods(FakeAnkiStore)
+    assert {name: fake.get(name) for name in port} == port
+    adapter = public_methods(AnkiConnectStore)
+    assert {name: adapter.get(name) for name in port} == port

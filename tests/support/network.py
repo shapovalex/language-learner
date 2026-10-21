@@ -26,6 +26,16 @@ def stub_api_error(
     return body
 
 
+def stub_api_json(page: Page, path: str, body: Any, *, status: int = 200) -> None:
+    """Answer every request to `path` with `body` as JSON instead of reaching the server."""
+    page.route(
+        f"**{path}",
+        lambda route: route.fulfill(
+            status=status, content_type="application/json", body=json.dumps(body)
+        ),
+    )
+
+
 class HeldRoute:
     """Holds every request to `path` until the test answers it, so a loading state can be seen.
 
