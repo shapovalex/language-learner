@@ -15,6 +15,9 @@ Notes (story 2.8): `add_note()` puts a note in the collection, and `managed_note
 a manifest note type with its `SchemaVersion` field set. `findNotes` answers an exact
 `note:"<type>"` query, `notesInfo` answers in the recorded shape, and with `writes=True` the
 collection also answers `addNote` and `updateNoteFields` (`NOTE_WRITE_ACTIONS`).
+
+Migrations (story 2.9): with `writes=True`, `modelFieldAdd` adds the field to the model, at
+`index` or at the end, and to each of its notes, empty.
 """
 
 import copy
@@ -61,6 +64,7 @@ WRITE_ACTIONS = frozenset(
         "updateModelTemplates",
         "updateModelStyling",
         "modelTemplateAdd",
+        "modelFieldAdd",
         "cloneDeckConfigId",
         "setDeckConfigId",
         "saveDeckConfig",
@@ -357,6 +361,21 @@ def _answer_write(
                 "Front": template["Front"],
                 "Back": template["Back"],
             }
+            return _ok(None)
+        case "modelFieldAdd":
+            # Spike 2.2: answers null; with `index` it inserts there, else it appends. Every
+            # note of the model gains the field, empty
+            model = models.get(params.get("modelName", ""))
+            name = params.get("fieldName", "")
+            if model is None:
+                return _error(f"model was not found: {params.get('modelName')}")
+            if name in model.fields:
+                return _error("field name already exists")
+            index = params.get("index", len(model.fields))
+            model.fields.insert(index, name)
+            for note in collection.notes.values():
+                if note.model == params["modelName"]:
+                    note.fields = {f: note.fields.get(f, "") for f in model.fields}
             return _ok(None)
         case "cloneDeckConfigId":
             # Without `cloneFrom` Anki clones config id 1, its Default preset
