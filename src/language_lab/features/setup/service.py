@@ -14,6 +14,11 @@ awaits a Sync through the SyncRequester, outside the Anki lock, and is refused w
 SyncRequester is told a full sync is required; readiness reports it as the `fullSync` check
 until the user says they uploaded (`full_sync_uploaded()`).
 
+Opt-in repairs (entry 11): the plan lists every leftover the preview offers under `repairs`,
+unchecked. `plan(repairs=keys)` re-plans with those rows checked, and its `planHash` covers the
+required items plus the checked rows; `apply(plan_hash, repairs)` hands the same keys to the
+store, which re-hashes them before any write.
+
 The plan carries the SetupState (AD-19). `start_refresh()` computes it once at startup, in a
 task the lifespan doesn't wait for: a failure (Anki down) is logged without its text and the
 adapter's gate computes it on demand later. `aclose()` cancels it if it still runs.
@@ -22,7 +27,8 @@ adapter's gate computes it on demand later. `aclose()` cancels it if it still ru
 import asyncio
 import contextlib
 import logging
-from typing import Literal, TypedDict
+from collections.abc import Collection
+from typing import Literal, NotRequired, TypedDict
 
 from language_lab.domain.errors import AppError, ErrorCode
 from language_lab.domain.setup import PlanItem, SetupPreview, SetupState, plan_hash
@@ -58,6 +64,19 @@ class PlanRow(TypedDict):
     requiresFullSync: bool  # a field change: a one-way full sync follows (AD-3)
 
 
+class RepairRow(TypedDict):
+    key: str  # "<kind>:<name>": what the screen checks and sends back
+    action: str
+    kind: str
+    name: str
+    checked: bool
+    # Display detail of a card row
+    noteType: NotRequired[str]
+    card: NotRequired[str]
+    deck: NotRequired[str]
+    expectedDeck: NotRequired[str]  # a misplaced card's
+
+
 class UnmanagedRow(TypedDict):
     kind: str
     name: str
@@ -68,12 +87,15 @@ class Plan(TypedDict):
     planHash: str  # camelCase on the wire (Consistency Conventions)
     state: str  # the SetupState
     items: list[PlanRow]
+    repairs: list[RepairRow]  # every opt-in repair row offered
     unmanaged: list[UnmanagedRow]
 
 
 class ApplyResult(TypedDict):
     verified: bool
-    planHash: str  # what a fresh preview hashes to while Anki stays as verify found it
+    # What a fresh preview, with the checked repairs still offered, hashes to while Anki stays
+    # as verify found it
+    planHash: str
     discrepancies: list[PlanRow]
     fullSyncRequired: bool  # the run's plan changed fields: upload in Anki Desktop
 
@@ -95,11 +117,37 @@ def _rows(items: tuple[PlanItem, ...]) -> list[PlanRow]:
     ]
 
 
-def _result(verification: SetupPreview, *, full_sync_required: bool) -> ApplyResult:
+def _checked(preview: SetupPreview, repairs: Collection[str]) -> tuple[PlanItem, ...]:
+    """The offered repair rows whose key is in `repairs`; a key no longer offered drops out."""
+    wanted = set(repairs)
+    return tuple(r for r in preview.repairs if r.key in wanted)
+
+
+def _repair_rows(preview: SetupPreview, checked: tuple[PlanItem, ...]) -> list[RepairRow]:
+    keys = {r.key for r in checked}
+    rows: list[RepairRow] = []
+    for r in preview.repairs:
+        row: RepairRow = {
+            "key": r.key,
+            "action": str(r.action),
+            "kind": str(r.kind),
+            "name": r.name,
+            "checked": r.key in keys,
+        }
+        rows.append({**row, **r.detail})  # type: ignore[typeddict-item]
+    return rows
+
+
+def _result(
+    verification: SetupPreview, repairs: Collection[str], *, full_sync_required: bool
+) -> ApplyResult:
+    """The checked rows still offered are discrepancies too; unchecked ones aren't."""
+    still = _checked(verification, repairs)
+    discrepancies = (*verification.items, *still)
     return {
-        "verified": not verification.items,
-        "planHash": plan_hash(verification.items),
-        "discrepancies": _rows(verification.items),
+        "verified": not discrepancies,
+        "planHash": plan_hash(discrepancies),  # a retry re-checks the repairs still offered
+        "discrepancies": _rows(discrepancies),
         "fullSyncRequired": full_sync_required,
     }
 
@@ -144,25 +192,30 @@ class SetupService:
             ],
         }
 
-    async def plan(self) -> Plan:
-        """The preview, items in the store's order. `anki_busy`/`anki_unavailable` propagate."""
+    async def plan(self, repairs: Collection[str] = ()) -> Plan:
+        """The preview, items in the store's order, with the opt-in repair rows whose key is in
+        `repairs` checked and in the hash. `anki_busy`/`anki_unavailable` propagate.
+        """
         preview = await self._anki.setup_preview()
+        checked = _checked(preview, repairs)
         return {
             "prefix": self._prefix,
-            "planHash": plan_hash(preview.items),
+            "planHash": plan_hash((*preview.items, *checked)),
             "state": str(preview.state),
             "items": _rows(preview.items),
+            "repairs": _repair_rows(preview, checked),
             "unmanaged": [{"kind": str(u.kind), "name": u.name} for u in preview.unmanaged],
         }
 
-    async def apply(self, plan_hash: str) -> ApplyResult:
-        """Run the confirmed plan to its end and return the verification. `sync_required` (the
+    async def apply(self, plan_hash: str, repairs: Collection[str] = ()) -> ApplyResult:
+        """Run the confirmed plan, with the checked opt-in `repairs` keys, to its end and return
+        the verification. `sync_required` (the
         Sync before a field change didn't end OK), `plan_changed`, `setup_required` (a
         `newer_schema` Anki), `anki_busy` and `anki_unavailable` propagate.
         A cancelled caller leaves the run going.
         """
         if self._run is None or self._run.done():
-            self._run = asyncio.create_task(self._apply(plan_hash))
+            self._run = asyncio.create_task(self._apply(plan_hash, tuple(repairs)))
             self._run.add_done_callback(_retrieve)
         return await asyncio.shield(self._run)
 
@@ -205,20 +258,19 @@ class SetupService:
             with contextlib.suppress(asyncio.CancelledError, Exception):
                 await run
 
-    async def _apply(self, plan_hash: str) -> ApplyResult:
+    async def _apply(self, plan_hash: str, repairs: Collection[str]) -> ApplyResult:
         preview = await self._anki.setup_preview()
         field_change = any(i.requires_full_sync for i in preview.items)
         # A stale hash or a newer-schema Anki goes straight to the store, which refuses it
-        applicable = (
-            _plan_hash(preview.items) == plan_hash and preview.state is not SetupState.NEWER_SCHEMA
-        )
+        fresh = _plan_hash((*preview.items, *_checked(preview, repairs)))
+        applicable = fresh == plan_hash and preview.state is not SetupState.NEWER_SCHEMA
         if field_change and applicable:
             # Before the Anki lock is taken: the Sync holds it itself (AD-5, AD-17)
             status = await self._sync.request_and_wait()
             if status.outcome not in _SYNCED:
                 raise AppError(ErrorCode.SYNC_REQUIRED)
         try:
-            verification = await self._anki.setup_apply(plan_hash)
+            verification = await self._anki.setup_apply(plan_hash, repairs)
         except AppError as exc:
             # Those two refuse before any write; any other may follow a field already added
             if field_change and exc.code not in _REFUSED_BEFORE_WRITES:
@@ -226,6 +278,6 @@ class SetupService:
             raise
         if field_change:
             self._sync.set_full_sync_required(True)
-        result = _result(verification, full_sync_required=field_change)
+        result = _result(verification, repairs, full_sync_required=field_change)
         self._last = result  # a run that raised isn't recorded
         return result

@@ -24,10 +24,6 @@ from playwright.sync_api import Page, Route, expect
 
 from tests.support.network import stub_api_json
 
-RED_PHASE = pytest.mark.skip(
-    reason="ATDD red phase, story 2.11: un-skip with the Optional repairs card"
-)
-
 READINESS = "/api/setup/readiness"
 PLAN = re.compile(r".*/api/setup/plan(\?.*)?$")
 STATUS = "/api/setup/apply/status"
@@ -109,7 +105,6 @@ def open_setup(page: Page) -> tuple[Any, list[str]]:
     return page.get_by_role("main"), plan_urls
 
 
-@RED_PHASE
 @pytest.mark.p0
 def test_each_opt_in_repair_shows_with_an_unchecked_checkbox(page: Page) -> None:
     """AC-5: the Optional repairs card lists one row per repair, each with an unchecked box,
@@ -129,7 +124,6 @@ def test_each_opt_in_repair_shows_with_an_unchecked_checkbox(page: Page) -> None
     expect(main.get_by_role("button", name=APPLY_LABEL)).to_have_count(0)
 
 
-@RED_PHASE
 @pytest.mark.p0
 def test_checking_a_repair_replans_and_apply_posts_it_with_the_new_hash(page: Page) -> None:
     """AC-12: checking a box re-reads the plan with `?repair=<key>`, and Apply setup posts
@@ -149,3 +143,49 @@ def test_checking_a_repair_replans_and_apply_posts_it_with_the_new_hash(page: Pa
         "repairs": [media_key],
     }
     assert any(parse_qs(urlparse(u).query).get("repair") == [media_key] for u in plan_urls)
+
+
+@pytest.mark.p1
+def test_unchecking_a_repair_replans_without_it_and_hides_apply_again(page: Page) -> None:
+    """AC-12: unchecking re-reads the plan without the key, and with no items and nothing
+    checked Apply setup is hidden again.
+    """
+    main, _ = open_setup(page)
+    box = main.get_by_role("list", name=REPAIRS_HEADING).get_by_role("checkbox").first
+    box.check()
+    expect(main.get_by_role("button", name=APPLY_LABEL)).to_be_enabled()
+
+    with page.expect_request(PLAN) as reread:
+        box.uncheck()
+
+    assert parse_qs(urlparse(reread.value.url).query).get("repair") is None
+    expect(main.get_by_role("button", name=APPLY_LABEL)).to_have_count(0)
+    expect(box).not_to_be_checked()
+
+
+@pytest.mark.p1
+def test_run_setup_again_retries_the_checked_repairs_that_failed(page: Page) -> None:
+    """AC-10: a run whose checked repair didn't take lists it as a discrepancy, and Run Setup
+    again posts the result's hash with that repair's key (not with the required items alone).
+    """
+    card = REPAIRS[2]
+    left_over = "7" * 64
+    failed = {"action": "repair", "kind": card["kind"], "name": card["name"]}
+    stub_api_json(
+        page,
+        APPLY,
+        {
+            "verified": False,
+            "planHash": left_over,
+            "discrepancies": [{**failed, "requiresFullSync": False}],
+            "fullSyncRequired": False,
+        },
+    )
+    main, _ = open_setup(page)
+    main.get_by_role("list", name=REPAIRS_HEADING).get_by_role("checkbox").nth(2).check()
+    main.get_by_role("button", name=APPLY_LABEL).click()
+
+    with page.expect_request(lambda r: r.method == "POST" and r.url.endswith(APPLY)) as again:
+        main.get_by_role("button", name="Run Setup again").click()
+
+    assert again.value.post_data_json == {"planHash": left_over, "repairs": [card["key"]]}

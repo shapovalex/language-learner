@@ -42,6 +42,7 @@ from tests.support.aio import settle
 from tests.support.anki_connect import ANKI_URL, AnkiConnectReplay, refused
 from tests.support.anki_state import (
     Collection,
+    add_card,
     apply_manifest,
     collection_replies,
     managed_collection,
@@ -241,6 +242,25 @@ def test_an_unknown_state_is_computed_by_the_first_gated_write(
 
     assert code_of(outcome) == expected
     assert str(gate.state) == state
+
+
+@pytest.mark.p1
+def test_the_gates_own_compute_reads_no_leftovers() -> None:
+    """Story 2.11 (AD-19): leftovers never decide the SetupState, so the gate's on-demand
+    compute sends no card or media read, even with a card and an orphan file in Anki.
+    """
+    collection = managed_collection(MANIFEST)
+    note = managed_note(collection, MANIFEST, CAPTURE, CURRENT)
+    add_card(collection, note, 0, "Default")
+    collection.media.add(f"{PREFIX}_00000000-0000-4000-8000-000000000001_0123456789ab.mp3")
+    client, _, gate, replay = wired(collection)
+
+    outcome = add_vocabulary(client)
+
+    assert code_of(outcome) is None
+    assert str(gate.state) == "ready"
+    leftover_reads = {"findCards", "cardsInfo", "getMediaFilesNames"}
+    assert leftover_reads.isdisjoint(sent_actions(replay.sent))
 
 
 @pytest.mark.p0

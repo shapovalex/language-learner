@@ -11,6 +11,11 @@ decoded through the codec. Precedence:
 Only manifest note types are read (exact `note_query`), so another Prefix's notes never count
 (AD-4).
 
+For the opt-in repairs (entry 11) the preview also reads, still reads only: the `Audio` names
+the same `notesInfo` answer references, the manifest note types' cards (one `multi` of
+`findCards` beside `getMediaFilesNames` for `<Prefix>_*`, then one `cardsInfo`). They never
+change the SetupState.
+
 `SetupGate(manifest)` is shared by the client and the store. `check(action, params, lookup)`
 runs after the Prefix guard on every non-Setup request: reads (and `multi` of reads) pass, and
 any write raises `AppError(SETUP_REQUIRED)` before it is sent unless the state is `ready`. An
@@ -29,11 +34,14 @@ from language_lab.adapters.anki.codec import decode_field
 from language_lab.adapters.anki.guard import READS, Lookup, inner_actions
 from language_lab.adapters.anki.manifest import Manifest
 from language_lab.adapters.anki.query import note_query
-from language_lab.adapters.anki.setup_diff import AnkiState, ModelState, diff
+from language_lab.adapters.anki.setup_diff import AnkiState, CardState, ModelState, diff
 from language_lab.domain.errors import AppError, ErrorCode
 from language_lab.domain.setup import PlanAction, SetupPreview, SetupState
 
 SCHEMA_VERSION_FIELD = "SchemaVersion"
+AUDIO_FIELD = "Audio"
+_SOUND = re.compile(r"\[sound:([^\]]+)\]")
+_SUSPENDED_QUEUE = -1
 _MODEL_READS = ("modelFieldNames", "modelTemplates", "modelStyling")
 _INNER_VERSION = 6  # `multi` answers each inner action as `{result, error}` from version 6
 _INTEGER = re.compile(r"[0-9]+")
@@ -120,23 +128,42 @@ def parse_version(stored: Any) -> int | None:
     return int(text) if _INTEGER.fullmatch(text) else None
 
 
+def _stored_value(info: Any, name: str) -> Any:
+    """The stored content of field `name` in one `notesInfo` entry; None when absent."""
+    fields = info.get("fields") if isinstance(info, dict) else None
+    field = fields.get(name) if isinstance(fields, dict) else None
+    return field.get("value") if isinstance(field, dict) else None
+
+
 def _stored_version(info: Any) -> int | None:
     """The `SchemaVersion` of one `notesInfo` entry."""
-    fields = info.get("fields") if isinstance(info, dict) else None
-    field = fields.get(SCHEMA_VERSION_FIELD) if isinstance(fields, dict) else None
-    return parse_version(field.get("value") if isinstance(field, dict) else None)
+    return parse_version(_stored_value(info, SCHEMA_VERSION_FIELD))
+
+
+def _sounds(info: Any) -> set[str]:
+    """The media names one `notesInfo` entry's `Audio` holds, decoded through the codec."""
+    stored = _stored_value(info, AUDIO_FIELD)
+    return set(_SOUND.findall(decode_field(stored))) if isinstance(stored, str) else set()
+
+
+@dataclasses.dataclass(frozen=True)
+class NoteReads:
+    # manifest note type -> (note id, `SchemaVersion` or None when not an integer)
+    versions: dict[str, tuple[tuple[int, int | None], ...]]
+    audio: frozenset[str]  # every media name the notes' `Audio` fields reference
 
 
 async def read_note_versions(
     lookup: Lookup, manifest: Manifest, models: Iterable[str]
-) -> dict[str, tuple[tuple[int, int | None], ...]]:
+) -> NoteReads:
     """Each manifest note type in `models` -> (note id, `SchemaVersion` or None when not an
-    integer) of each of its notes: one `multi` of `findNotes`, then one `notesInfo`.
+    integer) of each of its notes, and the media names their `Audio` references: one `multi`
+    of `findNotes`, then one `notesInfo`.
     """
     present = set(models)
     types = [nt.name for nt in manifest.note_types if nt.name in present]
     if not types:
-        return {}
+        return NoteReads({}, frozenset())
     found = await multi(lookup, [("findNotes", {"query": note_query(manifest, t)}) for t in types])
     owners: dict[int, str] = {}
     for note_type, result in zip(types, found, strict=True):
@@ -144,6 +171,7 @@ async def read_note_versions(
             raise AppError(ErrorCode.ANKI_UNAVAILABLE)
         owners |= dict.fromkeys(result, note_type)
     versions: dict[str, list[tuple[int, int | None]]] = {t: [] for t in types}
+    audio: set[str] = set()
     ids = list(owners)
     if ids:
         infos = await lookup("notesInfo", notes=ids)
@@ -153,7 +181,53 @@ async def read_note_versions(
             # AnkiConnect answers `{}` for a note deleted since `findNotes`: it no longer counts
             if info != {}:
                 versions[owners[note_id]].append((note_id, _stored_version(info)))
-    return {t: tuple(notes) for t, notes in versions.items() if notes}
+                audio |= _sounds(info)
+    return NoteReads({t: tuple(notes) for t, notes in versions.items() if notes}, frozenset(audio))
+
+
+def _is_int(value: Any) -> bool:
+    return isinstance(value, int) and not isinstance(value, bool)
+
+
+def _card_state(info: Any) -> CardState | None:
+    """One `cardsInfo` entry; None for `{}` (a card deleted since `findCards`)."""
+    if info == {}:
+        return None
+    if not isinstance(info, dict):
+        raise AppError(ErrorCode.ANKI_UNAVAILABLE)
+    card_id, model, ord_, deck, queue = (
+        info.get(k) for k in ("cardId", "modelName", "ord", "deckName", "queue")
+    )
+    if not (_is_int(card_id) and _is_int(ord_) and _is_int(queue)):
+        raise AppError(ErrorCode.ANKI_UNAVAILABLE)
+    if not isinstance(model, str) or not isinstance(deck, str):
+        raise AppError(ErrorCode.ANKI_UNAVAILABLE)
+    return CardState(card_id, model, ord_, deck, queue == _SUSPENDED_QUEUE)
+
+
+async def read_leftovers(
+    lookup: Lookup, manifest: Manifest, models: Iterable[str]
+) -> tuple[tuple[CardState, ...], frozenset[str]]:
+    """The cards of each manifest note type in `models` and the media named `<Prefix>_*`: one
+    `multi` of `findCards` and `getMediaFilesNames`, then one `cardsInfo` when there are cards.
+    """
+    present = set(models)
+    types = [nt.name for nt in manifest.note_types if nt.name in present]
+    reads: list[Read] = [("findCards", {"query": note_query(manifest, t)}) for t in types]
+    reads.append(("getMediaFilesNames", {"pattern": f"{manifest.prefix}_*"}))
+    *found, media = await multi(lookup, reads)
+    ids: list[int] = []
+    for result in found:
+        if not isinstance(result, list) or not all(_is_int(i) for i in result):
+            raise AppError(ErrorCode.ANKI_UNAVAILABLE)
+        ids += result  # a card belongs to one note type
+    cards: list[CardState] = []
+    if ids:
+        infos = await lookup("cardsInfo", cards=ids)
+        if not isinstance(infos, list) or len(infos) != len(ids):
+            raise AppError(ErrorCode.ANKI_UNAVAILABLE)
+        cards = [card for info in infos if (card := _card_state(info)) is not None]
+    return tuple(cards), _names(media)
 
 
 def compute_state(
@@ -171,13 +245,24 @@ def compute_state(
     return SetupState.READY
 
 
-async def read_preview(lookup: Lookup, manifest: Manifest) -> tuple[AnkiState, SetupPreview]:
-    """The managed state and its preview, with its `state`, from reads only."""
+async def read_preview(
+    lookup: Lookup, manifest: Manifest, *, leftovers: bool = True
+) -> tuple[AnkiState, SetupPreview]:
+    """The managed state and its preview, with its `state`, from reads only. With
+    `leftovers=False` the cards and media aren't read, so no repair row is offered: the
+    SetupState never depends on them (AD-19).
+    """
     state = await read_state(lookup, manifest)
-    note_versions = await read_note_versions(lookup, manifest, state.models)
-    state = dataclasses.replace(state, note_versions=note_versions)
+    notes = await read_note_versions(lookup, manifest, state.models)
+    cards: tuple[CardState, ...] = ()
+    media: frozenset[str] = frozenset()
+    if leftovers:
+        cards, media = await read_leftovers(lookup, manifest, state.models)
+    state = dataclasses.replace(
+        state, note_versions=notes.versions, cards=cards, media=media, audio=notes.audio
+    )
     preview = diff(manifest, state)
-    versions = (v for notes in note_versions.values() for _, v in notes)
+    versions = (v for per_type in notes.versions.values() for _, v in per_type)
     setup_state = compute_state(preview, versions, manifest.schema_version)
     return state, dataclasses.replace(preview, state=setup_state)
 
@@ -204,7 +289,7 @@ class SetupGate:
         if not writes:
             return
         if self.state is None:
-            _, preview = await read_preview(lookup, self._manifest)
+            _, preview = await read_preview(lookup, self._manifest, leftovers=False)
             self.set(preview.state)
         if self.state is not SetupState.READY:
             raise AppError(ErrorCode.SETUP_REQUIRED)

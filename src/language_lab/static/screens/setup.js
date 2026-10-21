@@ -6,7 +6,9 @@
 // plan's `state` is `newer_schema` (AD-19), a blocking alert takes the change list's place and
 // Apply setup is hidden. After a field change, readiness's `fullSync` check fails: a warning
 // tile asks for an upload in Anki Desktop until "I've uploaded" clears it (AD-17); it never
-// disables Apply.
+// disables Apply. Leftovers (story 2.11) show as "Optional repairs", one checkbox each,
+// unchecked: a toggle re-reads the plan with the checked keys (the server hashes them), and
+// Apply setup posts that plan's hash with the keys.
 
 import {
   applySetup,
@@ -73,6 +75,9 @@ const DISCREPANCY_KINDS = {
   notes: "Notes",
   templates: "Card templates and CSS",
   preset: "Deck options",
+  orphanMedia: "Media file",
+  misplacedCard: "Card",
+  unsuspendedCard: "Capture card",
 };
 const EXPECTED_FOUND = {
   "create:deck": "Expected this deck; found none.",
@@ -84,7 +89,21 @@ const EXPECTED_FOUND = {
     "Expected sibling burying off on every Study and Pronunciation deck; found it on, or a deck on another preset.",
   "migrate:noteType": "Expected LanguageLab's fields; found different ones.",
   "migrate:notes": "Expected every note at LanguageLab's schema version; found older ones.",
+  "repair:orphanMedia": "Expected this file deleted; found it still there.",
+  "repair:misplacedCard": "Expected this card in its LanguageLab deck; found it elsewhere.",
+  "repair:unsuspendedCard": "Expected this Capture card suspended; found it unsuspended.",
 };
+
+const REPAIR_KINDS = new Set(["orphanMedia", "misplacedCard", "unsuspendedCard"]);
+
+// The keys of the checked repairs a run left as discrepancies: Run Setup again retries them
+function repairKeys(discrepancies) {
+  return discrepancies.filter((d) => REPAIR_KINDS.has(d.kind)).map((d) => `${d.kind}:${d.name}`);
+}
+
+// Optional repairs (story 2.11): default copy, not from the UX docs
+const REPAIRS_HEADING = "Optional repairs";
+const REPAIRS_HINT = "Nothing here changes unless you check it.";
 
 function element(tag, className, text) {
   const node = document.createElement(tag);
@@ -216,6 +235,47 @@ function nothingToChange() {
   return callout;
 }
 
+// A repair row's text and detail, by kind
+function repairCopy(row) {
+  switch (row.kind) {
+    case "orphanMedia":
+      return [row.name, "Not used by any note."];
+    case "misplacedCard":
+      return [`${row.noteType} · ${row.card}`, `In ${row.deck}; belongs in ${row.expectedDeck}.`];
+    case "unsuspendedCard":
+      return [`${row.noteType} card`, "Not suspended."];
+    default:
+      return [row.name, ""];
+  }
+}
+
+function repairsCard(repairs, checked, onToggle) {
+  const card = element("section", "setup-card");
+  const header = element("div", "setup-card-header");
+  const heading = element("h2", "setup-card-title", REPAIRS_HEADING);
+  heading.id = "repairs-heading";
+  header.append(heading, element("p", "setup-card-note", REPAIRS_HINT));
+  const list = element("ul", "change-rows");
+  list.setAttribute("aria-labelledby", heading.id);
+  for (const row of repairs) {
+    const item = element("li", "change-row repair-row");
+    const label = element("label", "repair-row-label");
+    const box = document.createElement("input");
+    box.type = "checkbox";
+    box.checked = checked.includes(row.key);
+    box.dataset.repairKey = row.key;
+    box.addEventListener("change", () => onToggle(row.key, box.checked));
+    const [title, detail] = repairCopy(row);
+    const text = element("span", "change-row-text", title);
+    if (detail) text.append(element("span", "repair-row-detail", detail));
+    label.append(box, text);
+    item.append(label);
+    list.append(item);
+  }
+  card.append(header, list);
+  return card;
+}
+
 function unmanagedCard(unmanaged) {
   const card = element("section", "setup-card");
   const heading = element("h2", "setup-card-title", "Not managed by LanguageLab");
@@ -259,14 +319,19 @@ function isNewerSchema(body) {
   return body?.state === NEWER_SCHEMA;
 }
 
-function planSection(body) {
+function planSection(body, checked, onToggle) {
   const { prefix, items, unmanaged } = body;
+  const repairs = body.repairs ?? [];
   const main = isNewerSchema(body)
     ? newerSchemaAlert()
     : items.length > 0
       ? changesCard(items)
       : nothingToChange();
   const nodes = [main];
+  // A newer-schema Anki is never applied to, so nothing is offered
+  if (repairs.length > 0 && !isNewerSchema(body)) {
+    nodes.push(repairsCard(repairs, checked, onToggle));
+  }
   if (unmanaged.length > 0) nodes.push(unmanagedCard(unmanaged));
   nodes.push(studyFooter(prefix));
   return nodes;
@@ -365,7 +430,51 @@ export function mount(root) {
     view: null,
     result: null,
     notice: null, // a message shown as an inline alert above the change list
+    checked: [], // the keys of the opt-in repairs the user checked (plan order once re-read)
+    replanning: false, // a toggle's plan read is in flight: Apply waits for its hash
   };
+  let planSeq = 0; // each plan read's number: an answer that isn't the latest is dropped
+
+  // The plan, read with the checked repairs; `stale` when a later read was sent meanwhile
+  function readPlan() {
+    const seq = ++planSeq;
+    return getPlan(state.checked).then(
+      (body) => ({ stale: seq !== planSeq, body }),
+      (error) => {
+        if (seq !== planSeq) return { stale: true, body: null };
+        throw error;
+      },
+    );
+  }
+
+  // A fresh plan: the checks it still offers stay checked, in its order
+  function takePlan(body) {
+    state.plan = body;
+    state.planError = null;
+    const offered = (body.repairs ?? []).map((row) => row.key);
+    state.checked = offered.filter((key) => state.checked.includes(key));
+  }
+
+  function toggle(key, on) {
+    const others = state.checked.filter((k) => k !== key);
+    state.checked = on ? [...others, key] : others;
+    state.replanning = true;
+    updateActions();
+    readPlan().then(
+      ({ stale, body }) => {
+        if (!mounted || stale) return;
+        state.replanning = false;
+        takePlan(body);
+        if (state.view === "list") renderPlan();
+      },
+      (error) => {
+        if (!mounted) return;
+        state.replanning = false;
+        state.planError = error;
+        renderPlan();
+      },
+    );
+  }
 
   function updateActions() {
     const { checks, plan: body, view } = state;
@@ -373,14 +482,15 @@ export function mount(root) {
       checks !== null &&
       body !== null &&
       !isNewerSchema(body) &&
-      (view === "applying" || (view === "list" && body.items.length > 0));
+      (view === "applying" ||
+        (view === "list" && (body.items.length > 0 || state.checked.length > 0)));
     if (!shown) {
       actions.replaceChildren();
       return;
     }
     // Full sync required is a warning, not a failing check: Apply stays enabled
     const failing = checks.some((check) => check.id !== FULL_SYNC && !check.ok);
-    const disabled = failing || view === "applying";
+    const disabled = failing || view === "applying" || state.replanning;
     applyButton.disabled = disabled;
     applyButton.classList.toggle("button-disabled", disabled);
     actions.replaceChildren(...(failing ? [reason] : []), applyButton);
@@ -396,14 +506,22 @@ export function mount(root) {
       return;
     } else if (state.view === "list") {
       const notice = state.notice ? [inlineError(state.notice)] : [];
-      plan.replaceChildren(...notice, ...planSection(state.plan));
+      // A re-render after a toggle keeps the focus on the box the user toggled
+      const focused = document.activeElement?.dataset?.repairKey;
+      plan.replaceChildren(...notice, ...planSection(state.plan, state.checked, toggle));
+      if (focused) {
+        const boxes = plan.querySelectorAll("input[data-repair-key]");
+        [...boxes].find((box) => box.dataset.repairKey === focused)?.focus();
+      }
     } else {
       const main =
         state.view === "applying"
           ? progressCard()
           : state.result.verified
             ? verifiedBanner()
-            : discrepancyBanner(state.result.discrepancies, () => apply(state.result.planHash));
+            : discrepancyBanner(state.result.discrepancies, () =>
+                apply(state.result.planHash, repairKeys(state.result.discrepancies)),
+              );
       plan.replaceChildren(main, studyFooter(state.plan.prefix));
     }
     updateActions();
@@ -416,11 +534,11 @@ export function mount(root) {
 
   // The plan read again: a finished result whose hash it still has shows; else the change list
   function reread(result, notice = null) {
-    getPlan().then(
-      (body) => {
-        if (!mounted) return;
-        state.plan = body;
-        state.planError = null;
+    readPlan().then(
+      ({ stale, body }) => {
+        if (!mounted || stale) return;
+        state.replanning = false;
+        takePlan(body);
         if (result && result.planHash === body.planHash && !isNewerSchema(body)) {
           show("result", { result });
         } else {
@@ -451,18 +569,19 @@ export function mount(root) {
     }, STATUS_POLL_MS);
   }
 
-  function apply(planHash) {
+  function apply(planHash, repairs) {
     show("applying");
-    applySetup(planHash).then(
+    applySetup(planHash, repairs).then(
       (result) => {
         if (!mounted) return;
-        show("result", { result });
+        // The checked repairs ran: a plan read from here on starts with none checked
+        show("result", { result, checked: [] });
         if (result.fullSyncRequired) loadReadiness(); // brings up the Full sync required tile
       },
       (error) => {
         if (!mounted) return;
         if (error?.name === "ApiError" && error.code === "plan_changed") {
-          reread(null, error.message);
+          reread(null, error.message); // keeps the checks the fresh plan still offers
         } else if (error?.name === "ApiError" && error.code === "setup_required") {
           reread(null); // the fresh plan's state (newer_schema) brings up its own alert
         } else {
@@ -491,7 +610,7 @@ export function mount(root) {
   }
 
   applyButton.addEventListener("click", () => {
-    if (!applyButton.disabled && state.plan) apply(state.plan.planHash);
+    if (!applyButton.disabled && state.plan) apply(state.plan.planHash, state.checked);
   });
 
   // First: a run in flight decides what the plan area shows
@@ -533,10 +652,10 @@ export function mount(root) {
 
   loadReadiness();
 
-  getPlan().then(
-    (body) => {
-      if (!mounted) return;
-      state.plan = body;
+  readPlan().then(
+    ({ stale, body }) => {
+      if (!mounted || stale) return;
+      takePlan(body);
       place();
     },
     (error) => {

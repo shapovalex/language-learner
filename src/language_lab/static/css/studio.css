@@ -563,6 +563,35 @@ main h1 {
   font-weight: 400;
 }
 
+/* Optional repairs (story 2.11): a change row with a checkbox, the whole row its label */
+.repair-row {
+  padding: 0;
+}
+
+.repair-row-label {
+  display: flex;
+  flex: 1 1 auto;
+  align-items: flex-start;
+  gap: var(--space-5);
+  padding: var(--space-5) var(--space-7);
+  cursor: pointer;
+}
+
+.repair-row-label input {
+  flex: none;
+  width: 1.125rem;
+  height: 1.125rem;
+  margin: 0.125rem 0 0;
+  accent-color: var(--color-accent);
+}
+
+.repair-row-detail {
+  display: block;
+  color: var(--color-ink-muted);
+  font-size: var(--font-size-label);
+  font-weight: 400;
+}
+
 .chip {
   flex: none;
   padding: var(--space-1) var(--space-4);

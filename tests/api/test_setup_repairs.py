@@ -29,10 +29,6 @@ from tests.fakes.anki_store import FakeAnkiStore
 from tests.support.fixtures.settings import SettingsFactory
 from tests.support.hosts import app_client
 
-RED_PHASE = pytest.mark.skip(
-    reason="ATDD red phase, story 2.11: un-skip with `repairs` on the plan and apply routes"
-)
-
 PLAN = "/api/setup/plan"
 APPLY = "/api/setup/apply"
 PREFIX = "LanguageLab"
@@ -62,7 +58,6 @@ def client_over(settings_factory: SettingsFactory) -> tuple[TestClient, FakeAnki
     return app_client(create_app(settings, anki_store=store), settings), store
 
 
-@RED_PHASE
 @pytest.mark.p0
 def test_the_plan_lists_each_opt_in_repair_unchecked(settings_factory: SettingsFactory) -> None:
     """AC-4: `repairs` lists every offered row with its key, unchecked, and the plan hash is
@@ -81,7 +76,6 @@ def test_the_plan_lists_each_opt_in_repair_unchecked(settings_factory: SettingsF
     ]
 
 
-@RED_PHASE
 @pytest.mark.p0
 def test_checking_a_repair_enters_it_in_the_plan_hash(settings_factory: SettingsFactory) -> None:
     """AC-7: `?repair=<key>` answers with that row checked and the hash over the required
@@ -97,7 +91,6 @@ def test_checking_a_repair_enters_it_in_the_plan_hash(settings_factory: Settings
     assert [r["checked"] for r in body["repairs"]] == [True, False, False]
 
 
-@RED_PHASE
 @pytest.mark.p0
 def test_apply_hands_the_checked_repairs_to_the_store(settings_factory: SettingsFactory) -> None:
     """AC-13: POST /api/setup/apply with `repairs` applies the plan its hash names: required
@@ -113,3 +106,66 @@ def test_apply_hands_the_checked_repairs_to_the_store(settings_factory: Settings
     assert store.applies == 1
     stale: Any = client.post(APPLY, json={"planHash": checked_hash})
     assert stale.status_code == 409
+
+
+@pytest.mark.p1
+def test_a_plan_without_leftovers_has_no_repairs_and_an_unchanged_hash(
+    settings_factory: SettingsFactory,
+) -> None:
+    """AC-4: with nothing offered, `repairs` is `[]` and `items`, `planHash` and `state` are
+    what they were before story 2.11, whatever `repair` keys the request names.
+    """
+    store = FakeAnkiStore(preview=SetupPreview(items=REQUIRED))
+    settings = settings_factory(anki_prefix=PREFIX)
+    client = app_client(create_app(settings, anki_store=store), settings)
+
+    body = client.get(PLAN, params={"repair": [f"orphanMedia:{MEDIA}"]}).json()
+
+    assert body["repairs"] == []
+    assert body["planHash"] == _plan_hash(REQUIRED)
+    assert body["state"] == "ready"
+
+
+@pytest.mark.p1
+def test_a_repeated_repair_key_counts_once(settings_factory: SettingsFactory) -> None:
+    """AC-7: a key named twice checks its row once, in the plan and in the apply."""
+    client, store = client_over(settings_factory)
+    media = repair_rows()[0]
+
+    body = client.get(PLAN, params={"repair": [row_key(media), row_key(media)]}).json()
+
+    assert body["planHash"] == _plan_hash((*REQUIRED, media))
+    assert [r["checked"] for r in body["repairs"]] == [True, False, False]
+    applied = client.post(
+        APPLY, json={"planHash": body["planHash"], "repairs": [row_key(media), row_key(media)]}
+    )
+    assert applied.status_code == 200
+    assert store.applies == 1
+
+
+@pytest.mark.p1
+def test_a_card_rows_detail_is_on_the_wire(settings_factory: SettingsFactory) -> None:
+    """AC-4: a misplaced card's row carries its note type, card, deck and expected deck."""
+    detail = {
+        "noteType": f"{PREFIX} Capture",
+        "card": "Capture",
+        "deck": "Default",
+        "expectedDeck": f"{PREFIX}::Captures",
+    }
+    card = PlanItem(PlanAction.REPAIR, ResourceKind.MISPLACED_CARD, MISPLACED, detail)
+    store = FakeAnkiStore(preview=SetupPreview(repairs=(card,)))
+    settings = settings_factory(anki_prefix=PREFIX)
+    client = app_client(create_app(settings, anki_store=store), settings)
+
+    body = client.get(PLAN).json()
+
+    assert body["repairs"] == [
+        {
+            "key": f"misplacedCard:{MISPLACED}",
+            "action": "repair",
+            "kind": "misplacedCard",
+            "name": MISPLACED,
+            "checked": False,
+            **detail,
+        }
+    ]

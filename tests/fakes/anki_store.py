@@ -1,6 +1,7 @@
 """Fake AnkiStore: the port in memory, kept in step with `ports/anki_store.py` (AD-1)."""
 
 import asyncio
+from collections.abc import Collection
 
 from language_lab.domain.errors import AppError, ErrorCode
 from language_lab.domain.setup import SetupPreview, SetupState
@@ -14,7 +15,8 @@ class FakeAnkiStore:
     `setup_preview()` returns `preview` (an empty one by default). `setup_state()` returns its
     `state`, raises as `setup_preview()` does, and counts every call (`state_calls`).
 
-    `setup_apply(plan_hash)` raises `plan_changed` unless the hash is the preview's, then makes
+    `setup_apply(plan_hash, repairs)` raises `plan_changed` unless the hash is the preview's
+    items plus its offered `repairs` rows whose key is in `repairs` (as the adapter's), then makes
     `verified` (empty by default) the preview and returns it. With `apply_gated=True` each one
     stays in flight until `finish_apply()` ends it, oldest first. Counts every call
     (`apply_calls`) and the ones that returned a verification (`applies`).
@@ -68,12 +70,14 @@ class FakeAnkiStore:
             raise AppError(ErrorCode.ANKI_UNAVAILABLE)
         return self.preview
 
-    async def setup_apply(self, plan_hash: str) -> SetupPreview:
+    async def setup_apply(self, plan_hash: str, repairs: Collection[str] = ()) -> SetupPreview:
         if self.busy:
             raise AppError(ErrorCode.ANKI_BUSY)
         if not self.available:
             raise AppError(ErrorCode.ANKI_UNAVAILABLE)
-        if plan_hash != _plan_hash(self.preview.items):
+        wanted = set(repairs)
+        checked = tuple(r for r in self.preview.repairs if r.key in wanted)
+        if plan_hash != _plan_hash((*self.preview.items, *checked)):
             raise AppError(ErrorCode.PLAN_CHANGED)
         self.apply_calls += 1
         if self.apply_gated:
