@@ -214,7 +214,7 @@ Dependency rule: `routes → service → {ports, domain}`. Adapters depend on `p
 - **Prevents:** endpoints returning different error shapes, and content leaking into logs through access logs, validation errors, or tracebacks.
 - **Rule:**
   - **Envelope.** Every non-2xx `/api` response is `{"error": {"code", "message", "requestId", "details"?}}`.
-  - **Codes.** `code` comes from one enum in `domain/errors.py`: `anki_unavailable`, `anki_busy`, `llm_failed`, `llm_invalid_output`, `tts_failed`, `assessment_failed`, `validation_failed`, `not_found`, `forbidden_origin`, `setup_required`, `payload_too_large`, `internal_error`.
+  - **Codes.** `code` comes from one enum in `domain/errors.py`: `anki_unavailable`, `anki_busy`, `llm_failed`, `llm_invalid_output`, `tts_failed`, `assessment_failed`, `validation_failed`, `not_found`, `forbidden_origin`, `setup_required`, `payload_too_large`, `internal_error`, `plan_changed` (409: a Setup apply whose plan hash Anki no longer matches; added with story 2.7, 2026-10-21).
   - **Exception mapping.** Exception handlers map everything, including request-validation errors, to the envelope without echoing input values.
   - **Logging.** The uvicorn access log is disabled. Middleware assigns a `requestId` and logs one line per request: request id, method, route template, status, error code, and duration. Logs never carry field values, query strings, prompts, model output, or audio.
 

@@ -4,6 +4,7 @@ import asyncio
 
 from language_lab.domain.errors import AppError, ErrorCode
 from language_lab.domain.setup import SetupPreview
+from language_lab.domain.setup import plan_hash as _plan_hash
 from language_lab.domain.sync import SyncOutcome
 
 
@@ -11,6 +12,11 @@ class FakeAnkiStore:
     """`available` says whether AnkiConnect answers; `busy` makes every call wait out the lock.
 
     `setup_preview()` returns `preview` (an empty one by default).
+
+    `setup_apply(plan_hash)` raises `plan_changed` unless the hash is the preview's, then makes
+    `verified` (empty by default) the preview and returns it. With `apply_gated=True` each one
+    stays in flight until `finish_apply()` ends it, oldest first. Counts every call
+    (`apply_calls`) and the ones that returned a verification (`applies`).
 
     `sync()` returns `outcome`. With `gated=True` each `sync()` stays in flight until
     `finish()` ends it, oldest first. Counts every `sync()` call (`sync_calls`), the ones that
@@ -25,6 +31,8 @@ class FakeAnkiStore:
         gated: bool = False,
         outcome: SyncOutcome = SyncOutcome.OK,
         preview: SetupPreview | None = None,
+        verified: SetupPreview | None = None,
+        apply_gated: bool = False,
     ) -> None:
         self.available = available
         self.busy = busy
@@ -36,6 +44,11 @@ class FakeAnkiStore:
         self.in_flight = 0
         self.max_in_flight = 0
         self._gates: list[asyncio.Future[SyncOutcome | ErrorCode]] = []
+        self.verified = verified if verified is not None else SetupPreview()
+        self.apply_gated = apply_gated
+        self.apply_calls = 0
+        self.applies = 0
+        self._apply_gates: list[asyncio.Future[ErrorCode | None]] = []
 
     async def reachable(self) -> bool:
         if self.busy:
@@ -48,6 +61,33 @@ class FakeAnkiStore:
         if not self.available:
             raise AppError(ErrorCode.ANKI_UNAVAILABLE)
         return self.preview
+
+    async def setup_apply(self, plan_hash: str) -> SetupPreview:
+        if self.busy:
+            raise AppError(ErrorCode.ANKI_BUSY)
+        if not self.available:
+            raise AppError(ErrorCode.ANKI_UNAVAILABLE)
+        if plan_hash != _plan_hash(self.preview.items):
+            raise AppError(ErrorCode.PLAN_CHANGED)
+        self.apply_calls += 1
+        if self.apply_gated:
+            gate: asyncio.Future[ErrorCode | None] = asyncio.get_running_loop().create_future()
+            self._apply_gates.append(gate)
+            try:
+                end = await gate
+            finally:
+                if gate in self._apply_gates:
+                    self._apply_gates.remove(gate)
+            if end is not None:
+                raise AppError(end)
+        self.preview = self.verified
+        self.applies += 1
+        return self.verified
+
+    def finish_apply(self, end: ErrorCode | None = None) -> None:
+        """End the oldest in-flight gated `setup_apply()`: verify, or raise an `ErrorCode`."""
+        gate = self._apply_gates.pop(0)
+        gate.set_result(end)
 
     async def sync(self) -> SyncOutcome:
         self.sync_calls += 1

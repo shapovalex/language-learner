@@ -8,9 +8,11 @@ from typing import Any
 from language_lab.adapters.anki.client import AnkiConnectClient
 from language_lab.adapters.anki.lock import AnkiLock
 from language_lab.adapters.anki.manifest import Manifest
+from language_lab.adapters.anki.setup_apply import run_plan
 from language_lab.adapters.anki.setup_diff import AnkiState, ModelState, diff
 from language_lab.domain.errors import AppError, ErrorCode
 from language_lab.domain.setup import SetupPreview
+from language_lab.domain.setup import plan_hash as _plan_hash
 from language_lab.domain.sync import SyncOutcome
 
 POLL_INTERVAL_S = 1.0
@@ -96,11 +98,30 @@ class AnkiConnectStore:
         """Read the managed state and diff it against the manifest, with reads only, under one
         lock hold (AD-3, AD-5). Raises `AppError(ANKI_UNAVAILABLE | ANKI_BUSY)`.
         """
+        manifest = self._require_manifest()
+        async with self._lock.hold():
+            state = await self._read_state(manifest)
+        return diff(manifest, state)
+
+    async def setup_apply(self, plan_hash: str) -> SetupPreview:
+        """Re-diff, refuse a stale `plan_hash` before any write, run the plan's Create and Repair
+        items through the guarded client, and verify by a fresh diff, all under one lock hold
+        (AD-3, AD-4, AD-5). Raises `AppError(PLAN_CHANGED | ANKI_UNAVAILABLE | ANKI_BUSY)`.
+        """
+        manifest = self._require_manifest()
+        async with self._lock.hold():
+            state = await self._read_state(manifest)
+            before = diff(manifest, state)
+            if _plan_hash(before.items) != plan_hash:
+                raise AppError(ErrorCode.PLAN_CHANGED)
+            await run_plan(self._client.invoke, manifest, state, before.items)
+            verified = await self._read_state(manifest)
+        return diff(manifest, verified)
+
+    def _require_manifest(self) -> Manifest:
         if self._manifest is None:
             raise RuntimeError("AnkiConnectStore was built without a manifest")
-        async with self._lock.hold():
-            state = await self._read_state(self._manifest)
-        return diff(self._manifest, state)
+        return self._manifest
 
     async def _read_state(self, manifest: Manifest) -> AnkiState:
         deck_names, model_names = await self._multi([("deckNames", {}), ("modelNames", {})])

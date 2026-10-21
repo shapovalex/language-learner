@@ -9,9 +9,6 @@ back can show it.
 
 The store is the fake from tests/fakes/ with `apply_gated=True`, so each `setup_apply` stays in
 flight until `finish_apply()` ends it. Nothing waits in real time.
-
-Skipped until the service and the fake can apply. Un-skip the test, watch it fail, then
-implement. Hoist the in-body imports once it's green.
 """
 
 import asyncio
@@ -25,10 +22,6 @@ from language_lab.features.setup.service import SetupService
 from tests.fakes.anki_store import FakeAnkiStore
 from tests.support.aio import settle
 from tests.support.clock import bounded, drain, until
-
-RED_PHASE = pytest.mark.skip(
-    reason="ATDD red phase, story 2.7: un-skip with SetupService.apply() and the fake's apply"
-)
 
 PREFIX = "LanguageLab"
 ITEMS = (
@@ -61,7 +54,6 @@ async def disconnect_mid_apply() -> Observed:
     return Observed(store.applies, request.cancelled(), while_running, service.apply_status())
 
 
-@RED_PHASE
 @pytest.mark.p0
 def test_apply_completes_server_side_when_the_client_disconnects() -> None:
     """AC-6: a cancelled apply request leaves the run going; it finishes and its result is kept."""
@@ -74,3 +66,26 @@ def test_apply_completes_server_side_when_the_client_disconnects() -> None:
         "state": "finished",
         "result": {"verified": True, "planHash": plan_hash(()), "discrepancies": []},
     }
+
+
+async def second_apply_mid_run() -> tuple[int, int, Any, Any]:
+    store = FakeAnkiStore(preview=SetupPreview(items=ITEMS), apply_gated=True)
+    service = SetupService(store, prefix=PREFIX, azure_configured=True, openrouter_configured=True)
+    first = asyncio.create_task(service.apply(plan_hash(ITEMS)))
+    await until(lambda: store.apply_calls == 1)
+    second = asyncio.create_task(service.apply(plan_hash(ITEMS)))
+    await drain()
+
+    store.finish_apply()
+    bodies = await asyncio.gather(first, second)
+    return store.apply_calls, store.applies, bodies[0], bodies[1]
+
+
+@pytest.mark.p1
+def test_a_second_apply_while_one_runs_awaits_the_same_run() -> None:
+    """AC-6: a second POST mid-run doesn't start another apply; both get the one result."""
+    apply_calls, applies, first, second = settle(bounded(second_apply_mid_run()))
+
+    assert apply_calls == 1
+    assert applies == 1
+    assert first == second == {"verified": True, "planHash": plan_hash(()), "discrepancies": []}

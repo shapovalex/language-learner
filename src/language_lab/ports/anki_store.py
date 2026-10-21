@@ -1,8 +1,8 @@
 """The AnkiStore port (AD-1, AD-5): every Anki use case a feature can ask for.
 
-Each method is one complete use case that the adapter runs under the Anki lock: readiness, sync
-and the Setup preview so far. Later entries add methods here, to the AnkiConnect adapter and to
-the fake in tests/fakes/ together.
+Each method is one complete use case that the adapter runs under the Anki lock: readiness, sync,
+and the Setup preview and apply so far. Later entries add methods here, to the AnkiConnect
+adapter and to the fake in tests/fakes/ together.
 """
 
 from typing import Protocol
@@ -19,6 +19,17 @@ class AnkiStore(Protocol):
     async def setup_preview(self) -> SetupPreview:
         """What Setup would change in Anki, from reads only (FR-6, AD-3): the plan items and the
         unrecognized content under the Prefix. Raises `AppError(ANKI_UNAVAILABLE | ANKI_BUSY)`.
+        """
+        ...
+
+    async def setup_apply(self, plan_hash: str) -> SetupPreview:
+        """Apply the confirmed plan and verify it (FR-6, AD-3), under one lock hold.
+
+        Re-reads and diffs Anki, and raises `AppError(PLAN_CHANGED)` before any write when
+        `plan_hash` isn't the fresh plan's. Runs every Create and Repair item (Migrate waits for
+        entry 9); a write that fails doesn't end the run. Returns a fresh diff as the
+        verification: its items are the discrepancies. Raises
+        `AppError(ANKI_UNAVAILABLE | ANKI_BUSY)`.
         """
         ...
 

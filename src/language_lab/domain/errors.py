@@ -16,6 +16,7 @@ class ErrorCode(StrEnum):
     SETUP_REQUIRED = "setup_required"
     PAYLOAD_TOO_LARGE = "payload_too_large"
     INTERNAL_ERROR = "internal_error"
+    PLAN_CHANGED = "plan_changed"
 
 
 # Fixed per code: a message is never built from input, exception text or headers (AD-15)
@@ -32,6 +33,7 @@ MESSAGES: dict[ErrorCode, str] = {
     ErrorCode.SETUP_REQUIRED: "Setup isn't complete yet.",
     ErrorCode.PAYLOAD_TOO_LARGE: "The request is too large.",
     ErrorCode.INTERNAL_ERROR: "Something went wrong on the server.",
+    ErrorCode.PLAN_CHANGED: "Anki changed since the preview. Review the changes and apply again.",
 }
 
 

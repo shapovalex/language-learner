@@ -12,8 +12,6 @@ screen coming back after leaving can show the run.
 The app takes the AnkiStore, so these tests pass the fake from tests/fakes/. After an apply,
 its preview becomes the verification it returned. The apply logic is in
 tests/integration/test_anki_setup_apply.py.
-
-Skipped until the routes exist. Un-skip a test, watch it fail, then implement.
 """
 
 import pytest
@@ -23,10 +21,6 @@ from language_lab.domain.setup import PlanAction, PlanItem, ResourceKind, SetupP
 from tests.fakes.anki_store import FakeAnkiStore
 from tests.support.fixtures.settings import SettingsFactory
 from tests.support.hosts import app_client
-
-RED_PHASE = pytest.mark.skip(
-    reason="ATDD red phase, story 2.7: un-skip with POST /api/setup/apply and its status route"
-)
 
 APPLY = "/api/setup/apply"
 STATUS = "/api/setup/apply/status"
@@ -43,7 +37,6 @@ ITEMS = (
 LEFT_OVER = (PlanItem(PlanAction.REPAIR, ResourceKind.PRESET, PREFIX),)
 
 
-@RED_PHASE
 @pytest.mark.p0
 @pytest.mark.parametrize(
     ("verification", "expected"),
@@ -78,7 +71,6 @@ def test_apply_route_runs_the_confirmed_plan_and_returns_the_verification(
     assert client.get(PLAN).json()["planHash"] == expected["planHash"]
 
 
-@RED_PHASE
 @pytest.mark.p0
 def test_apply_route_refuses_a_stale_plan_with_409_plan_changed(
     settings_factory: SettingsFactory,
@@ -99,7 +91,6 @@ def test_apply_route_refuses_a_stale_plan_with_409_plan_changed(
     assert client.get(PLAN).json()["planHash"] == plan_hash(ITEMS)
 
 
-@RED_PHASE
 @pytest.mark.p1
 def test_apply_status_is_idle_before_a_run_and_finished_with_its_result_after(
     settings_factory: SettingsFactory,
@@ -117,3 +108,42 @@ def test_apply_status_is_idle_before_a_run_and_finished_with_its_result_after(
     after = client.get(STATUS)
     assert after.status_code == 200
     assert after.json() == {"state": "finished", "result": result}
+
+
+@pytest.mark.p1
+@pytest.mark.parametrize(
+    ("store_options", "code"),
+    [({"busy": True}, "anki_busy"), ({"available": False}, "anki_unavailable")],
+    ids=["busy", "unavailable"],
+)
+def test_apply_route_answers_503_when_anki_is_busy_or_down(
+    settings_factory: SettingsFactory, store_options: dict, code: str
+) -> None:
+    """AC-7: `anki_busy` / `anki_unavailable` from the apply are the 503 envelope; no apply."""
+    store = FakeAnkiStore(preview=SetupPreview(items=ITEMS), **store_options)
+    settings = settings_factory(anki_prefix=PREFIX)
+    client = app_client(create_app(settings, anki_store=store), settings)
+
+    response = client.post(APPLY, json={"planHash": plan_hash(ITEMS)})
+
+    assert response.status_code == 503
+    assert response.json()["error"]["code"] == code
+    assert store.applies == 0
+    assert client.get(STATUS).json() == {"state": "idle", "result": None}
+
+
+@pytest.mark.p1
+@pytest.mark.parametrize("body", [{}, {"planHash": 7}, {"hash": "x"}], ids=["empty", "int", "key"])
+def test_apply_route_without_a_plan_hash_is_422_validation_failed(
+    settings_factory: SettingsFactory, body: dict
+) -> None:
+    """AC-7: a body without a string `planHash` is the 422 `validation_failed` envelope."""
+    store = FakeAnkiStore(preview=SetupPreview(items=ITEMS))
+    settings = settings_factory(anki_prefix=PREFIX)
+    client = app_client(create_app(settings, anki_store=store), settings)
+
+    response = client.post(APPLY, json=body)
+
+    assert response.status_code == 422
+    assert response.json()["error"]["code"] == "validation_failed"
+    assert store.apply_calls == 0

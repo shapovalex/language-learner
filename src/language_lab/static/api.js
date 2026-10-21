@@ -59,3 +59,18 @@ export function getReadiness() {
 export function getPlan() {
   return request("/api/setup/plan");
 }
+
+// Apply the plan the user confirmed by its hash, run to its end and verified (FR-6, AD-3):
+// `{verified, planHash, discrepancies: [{action, kind, name}]}`. A stale hash is 409 `plan_changed`.
+export function applySetup(planHash) {
+  return request("/api/setup/apply", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ planHash }),
+  });
+}
+
+// `{state: "idle" | "running" | "finished", result}`: the last apply run, for a screen coming back
+export function getApplyStatus() {
+  return request("/api/setup/apply/status");
+}
