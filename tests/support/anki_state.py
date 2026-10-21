@@ -18,9 +18,17 @@ collection also answers `addNote` and `updateNoteFields` (`NOTE_WRITE_ACTIONS`).
 
 Migrations (story 2.9): with `writes=True`, `modelFieldAdd` adds the field to the model, at
 `index` or at the end, and to each of its notes, empty.
+
+Cards and media (story 2.11): `add_card()` gives a note a card of an ord in a deck, suspended or
+not, and `collection.media` holds media file names. `findCards` answers an exact
+`note:"<type>"` query, `cardsInfo` answers in AnkiConnect's documented shape (the spike recorded
+none), and `getMediaFilesNames` matches its `pattern` case-sensitively (spike 2.2 Surprises).
+With `writes=True` the collection also answers `changeDeck`, `suspend` and `deleteMediaFile`
+(`REPAIR_WRITE_ACTIONS`).
 """
 
 import copy
+import fnmatch
 import itertools
 import re
 from collections.abc import Callable
@@ -76,6 +84,10 @@ WRITE_ACTIONS = frozenset(
 NOTE_WRITE_ACTIONS = frozenset({"addNote", "updateNoteFields"})
 
 
+# The writes of the opt-in repairs the simulator answers with `writes=True` (story 2.11)
+REPAIR_WRITE_ACTIONS = frozenset({"changeDeck", "suspend", "deleteMediaFile"})
+
+
 @dataclass
 class Model:
     fields: list[str]
@@ -90,12 +102,22 @@ class Collection:
     presets: dict[str, dict[str, Any]] = field(default_factory=dict)
     models: dict[str, Model] = field(default_factory=dict)
     notes: dict[int, Note] = field(default_factory=dict)  # note id -> note
+    cards: dict[int, Card] = field(default_factory=dict)  # card id -> card
+    media: set[str] = field(default_factory=set)  # media file names
 
 
 @dataclass
 class Note:
     model: str
     fields: dict[str, str]  # field name -> stored content, in the model's field order
+
+
+@dataclass
+class Card:
+    note: int  # its note's id
+    ord: int
+    deck: str
+    suspended: bool = False
 
 
 _STOCK_MODELS = tuple(anki_fixture("modelNames")["response"]["result"])
@@ -181,6 +203,16 @@ def managed_note(
     return add_note(collection, note_type, fields)
 
 
+def add_card(
+    collection: Collection, note_id: int, ord: int, deck: str, *, suspended: bool = False
+) -> int:
+    """Give note `note_id` a card of `ord` in `deck` (which must exist); return its id."""
+    assert deck in collection.decks, deck
+    card_id = next(_ids)
+    collection.cards[card_id] = Card(note_id, ord, deck, suspended)
+    return card_id
+
+
 _NOTE_QUERY = re.compile(r'note:"([^"]*)"')
 
 
@@ -192,7 +224,36 @@ def _find_notes(collection: Collection, query: str) -> list[int]:
     return sorted(i for i, note in collection.notes.items() if note.model == match.group(1))
 
 
-def _note_info(note_id: int, note: Note) -> dict[str, Any]:
+def _find_cards(collection: Collection, query: str) -> list[int]:
+    """Card ids for an exact `note:"<type>"` query; any other query finds nothing."""
+    notes = set(_find_notes(collection, query))
+    return sorted(i for i, card in collection.cards.items() if card.note in notes)
+
+
+def _card_info(collection: Collection, card_id: int) -> dict[str, Any]:
+    """A card as `cardsInfo` returns it (AnkiConnect's documented shape: the spike recorded no
+    `cardsInfo`); `queue` -1 is suspended. `{}` for an id it doesn't have.
+    """
+    card = collection.cards.get(card_id)
+    if card is None:
+        return {}
+    note = collection.notes[card.note]
+    return {
+        "cardId": card_id,
+        "note": card.note,
+        "modelName": note.model,
+        "deckName": card.deck,
+        "ord": card.ord,
+        "queue": -1 if card.suspended else 0,
+        "type": 0,
+        "fields": {
+            name: {"value": value, "order": order}
+            for order, (name, value) in enumerate(note.fields.items())
+        },
+    }
+
+
+def _note_info(note_id: int, note: Note, cards: list[int] | None = None) -> dict[str, Any]:
     """A note as `notesInfo` returns it, shaped like the recorded `notesInfo` result."""
     recorded = anki_fixture("notesInfo")["response"]["result"][0]
     return {
@@ -204,7 +265,7 @@ def _note_info(note_id: int, note: Note) -> dict[str, Any]:
             for order, (name, value) in enumerate(note.fields.items())
         },
         "modelName": note.model,
-        "cards": [note_id],
+        "cards": cards or [note_id],  # a note given no card by add_card() keeps the old answer
     }
 
 
@@ -226,6 +287,35 @@ def _answer_note_write(
             stored.fields.update(
                 {k: v for k, v in note.get("fields", {}).items() if k in stored.fields}
             )
+            return _ok(None)
+    return dict(UNSUPPORTED)
+
+
+def _answer_repair_write(
+    collection: Collection, action: str, params: dict[str, Any]
+) -> dict[str, Any]:
+    """`changeDeck`, `suspend` and `deleteMediaFile` as AnkiConnect v6 documents them."""
+    match action:
+        case "changeDeck":
+            ids = params.get("cards", [])
+            if any(i not in collection.cards for i in ids):
+                return _error("Card was not found")
+            deck = params.get("deck", "")
+            # AnkiConnect creates a missing deck, as createDeck does
+            parts = deck.split("::")
+            for depth in range(1, len(parts) + 1):
+                collection.decks.setdefault("::".join(parts[:depth]), DEFAULT_PRESET)
+            for i in ids:
+                collection.cards[i].deck = deck
+            return _ok(None)
+        case "suspend":
+            cards = [collection.cards[i] for i in params.get("cards", []) if i in collection.cards]
+            changed = any(not card.suspended for card in cards)
+            for card in cards:
+                card.suspended = True
+            return _ok(changed)  # false when every card was already suspended
+        case "deleteMediaFile":
+            collection.media.discard(params.get("filename", ""))
             return _ok(None)
     return dict(UNSUPPORTED)
 
@@ -291,15 +381,23 @@ def _answer(collection: Collection, action: str, params: dict[str, Any]) -> dict
             notes = collection.notes
             # AnkiConnect answers `{}` for an id it doesn't have
             return _ok(
-                [_note_info(i, notes[i]) if i in notes else {} for i in params.get("notes", [])]
+                [
+                    _note_info(i, notes[i], _cards_of(collection, i)) if i in notes else {}
+                    for i in params.get("notes", [])
+                ]
             )
         case "findCards":
-            return _ok([])  # the simulator holds no cards
+            return _ok(_find_cards(collection, params.get("query", "")))
         case "cardsInfo":
-            return _ok([{} for _ in params.get("cards", [])])
+            return _ok([_card_info(collection, i) for i in params.get("cards", [])])
         case "getMediaFilesNames":
-            return _ok([])
+            pattern = params.get("pattern", "*")
+            return _ok(sorted(n for n in collection.media if fnmatch.fnmatchcase(n, pattern)))
     return dict(UNSUPPORTED)
+
+
+def _cards_of(collection: Collection, note_id: int) -> list[int]:
+    return sorted(i for i, card in collection.cards.items() if card.note == note_id)
 
 
 def _preset_key(collection: Collection, config_id: Any) -> str | None:
@@ -417,7 +515,8 @@ def collection_replies(
 ) -> dict[str, StubReply]:
     """Replies for `AnkiConnectReplay`: every read in `READ_ACTIONS`, `multi` included.
 
-    `writes=True` also answers `WRITE_ACTIONS` and `NOTE_WRITE_ACTIONS`, changing `collection`.
+    `writes=True` also answers `WRITE_ACTIONS`, `NOTE_WRITE_ACTIONS` and
+    `REPAIR_WRITE_ACTIONS`, changing `collection`.
     `refuse_save=True` makes `saveDeckConfig` answer `false` and save nothing, as it did in
     spike 2.2 (Q5).
     """
@@ -427,6 +526,8 @@ def collection_replies(
             return _answer_write(collection, action, params, refuse_save=refuse_save)
         if writes and action in NOTE_WRITE_ACTIONS:
             return _answer_note_write(collection, action, params)
+        if writes and action in REPAIR_WRITE_ACTIONS:
+            return _answer_repair_write(collection, action, params)
         return _answer(collection, action, params)
 
     def reply_to(action: str) -> Callable[[Any], Any]:
@@ -436,7 +537,8 @@ def collection_replies(
         inner = body.get("params", {}).get("actions", [])
         return _ok([answer(a["action"], a.get("params", {})) for a in inner])
 
-    actions = READ_ACTIONS | WRITE_ACTIONS | NOTE_WRITE_ACTIONS if writes else READ_ACTIONS
+    all_writes = WRITE_ACTIONS | NOTE_WRITE_ACTIONS | REPAIR_WRITE_ACTIONS
+    actions = READ_ACTIONS | all_writes if writes else READ_ACTIONS
     replies: dict[str, StubReply] = {action: reply_to(action) for action in actions}
     replies["multi"] = multi
     return replies
