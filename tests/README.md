@@ -52,7 +52,7 @@ tests/
     unsaved.py         the router's setDirty / confirmLeave / navigate from the page, the alert's locators, LEAVE_PATHS per width (R-03)
     probes.py          add_probe_routes(): test-only /api routes for validation and crash paths; sentinel(), error_envelope()
     startup.py         run_language_lab(): main() in a subprocess, killed if it keeps running
-    release.py         pyproject_version(), run_tag_check() (the release guard), build_wheel(), run_released_app() (uvx --from <wheel>), non_loopback_address()
+    release.py         pyproject_version(), run_tag_check() (the release guard), build_wheel(), run_released_app() (uvx --from <wheel>), run_python_from_wheel() (python -c with only the wheel installed), non_loopback_address()
     anki_connect.py    anki_fixture() (tests/fixtures/anki/), AnkiConnectReplay (httpx MockTransport: replies per v6 action or v1 method, each JSON or a callable of the body, or a failure; records .sent), recorded_v1_sync() / synthetic_v1_sync() (collection.sync then operations.get polls), the failure kinds, run_stub_ankiconnect() (loopback server for the recorder; replies keyed by v6 action or v1 JSON-RPC method, each a JSON value or a callable of the request body; records .received)
     aio.py             settle() / settled(): run a coroutine, get its result or its exception to assert on
     clock.py           FakeClock (sleep() parks until advance(); .requested, .sleeping), drain() / until() (yield to the loop, no time), bounded() (real-time cap on a scenario)

@@ -68,6 +68,24 @@ def build_wheel(out_dir: Path) -> Path:
     return wheel
 
 
+def run_python_from_wheel(wheel: Path, code: str, *, cwd: Path) -> str:
+    """`python -c code` in uv's throwaway env holding only the wheel and its dependencies.
+
+    `cwd` should be outside the repo, so nothing resolves `language_lab` from `src/`.
+    Returns stdout.
+    """
+    proc = subprocess.run(
+        ["uv", "run", "--no-project", "--python", sys.executable, "--with", str(wheel)]
+        + ["python", "-c", code],
+        cwd=cwd,
+        check=True,
+        capture_output=True,
+        text=True,
+        timeout=RELEASE_START_TIMEOUT_S,
+    )
+    return proc.stdout
+
+
 def uv_cache_dir() -> str:
     """The developer's (or runner's) uv cache, resolved before HOME is swapped for a temp one."""
     if cache := os.environ.get("UV_CACHE_DIR"):
