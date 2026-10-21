@@ -59,6 +59,14 @@ def settings_env_names(model: type[Settings] = Settings) -> frozenset[str]:
 
 
 def isolated_environ(home: Path, extra: Mapping[str, str] | None = None) -> dict[str, str]:
-    """This process's env without any app variable, with HOME at `home`, for a subprocess."""
+    """This process's env without any app variable, with HOME at `home`, for a subprocess.
+
+    `ANKI_CONNECT_URL` points at a refused loopback port unless `extra` sets it: a release-mode
+    app Syncs at startup and shutdown (AD-17), and the process env beats the `.env`, so a test
+    never Syncs the developer's real collection.
+    """
+    from tests.support.live_server import closed_port  # live_server imports the app
+
     env = {k: v for k, v in os.environ.items() if not k.startswith(APP_ENV_PREFIXES)}
-    return {**env, "HOME": str(home), **(extra or {})}
+    no_anki = {"ANKI_CONNECT_URL": f"http://127.0.0.1:{closed_port()}"}
+    return {**env, "HOME": str(home), **no_anki, **(extra or {})}

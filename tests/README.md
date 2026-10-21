@@ -42,7 +42,7 @@ tests/
   fixtures/            recorded inputs from real externals (Tailscale status and Serve headers, AnkiConnect exchanges under anki/; see its README)
   support/
     live_server.py     run_live_server(): uvicorn in a thread on a pre-bound socket, FakeAnkiStore() injected; bind_free_port(); closed_port() (refused at once)
-    app_env.py         config_values() factory, write_dotenv(), dotenv_keys(), isolated_environ()
+    app_env.py         config_values() factory, write_dotenv(), dotenv_keys(), isolated_environ() (ANKI_CONNECT_URL on a refused port, so no subprocess Syncs a real Anki)
     network.py         stub_api_error() (AD-15 envelope, returned), HeldRoute (hold a request, see the loading state, then fulfill_json()), record_requests(), record_resources() (with resource type)
     design_tokens.py   DESIGN.md front matter -> expected --color/--space/--radius/--font-* properties; css_custom_properties()
     shell.py           parse_shell() (viewport meta, stylesheet links), fetch_stylesheets() through a TestClient, following @import
@@ -53,8 +53,10 @@ tests/
     probes.py          add_probe_routes(): test-only /api routes for validation and crash paths; sentinel(), error_envelope()
     startup.py         run_language_lab(): main() in a subprocess, killed if it keeps running
     release.py         pyproject_version(), run_tag_check() (the release guard), build_wheel(), run_released_app() (uvx --from <wheel>), non_loopback_address()
-    anki_connect.py    anki_fixture() (tests/fixtures/anki/), AnkiConnectReplay (httpx MockTransport: replies per action or a failure, records .sent), the failure kinds, run_stub_ankiconnect() (loopback server for the recorder; replies keyed by v6 action or v1 JSON-RPC method, each a JSON value or a callable of the request body; records .received)
+    anki_connect.py    anki_fixture() (tests/fixtures/anki/), AnkiConnectReplay (httpx MockTransport: replies per v6 action or v1 method, each JSON or a callable of the body, or a failure; records .sent), recorded_v1_sync() / synthetic_v1_sync() (collection.sync then operations.get polls), the failure kinds, run_stub_ankiconnect() (loopback server for the recorder; replies keyed by v6 action or v1 JSON-RPC method, each a JSON value or a callable of the request body; records .received)
     aio.py             settle() / settled(): run a coroutine, get its result or its exception to assert on
+    clock.py           FakeClock (sleep() parks until advance(); .requested, .sleeping), drain() / until() (yield to the loop, no time), bounded() (real-time cap on a scenario)
+    lifespan.py        start_lifespan(app): run the app's startup in the test's loop; the returned stack's aclose() is shutdown
     ports.py           public_methods(): a port's, fake's or adapter's public functions with signatures (AD-1)
     recorder.py        run_recorder_status(), run_recorder() (serve), run_recorder_anki(), run_recorder_anki_args() (anki with extra args, e.g. probe/sync)
     hosts.py           app_client() (allowed Host + same-origin Origin, AD-16), local_hosts(), TAILNET_HOST, FOREIGN_HOST, recorded Tailscale inputs
