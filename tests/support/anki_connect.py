@@ -17,8 +17,6 @@ ANKI_FIXTURES = Path(__file__).resolve().parents[1] / "fixtures" / "anki"
 ANKI_URL = "http://127.0.0.1:8765"  # AnkiConnect's default; only ever a MockTransport here
 ANKI_CONNECT_VERSION = 6  # the API version every request carries (architecture Stack)
 
-# AnkiConnect's documented reply to a successful `sync`, until spike 2 records one
-SYNC_OK: dict[str, Any] = {"result": None, "error": None}
 # What AnkiConnect answers for an action it doesn't know
 UNSUPPORTED: dict[str, Any] = {"result": None, "error": "unsupported action"}
 
@@ -130,13 +128,17 @@ def _poll_in_state(state: str, **extra: Any) -> dict[str, Any]:
 
 
 def synthetic_v1_sync(kind: str) -> dict[str, StubReply]:
-    """v1 Sync runs the spike didn't record: `"unrecorded-failure"` or `"never-ends"`."""
+    """v1 Sync runs the spike didn't record: `"unrecorded-failure"`, `"never-ends"`, or one that
+    stops in `"waitingForUser"` or `"cancelled"`.
+    """
     started = anki_fixture("sync-normal")["v1"]["collection.sync"]["response"]
     if kind == "unrecorded-failure":
         error = {"code": 1, "message": "Network error.", "data": {"type": UNRECORDED_FAILURE_TYPE}}
         return v1_sync_replies([_poll_in_state("failed", error=error)], started)
     if kind == "never-ends":
         return v1_sync_replies([_poll_in_state("running")], started)
+    if kind in ("waitingForUser", "cancelled"):
+        return v1_sync_replies([_poll_in_state(kind)], started)
     raise ValueError(f"unknown synthetic v1 sync: {kind}")
 
 

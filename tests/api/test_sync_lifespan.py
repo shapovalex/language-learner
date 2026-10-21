@@ -9,38 +9,29 @@ Decided 2026-10-21: time comes from an injected clock,
 `create_app(settings, *, anki_store=None, clock=None)`, used for both the interval and the
 shutdown cap. These tests pass `FakeClock` (tests/support/clock.py), which moves only when told
 to, and the in-memory AnkiStore. They run the lifespan directly, with no server and no HTTP.
-
-Skipped until the sync feature and the lifespan wiring exist. Un-skip one, watch it fail, then
-implement. Hoist the imports once it's green.
 """
 
 import asyncio
 
 import pytest
 
+from language_lab.app import create_app
 from language_lab.settings import DEV_PREFIX
+from tests.fakes.anki_store import FakeAnkiStore
 from tests.support.aio import settle
 from tests.support.clock import FakeClock, bounded, drain, until
 from tests.support.fixtures.settings import SettingsFactory
 from tests.support.lifespan import LIFESPAN_BOUND_S, start_lifespan
 
-RED_PHASE = pytest.mark.skip(
-    reason="ATDD red phase, story 2.10: un-skip with features/sync and create_app(clock=...)"
-)
-
 INTERVAL_S = 300.0  # five minutes (FR-36)
 SHUTDOWN_CAP_S = 30.0  # graceful shutdown waits this long for its Sync, no longer (AD-17)
 
 
-@RED_PHASE
 @pytest.mark.p0
 def test_startup_requests_a_sync_without_waiting_for_it(
     settings_factory: SettingsFactory,
 ) -> None:
     """AC-4: startup requests one Sync, and the app is up while that Sync is still running."""
-    from language_lab.app import create_app
-    from tests.fakes.anki_store import FakeAnkiStore
-
     store, clock = FakeAnkiStore(gated=True), FakeClock()
     app = create_app(settings_factory(), anki_store=store, clock=clock)
 
@@ -61,13 +52,9 @@ def test_startup_requests_a_sync_without_waiting_for_it(
     assert in_flight == 1  # startup returned before the Sync ended
 
 
-@RED_PHASE
 @pytest.mark.p0
 def test_a_sync_is_requested_every_five_minutes(settings_factory: SettingsFactory) -> None:
     """AC-5: one more Sync at 300 s and at 600 s, and none before 300 s."""
-    from language_lab.app import create_app
-    from tests.fakes.anki_store import FakeAnkiStore
-
     store, clock = FakeAnkiStore(), FakeClock()
     app = create_app(settings_factory(), anki_store=store, clock=clock)
 
@@ -92,15 +79,11 @@ def test_a_sync_is_requested_every_five_minutes(settings_factory: SettingsFactor
     assert calls[0.0] == 1  # the startup Sync
 
 
-@RED_PHASE
 @pytest.mark.p0
 def test_shutdown_requests_a_sync_and_waits_for_it_at_most_30_s(
     settings_factory: SettingsFactory,
 ) -> None:
     """AC-6: shutdown requests a Sync; with AnkiConnect hung, shutdown ends at 30 s, not before."""
-    from language_lab.app import create_app
-    from tests.fakes.anki_store import FakeAnkiStore
-
     store, clock = FakeAnkiStore(gated=True), FakeClock()
     app = create_app(settings_factory(), anki_store=store, clock=clock)
 
@@ -130,13 +113,9 @@ def test_shutdown_requests_a_sync_and_waits_for_it_at_most_30_s(
     assert error is None
 
 
-@RED_PHASE
 @pytest.mark.p0
 def test_dev_mode_never_syncs(settings_factory: SettingsFactory) -> None:
     """AC-8: with LANGUAGE_LAB_DEV on, no Sync at startup, on the interval, or at shutdown."""
-    from language_lab.app import create_app
-    from tests.fakes.anki_store import FakeAnkiStore
-
     store, clock = FakeAnkiStore(), FakeClock()
     settings = settings_factory(dev=True, anki_prefix=DEV_PREFIX)
     app = create_app(settings, anki_store=store, clock=clock)

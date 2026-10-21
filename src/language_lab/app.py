@@ -33,6 +33,8 @@ from language_lab.adapters.anki.store import AnkiConnectStore
 from language_lab.domain.errors import AppError, ErrorCode, error_envelope
 from language_lab.features.setup.routes import setup_router
 from language_lab.features.setup.service import SetupService
+from language_lab.features.sync.scheduler import Clock, SyncScheduler
+from language_lab.features.sync.service import SyncService
 from language_lab.ports.anki_store import AnkiStore
 from language_lab.settings import (
     NECESSARY_KEYS,
@@ -255,8 +257,13 @@ def _render_shell(version: str) -> str:
     return (_STATIC / "index.html").read_text(encoding="utf-8").replace("{{VERSION}}", version)
 
 
-def create_app(settings: Settings, *, anki_store: AnkiStore | None = None) -> FastAPI:
-    """The app. Builds the AnkiConnect adapter from settings unless `anki_store` is given."""
+def create_app(
+    settings: Settings, *, anki_store: AnkiStore | None = None, clock: Clock | None = None
+) -> FastAPI:
+    """The app. Builds the AnkiConnect adapter from settings unless `anki_store` is given.
+
+    `clock` times the Sync schedule (real time unless given). Dev mode never Syncs.
+    """
     version = __version__
     shell = _render_shell(version)
 
@@ -265,13 +272,22 @@ def create_app(settings: Settings, *, anki_store: AnkiStore | None = None) -> Fa
         anki_client = AnkiConnectClient(settings.anki_connect_url)
         anki_store = AnkiConnectStore(anki_client, AnkiLock())
 
+    # Later entries inject `sync` as the SyncRequester port; no feature imports it (AD-1, AD-13)
+    sync = SyncService(anki_store, enabled=not settings.dev)
+    scheduler = SyncScheduler(sync, clock, enabled=not settings.dev)
+
     @asynccontextmanager
     async def lifespan(_: FastAPI) -> AsyncIterator[None]:
+        await scheduler.start()
         try:
             yield
         finally:
-            if anki_client is not None:
-                await anki_client.aclose()
+            try:
+                await scheduler.stop()
+                await sync.aclose()
+            finally:
+                if anki_client is not None:
+                    await anki_client.aclose()
 
     app = FastAPI(
         title="LanguageLab",

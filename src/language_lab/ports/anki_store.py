@@ -7,12 +7,16 @@ to the fake in tests/fakes/ together.
 
 from typing import Protocol
 
+from language_lab.domain.sync import SyncOutcome
+
 
 class AnkiStore(Protocol):
     async def reachable(self) -> bool:
         """Whether AnkiConnect answers. Raises `AppError(ANKI_BUSY)` when the lock wait runs out."""
         ...
 
-    async def sync(self) -> None:
-        """Ask Anki to Sync with AnkiWeb. Raises `AppError(ANKI_UNAVAILABLE | ANKI_BUSY)`."""
+    async def sync(self) -> SyncOutcome:
+        """Sync Anki with AnkiWeb to its end and return how it ended (`OK`, `AUTH_REQUIRED` or
+        `ANKIWEB_UNREACHABLE`). Raises `AppError(ANKI_UNAVAILABLE | ANKI_BUSY)`.
+        """
         ...
