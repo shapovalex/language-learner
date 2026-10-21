@@ -33,7 +33,9 @@ from language_lab.adapters.anki.manifest import build_manifest
 from language_lab.adapters.anki.setup_gate import SetupGate
 from language_lab.adapters.anki.store import AnkiConnectStore
 from language_lab.domain.errors import AppError, ErrorCode
-from language_lab.domain.setup import PlanItem, SetupState, plan_hash
+from language_lab.domain.setup import PlanAction, PlanItem, ResourceKind, SetupState, plan_hash
+from language_lab.features.setup.service import SetupService
+from tests.fakes.sync_requester import FakeSyncRequester
 from tests.support.aio import settle
 from tests.support.anki_connect import ANKI_URL, AnkiConnectReplay
 from tests.support.anki_state import (
@@ -46,10 +48,6 @@ from tests.support.anki_state import (
     sent_writes,
 )
 from tests.support.clock import bounded
-
-RED_PHASE = pytest.mark.skip(
-    reason="ATDD red phase, story 2.11: un-skip with the opt-in repair rows in the adapter"
-)
 
 PREFIX = "LanguageLab"
 DEV = "LanguageLabDev"
@@ -137,7 +135,6 @@ class Leftovers:
         ]
 
 
-@RED_PHASE
 @pytest.mark.p0
 def test_orphan_media_previews_as_an_opt_in_repair_row() -> None:
     """AC-1: an AD-7 media file no managed note's `Audio` references, read through the codec,
@@ -156,7 +153,6 @@ def test_orphan_media_previews_as_an_opt_in_repair_row() -> None:
     assert preview.items == ()
 
 
-@RED_PHASE
 @pytest.mark.p0
 def test_a_managed_card_in_the_wrong_deck_previews_as_an_opt_in_repair_row() -> None:
     """AC-2: a managed card outside `card_deck(note type, ord)` is offered as a `misplacedCard`
@@ -180,7 +176,6 @@ def test_a_managed_card_in_the_wrong_deck_previews_as_an_opt_in_repair_row() -> 
     assert key(MISPLACED_CARD, in_place) not in keys(preview.repairs)
 
 
-@RED_PHASE
 @pytest.mark.p0
 def test_an_unsuspended_capture_card_previews_as_an_opt_in_repair_row() -> None:
     """AC-3: an unsuspended Capture card is offered as an `unsuspendedCard` row; a suspended
@@ -198,7 +193,6 @@ def test_an_unsuspended_capture_card_previews_as_an_opt_in_repair_row() -> None:
     assert keys(preview.repairs) == {key(UNSUSPENDED_CARD, unsuspended)}
 
 
-@RED_PHASE
 @pytest.mark.p0
 def test_opt_in_rows_stay_out_of_the_plan_its_hash_and_the_setup_state() -> None:
     """AC-6: with only leftovers, the plan is empty, it hashes as an empty plan, and the
@@ -214,7 +208,6 @@ def test_opt_in_rows_stay_out_of_the_plan_its_hash_and_the_setup_state() -> None
     assert preview.state is SetupState.READY
 
 
-@RED_PHASE
 @pytest.mark.p0
 def test_non_managed_notes_and_decks_stay_read_only() -> None:
     """AC-8: a note of a non-manifest note type, whose unsuspended card sits in a managed deck,
@@ -243,7 +236,6 @@ def test_non_managed_notes_and_decks_stay_read_only() -> None:
     assert f"{PREFIX}::Old" in collection.decks
 
 
-@RED_PHASE
 @pytest.mark.p0
 def test_applying_without_checking_a_repair_changes_nothing() -> None:
     """AC-9: an apply of the unchecked plan sends no write, and every leftover stays."""
@@ -257,7 +249,6 @@ def test_applying_without_checking_a_repair_changes_nothing() -> None:
     assert keys(verified.repairs) == set(leftovers.all_keys())
 
 
-@RED_PHASE
 @pytest.mark.p0
 @pytest.mark.parametrize(
     ("kind", "write"),
@@ -294,7 +285,6 @@ def test_checking_one_repair_changes_exactly_that_resource(kind: str, write: str
         assert collection.cards[leftovers.capture].suspended is True
 
 
-@RED_PHASE
 @pytest.mark.p0
 def test_a_checked_repair_must_be_confirmed_by_the_hash_that_includes_it() -> None:
     """AC-11: checking a row changes the hash, so an apply that checks a row under the
@@ -310,3 +300,172 @@ def test_a_checked_repair_must_be_confirmed_by_the_hash_that_includes_it() -> No
     assert isinstance(outcome, AppError) and outcome.code is ErrorCode.PLAN_CHANGED
     assert sent_writes(replay.sent) == []
     assert leftovers.orphan_media in leftovers.collection.media
+
+
+# ---- Secondary branches (P1) -------------------------------------------------------------
+
+
+def wired_over(replies: dict[str, Any]) -> tuple[Any, AnkiConnectReplay]:
+    """As `wired()`, over replies a test has changed. Returns (store, replay)."""
+    gate = SetupGate(MANIFEST)
+    replay = AnkiConnectReplay(replies)
+    client = AnkiConnectClient(
+        ANKI_URL, transport=replay.transport, guard=PrefixGuard(MANIFEST), gate=gate
+    )
+    return AnkiConnectStore(client, AnkiLock(), manifest=MANIFEST, gate=gate), replay
+
+
+@pytest.mark.p1
+def test_an_audio_field_with_two_sound_tags_references_both() -> None:
+    """AC-1: every `[sound:]` tag of an `Audio` field counts, not only the first."""
+    collection = managed_collection(MANIFEST)
+    first, second, orphan = media_name(), media_name(), media_name()
+    collection.media |= {first, second, orphan}
+    vocabulary_note(collection, audio=f"[sound:{first}]<br>[sound:{second}]")
+    store, _ = wired(collection)
+
+    preview = run(store.setup_preview())
+
+    assert keys(preview.repairs) == {key(ORPHAN_MEDIA, orphan)}
+
+
+@pytest.mark.p1
+def test_a_media_name_in_another_case_is_not_offered() -> None:
+    """AC-1: a name that is AD-7 only under another case (spike 2.2: `storeMediaFile` may
+    lowercase) isn't offered, since the guard couldn't delete it.
+    """
+    collection = managed_collection(MANIFEST)
+    orphan = media_name()
+    item_id, digest = orphan.removeprefix(f"{PREFIX}_").removesuffix(".mp3").split("_")
+    upper_digest = f"{PREFIX}_{item_id}_{digest.upper()}.mp3"  # the pattern matches; AD-7 doesn't
+    lower_prefix = f"{PREFIX.lower()}_{item_id}_{digest}.mp3"  # not even the pattern does
+    collection.media |= {orphan, upper_digest, lower_prefix}
+    store, _ = wired(collection)
+
+    preview = run(store.setup_preview())
+
+    assert keys(preview.repairs) == {key(ORPHAN_MEDIA, orphan)}
+
+
+@pytest.mark.p1
+def test_a_misplaced_capture_card_belongs_in_captures() -> None:
+    """AC-2: a suspended Capture card outside Captures is offered as misplaced, back to
+    `<Prefix>::Captures`, with its detail.
+    """
+    collection = managed_collection(MANIFEST)
+    card = add_card(collection, capture_note(collection), 0, "Default", suspended=True)
+    store, _ = wired(collection)
+
+    preview = run(store.setup_preview())
+
+    assert keys(preview.repairs) == {key(MISPLACED_CARD, card)}
+    assert dict(preview.repairs[0].detail) == {
+        "noteType": CAPTURE,
+        "card": next(nt for nt in MANIFEST.note_types if nt.name == CAPTURE).templates[0].name,
+        "deck": "Default",
+        "expectedDeck": f"{PREFIX}::Captures",
+    }
+
+
+@pytest.mark.p1
+def test_a_card_in_a_deck_that_no_longer_exists_is_misplaced_and_repairable() -> None:
+    """AC-2/AC-10: a card whose deck vanished is offered, and `changeDeck` puts it back."""
+    collection = managed_collection(MANIFEST)
+    collection.decks["Gone"] = "Default"
+    card = add_card(collection, vocabulary_note(collection), UNDERSTAND, "Gone")
+    del collection.decks["Gone"]
+    store, replay = wired(collection)
+    preview = run(store.setup_preview())
+    row = key(MISPLACED_CARD, card)
+
+    verified = run(store.setup_apply(plan_hash((*preview.items, *preview.repairs)), [row]))
+
+    assert keys(preview.repairs) == {row}
+    assert sent_writes(replay.sent) == ["changeDeck"]
+    assert collection.cards[card].deck == MANIFEST.card_deck(VOCABULARY, UNDERSTAND)
+    assert verified.repairs == ()
+
+
+@pytest.mark.p1
+def test_a_misplaced_unsuspended_capture_card_gives_two_rows() -> None:
+    """AC-3: a Capture card both misplaced and unsuspended is offered once of each kind."""
+    collection = managed_collection(MANIFEST)
+    card = add_card(collection, capture_note(collection), 0, "Default")
+    store, _ = wired(collection)
+
+    preview = run(store.setup_preview())
+
+    assert [r.key for r in preview.repairs] == [
+        key(MISPLACED_CARD, card),
+        key(UNSUSPENDED_CARD, card),
+    ]
+
+
+@pytest.mark.p1
+def test_a_failed_repair_write_does_not_end_the_run_and_comes_back_as_a_discrepancy() -> None:
+    """AC-10: a `suspend` that fails leaves the run going, and the Setup service reports its
+    row as a discrepancy; the other checked rows are repaired.
+    """
+    leftovers = Leftovers()
+    collection = leftovers.collection
+    failing = leftovers.capture
+    second = add_card(collection, capture_note(collection), 0, MANIFEST.card_deck(CAPTURE, 0))
+    replies = collection_replies(collection, writes=True)
+    suspend = replies["suspend"]
+
+    def suspend_or_fail(body: Any) -> Any:
+        if body.get("params", {}).get("cards") == [failing]:
+            return {"result": None, "error": "collection is not available"}
+        return suspend(body)
+
+    replies["suspend"] = suspend_or_fail
+    store, replay = wired_over(replies)
+    setup = SetupService(
+        store,
+        sync=FakeSyncRequester(),
+        prefix=PREFIX,
+        azure_configured=True,
+        openrouter_configured=True,
+    )
+    checked = [*leftovers.all_keys(), key(UNSUSPENDED_CARD, second)]
+
+    async def confirm() -> Any:
+        plan = await setup.plan(checked)
+        return await setup.apply(plan["planHash"], checked)
+
+    result = run(confirm())
+
+    assert result["verified"] is False
+    assert result["discrepancies"] == [
+        {
+            "action": "repair",
+            "kind": UNSUSPENDED_CARD,
+            "name": str(failing),
+            "requiresFullSync": False,
+        }
+    ]
+    assert sent_writes(replay.sent) == ["deleteMediaFile", "changeDeck", "suspend", "suspend"]
+    assert collection.cards[second].suspended is True
+    assert leftovers.orphan_media not in collection.media
+    retry = PlanItem(PlanAction.REPAIR, ResourceKind.UNSUSPENDED_CARD, str(failing))
+    assert result["planHash"] == plan_hash((retry,))  # Run Setup again re-checks it
+
+
+@pytest.mark.p1
+def test_a_checked_resource_that_vanished_before_the_apply_is_refused() -> None:
+    """AC-11: the orphan deleted in Anki Desktop between the plan and the apply drops out of
+    the fresh plan, so its hash differs: `plan_changed` before any write.
+    """
+    leftovers = Leftovers()
+    store, replay = wired(leftovers.collection)
+    preview = run(store.setup_preview())
+    chosen = key(ORPHAN_MEDIA, leftovers.orphan_media)
+    checked = [r for r in preview.repairs if r.key == chosen]
+    leftovers.collection.media.discard(leftovers.orphan_media)
+
+    outcome = settle(
+        bounded(store.setup_apply(plan_hash((*preview.items, *checked)), repairs=[chosen]))
+    )
+
+    assert isinstance(outcome, AppError) and outcome.code is ErrorCode.PLAN_CHANGED
+    assert sent_writes(replay.sent) == []

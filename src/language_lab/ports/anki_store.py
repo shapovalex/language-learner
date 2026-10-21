@@ -5,6 +5,7 @@ the SetupState, and the Setup preview and apply so far. Later entries add method
 AnkiConnect adapter and to the fake in tests/fakes/ together.
 """
 
+from collections.abc import Collection
 from typing import Protocol
 
 from language_lab.domain.setup import SetupPreview, SetupState
@@ -24,20 +25,23 @@ class AnkiStore(Protocol):
 
     async def setup_preview(self) -> SetupPreview:
         """What Setup would change in Anki, from reads only (FR-6, AD-3): the plan items, the
-        unrecognized content under the Prefix, and the SetupState (AD-19). Raises
+        unrecognized content under the Prefix, the opt-in repair rows (`repairs`, entry 11),
+        and the SetupState (AD-19), which only the items decide. Raises
         `AppError(ANKI_UNAVAILABLE | ANKI_BUSY)`.
         """
         ...
 
-    async def setup_apply(self, plan_hash: str) -> SetupPreview:
+    async def setup_apply(self, plan_hash: str, repairs: Collection[str] = ()) -> SetupPreview:
         """Apply the confirmed plan and verify it (FR-6, AD-3), under one lock hold.
 
         Re-reads and diffs Anki, and raises `AppError(PLAN_CHANGED)` before any write when
-        `plan_hash` isn't the fresh plan's, then `AppError(SETUP_REQUIRED)` when Anki was set
-        up by a newer release (`newer_schema`). Runs every Create and Repair item, then, for a
-        Migrate item, the migrations and the SchemaVersion rewrite of older notes; a write that
-        fails doesn't end the run. Returns a fresh diff as the
-        verification: its items are the discrepancies, with its fresh SetupState. Raises
+        `plan_hash` isn't the fresh plan's: its items plus the offered repair rows whose key is
+        in `repairs` (a key no longer offered drops out, so the hash differs). Then raises
+        `AppError(SETUP_REQUIRED)` when Anki was set up by a newer release (`newer_schema`).
+        Runs every Create and Repair item, then, for a Migrate item, the migrations and the
+        SchemaVersion rewrite of older notes, then each checked repair; a write that fails
+        doesn't end the run. Returns a fresh diff as the verification: its items are the
+        discrepancies, its repairs every row still offered, with its fresh SetupState. Raises
         `AppError(ANKI_UNAVAILABLE | ANKI_BUSY)`.
         """
         ...

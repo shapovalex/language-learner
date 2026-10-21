@@ -48,7 +48,16 @@ def test_plan_hash_is_stable_across_order_and_changes_with_any_item() -> None:
     assert [label for label, value in hashes.items() if value == plan_hash(items)] == []
     assert len(set(hashes.values())) == len(hashes)
     assert [str(a) for a in PlanAction] == ["create", "repair", "migrate"]
-    assert [str(k) for k in ResourceKind] == ["deck", "noteType", "notes", "templates", "preset"]
+    assert [str(k) for k in ResourceKind] == [
+        "deck",
+        "noteType",
+        "notes",
+        "templates",
+        "preset",
+        "orphanMedia",  # the opt-in repair kinds (story 2.11)
+        "misplacedCard",
+        "unsuspendedCard",
+    ]
 
 
 @pytest.mark.p1
@@ -70,3 +79,23 @@ def test_requires_full_sync_leaves_item_equality_and_the_plan_hash_alone() -> No
     assert plan_hash(items) == hashlib.sha256(payload.encode("utf-8")).hexdigest()
     assert field_change == PlanItem(PlanAction.MIGRATE, ResourceKind.NOTE_TYPE, f"{PREFIX} Capture")
     assert "requires_full_sync" not in {f.name for f in dataclasses.fields(PlanItem)}
+
+
+@pytest.mark.p1
+def test_an_opt_in_rows_key_and_detail_leave_equality_and_the_plan_hash_alone() -> None:
+    """Story 2.11, AC-6: `key` is `"<kind>:<name>"`, derived, and the display `detail` of an
+    opt-in repair row changes neither item equality nor the hash.
+    """
+    card = PlanItem(
+        PlanAction.REPAIR,
+        ResourceKind.MISPLACED_CARD,
+        "1792093019101",
+        {"noteType": f"{PREFIX} Capture", "deck": "Default", "expectedDeck": f"{PREFIX}::Captures"},
+    )
+    bare = PlanItem(PlanAction.REPAIR, ResourceKind.MISPLACED_CARD, "1792093019101")
+
+    assert card.key == "misplacedCard:1792093019101"
+    assert card == bare
+    assert plan_hash((card,)) == plan_hash((bare,))
+    assert hash(card) == hash(bare)
+    assert "key" not in {f.name for f in dataclasses.fields(PlanItem)}

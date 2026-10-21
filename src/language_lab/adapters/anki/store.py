@@ -5,17 +5,19 @@ With a `SetupGate` shared with the client (AD-19), every SetupState the store co
 startup `setup_state()`, each preview, each apply's verification) is set in the gate.
 
 `migrations` (adapters/anki/migrations.py) run only inside a confirmed apply whose plan has a
-Migrate item, after its Create and Repair items (FR-7, AD-3).
+Migrate item, after its Create and Repair items (FR-7, AD-3). The opt-in repairs the user
+checked (entry 11) run last, under the same lock hold.
 """
 
 import asyncio
+from collections.abc import Collection
 from typing import Any
 
 from language_lab.adapters.anki.client import AnkiConnectClient
 from language_lab.adapters.anki.lock import AnkiLock
 from language_lab.adapters.anki.manifest import Manifest
 from language_lab.adapters.anki.migrations import Migration, run_migrations
-from language_lab.adapters.anki.setup_apply import run_plan
+from language_lab.adapters.anki.setup_apply import run_plan, run_repairs
 from language_lab.adapters.anki.setup_gate import SetupGate, read_preview
 from language_lab.domain.errors import AppError, ErrorCode
 from language_lab.domain.setup import PlanAction, SetupPreview, SetupState
@@ -90,25 +92,29 @@ class AnkiConnectStore:
         self._set_gate(preview)
         return preview
 
-    async def setup_apply(self, plan_hash: str) -> SetupPreview:
+    async def setup_apply(self, plan_hash: str, repairs: Collection[str] = ()) -> SetupPreview:
         """Re-diff, refuse a stale `plan_hash` and then a `newer_schema` Anki before any write,
         run the plan's Create and Repair items, then, when it has a Migrate item, the migrations
-        and the SchemaVersion rewrite, through the client's guarded, ungated path, and verify by
-        a fresh diff, all under one lock hold (AD-3, AD-4, AD-5, AD-19). Each fresh
-        SetupState is set in the gate. Raises
+        and the SchemaVersion rewrite, then each checked opt-in repair, through the client's
+        guarded, ungated path, and verify by a fresh diff, all under one lock hold (AD-3, AD-4,
+        AD-5, AD-19). The hash covers the items plus the offered repair rows whose key is in
+        `repairs`. Each fresh SetupState is set in the gate. Raises
         `AppError(PLAN_CHANGED | SETUP_REQUIRED | ANKI_UNAVAILABLE | ANKI_BUSY)`.
         """
         manifest = self._require_manifest()
         async with self._lock.hold():
             state, before = await read_preview(self._client.invoke, manifest)
             self._set_gate(before)
-            if _plan_hash(before.items) != plan_hash:
+            wanted = set(repairs)
+            checked = tuple(r for r in before.repairs if r.key in wanted)
+            if _plan_hash((*before.items, *checked)) != plan_hash:
                 raise AppError(ErrorCode.PLAN_CHANGED)
             if before.state is SetupState.NEWER_SCHEMA:
                 raise AppError(ErrorCode.SETUP_REQUIRED)
             await run_plan(self._client.invoke_setup, manifest, state, before.items)
             if any(i.action is PlanAction.MIGRATE for i in before.items):
                 await run_migrations(self._client.invoke_setup, manifest, self._migrations, state)
+            await run_repairs(self._client.invoke_setup, checked)
             _, verified = await read_preview(self._client.invoke, manifest)
             self._set_gate(verified)
         return verified

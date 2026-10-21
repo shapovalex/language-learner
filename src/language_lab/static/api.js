@@ -57,19 +57,23 @@ export function getReadiness() {
 }
 
 // `{prefix, planHash, state, items: [{action, kind, name, requiresFullSync}],
-// unmanaged: [{kind, name}]}` (FR-6, AD-3)
-export function getPlan() {
-  return request("/api/setup/plan");
+// repairs: [{key, action, kind, name, checked, ...detail}], unmanaged: [{kind, name}]}`
+// (FR-6, AD-3). `repairs` are the checked opt-in repair keys: the server re-plans with them,
+// and `planHash` covers the items plus those rows.
+export function getPlan(repairs = []) {
+  const query = new URLSearchParams(repairs.map((key) => ["repair", key])).toString();
+  return request(query ? `/api/setup/plan?${query}` : "/api/setup/plan");
 }
 
 // Apply the plan the user confirmed by its hash, run to its end and verified (FR-6, AD-3):
 // `{verified, planHash, discrepancies: [{action, kind, name, requiresFullSync}], fullSyncRequired}`.
 // A stale hash is 409 `plan_changed`; a field change whose Sync failed is 409 `sync_required`.
-export function applySetup(planHash) {
+// `repairs` are the checked opt-in repair keys `planHash` was read with.
+export function applySetup(planHash, repairs = []) {
   return request("/api/setup/apply", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ planHash }),
+    body: JSON.stringify({ planHash, repairs }),
   });
 }
 

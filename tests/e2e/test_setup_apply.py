@@ -138,7 +138,7 @@ def test_apply_posts_the_plan_hash_and_shows_the_applying_card(page: Page) -> No
 
     expect(main.get_by_text(PROGRESS, exact=True)).to_be_visible()
     expect(main.get_by_role("status").filter(has_text=PROGRESS)).to_be_visible()
-    assert bodies == [{"planHash": PLAN_HASH}]
+    assert bodies == [{"planHash": PLAN_HASH, "repairs": []}]
     expect(apply_button).to_be_disabled()
     expect(main.get_by_role("list", name=CHANGES_HEADING)).to_have_count(0)
     held.fulfill_json(result([], EMPTY_HASH))
@@ -192,7 +192,7 @@ def test_a_run_with_discrepancies_lists_them_and_offers_run_setup_again(
     expect(main.get_by_role("button", name=APPLY_LABEL)).to_have_count(0)
     with page.expect_request(lambda r: r.url.endswith(APPLY) and r.method == "POST") as again:
         banner.get_by_role("button", name=RUN_AGAIN).click()
-    assert again.value.post_data_json == {"planHash": LEFT_OVER_HASH}
+    assert again.value.post_data_json == {"planHash": LEFT_OVER_HASH, "repairs": []}
 
 
 @pytest.mark.p1
@@ -262,4 +262,4 @@ def test_a_stale_plan_rereads_the_plan_and_shows_why(page: Page) -> None:
     expect(apply_button).to_be_enabled()
     with page.expect_request(lambda r: r.url.endswith(APPLY) and r.method == "POST") as again:
         apply_button.click()
-    assert again.value.post_data_json == {"planHash": LEFT_OVER_HASH}
+    assert again.value.post_data_json == {"planHash": LEFT_OVER_HASH, "repairs": []}

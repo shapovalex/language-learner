@@ -16,3 +16,7 @@
 - source_plan: `_bmad-output/initiative-languagelab-v1/epic-anki-setup-sync/story-managed-manifest-template-files-and-field-codec-plan.md`
   summary: Decide how `decode_field` reads Anki-editor empty-line markup (`a<div><br></div><div>b</div>`), which today reads as three newlines instead of one blank line.
   evidence: Unverified (medium if true). Settled by recording a `notesInfo` of a field edited with blank lines in the Mac Mini Anki and adding it as an AC-11 row.
+
+- source_plan: `_bmad-output/initiative-languagelab-v1/epic-anki-setup-sync/story-opt-in-repairs-for-leftovers-plan.md`
+  summary: Bound the cost of the opt-in repair reads (one `cardsInfo` of every managed card) on each Setup preview and each checkbox toggle for large collections.
+  evidence: `read_leftovers` in adapters/anki/setup_gate.py sends `cardsInfo` for every manifest note type's card under the Anki lock on every preview and server re-plan; AnkiConnect renders each card's question and answer, so the read grows with the collection and could approach the 15 s lock wait. Measure on the Mac Mini at device acceptance (entry 13).

@@ -45,6 +45,12 @@ READS = frozenset(
 
 _UUID4 = r"[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}"
 
+
+def media_pattern(prefix: str) -> re.Pattern[str]:
+    """A managed media name (AD-7), `<Prefix>_<ItemId>_<sha256[:12]>.mp3`, to `fullmatch`."""
+    return re.compile(rf"{re.escape(prefix)}_{_UUID4}_[0-9a-f]{{12}}\.mp3")
+
+
 # Writes that name their note type in `modelName` (spike 2.2: AnkiConnect's model* family)
 _MODEL_NAME_WRITES = ("modelField", "modelTemplate")
 _MODEL_OBJECT_WRITES = frozenset({"updateModelTemplates", "updateModelStyling"})
@@ -99,7 +105,7 @@ class PrefixGuard:
         self._decks = frozenset(manifest.decks)
         self._note_types = frozenset(nt.name for nt in manifest.note_types)
         self._preset_deck = manifest.preset.decks[0]
-        self._media = re.compile(rf"{re.escape(manifest.prefix)}_{_UUID4}_[0-9a-f]{{12}}\.mp3")
+        self._media = media_pattern(manifest.prefix)
 
     async def check(self, action: Any, params: Mapping[str, Any], lookup: Lookup) -> None:
         """Return when `action` may be sent; raise `PrefixViolation` otherwise.

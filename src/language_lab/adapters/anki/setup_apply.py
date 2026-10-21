@@ -7,13 +7,17 @@ from `state`, in this order, and skips Migrate (adapters/anki/migrations.py runs
 2. note type Create: `createModel` with its fields, CSS and card templates, which covers that
    note type's templates Create too.
 3. templates Repair: `updateModelTemplates` for the card templates Anki has, `modelTemplateAdd`
-   for a missing one, and `updateModelStyling` for the CSS. An extra card template stays (its
-   removal deletes cards: entry 11's opt-in repairs).
+   for a missing one, and `updateModelStyling` for the CSS. An extra card template stays: its
+   removal deletes cards, and no repair offers it.
 4. the `<Prefix>` preset, when the plan has a preset item or a created deck belongs on it: the
    `<Prefix>` config a preset deck already uses, else a clone of Default (`cloneDeckConfigId`);
    `setDeckConfigId` for the preset decks not on it; then, for a preset item or a fresh clone,
    that config read back with `getDeckConfig`, the three bury flags set off and the rest left
    as it is (FR-8), and `saveDeckConfig`.
+
+`run_repairs(invoke, items)` runs the opt-in repair rows the user checked (entry 11), after the
+plan and its migrations: `deleteMediaFile` for orphan media, `changeDeck` to the expected deck
+for a misplaced card, `suspend` for an unsuspended Capture card, one write per row.
 
 Every write is one `invoke` (the client's guarded, ungated path: Setup's apply writes while
 the SetupState isn't `ready`), so each step fails alone. A failed step
@@ -23,7 +27,7 @@ that fails raises `AppError(ANKI_UNAVAILABLE)`.
 """
 
 import copy
-from collections.abc import Awaitable, Callable, Mapping
+from collections.abc import Awaitable, Callable, Iterable, Mapping
 from typing import Any
 
 from language_lab.adapters.anki.manifest import Manifest, NoteType
@@ -173,3 +177,23 @@ async def run_plan(
     )
     if has_preset_item or run.created_decks & set(manifest.preset.decks):
         await run.preset(has_item=has_preset_item)
+
+
+async def _try(invoke: Invoke, action: str, **params: Any) -> None:
+    """One write; a failure (an `AppError`) doesn't end the run: verify reports it."""
+    try:
+        await invoke(action, **params)
+    except AppError:
+        pass
+
+
+async def run_repairs(invoke: Invoke, items: Iterable[PlanItem]) -> None:
+    """Run each checked opt-in repair row, in order, one write each."""
+    for item in items:
+        if item.kind is ResourceKind.ORPHAN_MEDIA:
+            await _try(invoke, "deleteMediaFile", filename=item.name)
+        elif item.kind is ResourceKind.MISPLACED_CARD:
+            expected = item.detail["expectedDeck"]
+            await _try(invoke, "changeDeck", cards=[int(item.name)], deck=expected)
+        elif item.kind is ResourceKind.UNSUSPENDED_CARD:
+            await _try(invoke, "suspend", cards=[int(item.name)])

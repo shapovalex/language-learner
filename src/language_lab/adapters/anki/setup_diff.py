@@ -15,12 +15,19 @@ manifest order.
 
 Decks under the Prefix and note types named `<Prefix> …` that the manifest doesn't declare are
 `unmanaged`: listed, never planned.
+
+Opt-in repairs (entry 11) go in `repairs`, one row per resource, never in `items`: orphan
+media (an AD-7 media name no managed note's decoded `Audio` holds as `[sound:<name>]`), sorted
+by name; then each managed card in a deck other than `manifest.card_deck(note type, ord)`;
+then each unsuspended Capture card; cards by id. Only manifest note types' cards count, and a
+card whose ord its note type doesn't declare isn't offered.
 """
 
 from collections.abc import Mapping
 from dataclasses import dataclass, field
 from typing import Any
 
+from language_lab.adapters.anki.guard import media_pattern
 from language_lab.adapters.anki.manifest import Manifest, NoteType
 from language_lab.domain.setup import PlanAction, PlanItem, ResourceKind, SetupPreview, Unmanaged
 
@@ -35,6 +42,17 @@ class ModelState:
 
 
 @dataclass(frozen=True)
+class CardState:
+    """A card of a manifest note type, from `cardsInfo`."""
+
+    id: int
+    model: str
+    ord: int
+    deck: str
+    suspended: bool
+
+
+@dataclass(frozen=True)
 class AnkiState:
     decks: frozenset[str]  # every deck name in Anki
     models: frozenset[str]  # every note type name in Anki
@@ -42,6 +60,9 @@ class AnkiState:
     preset_configs: Mapping[str, Mapping[str, Any]] = field(default_factory=dict)  # deck -> config
     # manifest note type -> (note id, stored SchemaVersion or None when not an integer)
     note_versions: Mapping[str, tuple[tuple[int, int | None], ...]] = field(default_factory=dict)
+    cards: tuple[CardState, ...] = ()  # every card of a manifest note type
+    media: frozenset[str] = frozenset()  # media file names matching `<Prefix>_*`
+    audio: frozenset[str] = frozenset()  # names in managed notes' decoded `Audio` `[sound:]` tags
 
 
 def _dotted(config: Mapping[str, Any], path: str) -> Any:
@@ -75,6 +96,41 @@ def _preset_item(manifest: Manifest, state: AnkiState) -> PlanItem | None:
 
 def _is_under_prefix_deck(prefix: str, deck: str) -> bool:
     return deck == prefix or deck.startswith(f"{prefix}::")
+
+
+def _repairs(manifest: Manifest, state: AnkiState) -> list[PlanItem]:
+    media = media_pattern(manifest.prefix)
+    orphans = [
+        PlanItem(PlanAction.REPAIR, ResourceKind.ORPHAN_MEDIA, name)
+        for name in sorted(state.media)
+        if media.fullmatch(name) is not None and name not in state.audio
+    ]
+    note_types = {nt.name: nt for nt in manifest.note_types}
+    misplaced: list[PlanItem] = []
+    unsuspended: list[PlanItem] = []
+    for card in sorted(state.cards, key=lambda c: c.id):
+        note_type = note_types.get(card.model)
+        if note_type is None:
+            continue  # not a manifest note type: read-only
+        template = next((t for t in note_type.templates if t.ord == card.ord), None)
+        if template is None:
+            continue  # a card template the manifest doesn't declare: not this story's repair
+        where = {"noteType": card.model, "card": template.name, "deck": card.deck}
+        expected = manifest.card_deck(card.model, card.ord)
+        if card.deck != expected:
+            misplaced.append(
+                PlanItem(
+                    PlanAction.REPAIR,
+                    ResourceKind.MISPLACED_CARD,
+                    str(card.id),
+                    {**where, "expectedDeck": expected},
+                )
+            )
+        if note_type.language is None and not card.suspended:
+            unsuspended.append(
+                PlanItem(PlanAction.REPAIR, ResourceKind.UNSUSPENDED_CARD, str(card.id), where)
+            )
+    return [*orphans, *misplaced, *unsuspended]
 
 
 def diff(manifest: Manifest, state: AnkiState) -> SetupPreview:
@@ -117,4 +173,6 @@ def diff(manifest: Manifest, state: AnkiState) -> SetupPreview:
         if model.startswith(f"{prefix} ") and model not in managed_types
     ]
     items = [*decks, *note_types, *notes, *templates, *([preset] if preset else [])]
-    return SetupPreview(items=tuple(items), unmanaged=tuple(unmanaged))
+    return SetupPreview(
+        items=tuple(items), unmanaged=tuple(unmanaged), repairs=tuple(_repairs(manifest, state))
+    )
