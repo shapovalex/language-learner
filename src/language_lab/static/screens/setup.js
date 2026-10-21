@@ -2,7 +2,9 @@
 // change in Anki from /api/setup/plan (FR-6) and the study footer, then the server version from
 // /api/health. Apply setup POSTs the plan's hash to /api/setup/apply; the progress card shows
 // until the run ends, then a verification banner. The run is the server's: leaving doesn't
-// cancel it, and coming back reads /api/setup/apply/status (polled while it runs).
+// cancel it, and coming back reads /api/setup/apply/status (polled while it runs). When the
+// plan's `state` is `newer_schema` (AD-19), a blocking alert takes the change list's place and
+// Apply setup is hidden.
 
 import { applySetup, getApplyStatus, getHealth, getPlan, getReadiness } from "../api.js";
 
@@ -44,6 +46,8 @@ const UNMANAGED_KINDS = { deck: "Deck", noteType: "Note type" };
 const APPLY_LABEL = "Apply setup";
 const FIX_REASON = "Fix the failing check to continue.";
 const PROGRESS = "Applying setup and verifying… Keep Anki open.";
+const NEWER_SCHEMA = "newer_schema";
+const NEWER_SCHEMA_ALERT = "Anki was set up by a newer LanguageLab. Install the latest release.";
 const STATUS_POLL_MS = 1000;
 // A discrepancy row: its kind, then what verify expected and found, by action and kind
 const DISCREPANCY_KINDS = {
@@ -199,8 +203,26 @@ function studyFooter(prefix) {
   return footer;
 }
 
-function planSection({ prefix, items, unmanaged }) {
-  const nodes = [items.length > 0 ? changesCard(items) : nothingToChange()];
+// In the failing readiness tile's pattern: an older release never writes a newer schema
+function newerSchemaAlert() {
+  const node = element("div", "readiness-tile newer-schema-alert");
+  node.setAttribute("role", "alert");
+  node.append(icon(false), NEWER_SCHEMA_ALERT);
+  return node;
+}
+
+function isNewerSchema(body) {
+  return body?.state === NEWER_SCHEMA;
+}
+
+function planSection(body) {
+  const { prefix, items, unmanaged } = body;
+  const main = isNewerSchema(body)
+    ? newerSchemaAlert()
+    : items.length > 0
+      ? changesCard(items)
+      : nothingToChange();
+  const nodes = [main];
   if (unmanaged.length > 0) nodes.push(unmanagedCard(unmanaged));
   nodes.push(studyFooter(prefix));
   return nodes;
@@ -306,6 +328,7 @@ export function mount(root) {
     const shown =
       checks !== null &&
       body !== null &&
+      !isNewerSchema(body) &&
       (view === "applying" || (view === "list" && body.items.length > 0));
     if (!shown) {
       actions.replaceChildren();
@@ -353,8 +376,11 @@ export function mount(root) {
         if (!mounted) return;
         state.plan = body;
         state.planError = null;
-        if (result && result.planHash === body.planHash) show("result", { result });
-        else show("list", { notice });
+        if (result && result.planHash === body.planHash && !isNewerSchema(body)) {
+          show("result", { result });
+        } else {
+          show("list", { notice });
+        }
       },
       (error) => {
         if (!mounted) return;
@@ -390,6 +416,8 @@ export function mount(root) {
         if (!mounted) return;
         if (error?.name === "ApiError" && error.code === "plan_changed") {
           reread(null, error.message);
+        } else if (error?.name === "ApiError" && error.code === "setup_required") {
+          reread(null); // the fresh plan's state (newer_schema) brings up its own alert
         } else {
           show("list", { notice: errorMessage(error) });
         }
@@ -404,7 +432,11 @@ export function mount(root) {
     if (run.state === "running") {
       show("applying");
       pollStatus();
-    } else if (run.state === "finished" && run.result?.planHash === state.plan.planHash) {
+    } else if (
+      run.state === "finished" &&
+      run.result?.planHash === state.plan.planHash &&
+      !isNewerSchema(state.plan)
+    ) {
       show("result", { result: run.result });
     } else {
       show("list");

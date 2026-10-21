@@ -31,6 +31,7 @@ from language_lab.adapters.anki.client import AnkiConnectClient
 from language_lab.adapters.anki.guard import PrefixGuard
 from language_lab.adapters.anki.lock import AnkiLock
 from language_lab.adapters.anki.manifest import build_manifest
+from language_lab.adapters.anki.setup_gate import SetupGate
 from language_lab.adapters.anki.store import AnkiConnectStore
 from language_lab.domain.errors import AppError, ErrorCode, error_envelope
 from language_lab.features.setup.routes import setup_router
@@ -109,11 +110,13 @@ async def _on_http_error(request: Request, exc: Exception) -> Response:
 
 
 # Domain failures that mean a dependency is down or busy, or that the request's premise is
-# stale (a Setup plan Anki no longer has), not a fault in the server
+# stale (a Setup plan Anki no longer has) or unmet (a write while Setup isn't ready, AD-19),
+# not a fault in the server
 _APP_ERROR_STATUS = {
     ErrorCode.ANKI_UNAVAILABLE: 503,
     ErrorCode.ANKI_BUSY: 503,
     ErrorCode.PLAN_CHANGED: 409,
+    ErrorCode.SETUP_REQUIRED: 409,
 }
 
 
@@ -277,8 +280,11 @@ def create_app(
     anki_client: AnkiConnectClient | None = None
     if anki_store is None:
         manifest = build_manifest(settings.anki_prefix)
-        anki_client = AnkiConnectClient(settings.anki_connect_url, guard=PrefixGuard(manifest))
-        anki_store = AnkiConnectStore(anki_client, AnkiLock(), manifest=manifest)
+        gate = SetupGate(manifest)  # one gate, shared by the client and the store (AD-19)
+        anki_client = AnkiConnectClient(
+            settings.anki_connect_url, guard=PrefixGuard(manifest), gate=gate
+        )
+        anki_store = AnkiConnectStore(anki_client, AnkiLock(), manifest=manifest, gate=gate)
 
     # Later entries inject `sync` as the SyncRequester port; no feature imports it (AD-1, AD-13)
     sync = SyncService(anki_store, enabled=not settings.dev)
@@ -287,6 +293,7 @@ def create_app(
     @asynccontextmanager
     async def lifespan(_: FastAPI) -> AsyncIterator[None]:
         await scheduler.start()
+        setup.start_refresh()  # the SetupState, in the background: never delays startup
         try:
             yield
         finally:

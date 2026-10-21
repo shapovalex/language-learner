@@ -1,6 +1,6 @@
 """Story 2.6: GET /api/setup/plan returns the preview, without touching Anki (FR-6, AD-3).
 
-The body is `{"prefix", "planHash", "items": [{"action", "kind", "name"}], "unmanaged":
+The body is `{"prefix", "planHash", "state", "items": [{"action", "kind", "name"}], "unmanaged":
 [{"kind", "name"}]}` in camelCase (Consistency Conventions), with the items in the order the
 AnkiStore returned them and `planHash` the domain's `plan_hash(items)`. Apply (entry 7) sends
 that hash back. The Setup screen owns the copy.
@@ -54,6 +54,7 @@ def test_plan_route_returns_items_unmanaged_rows_and_the_plan_hash(
     assert response.json() == {
         "prefix": prefix,
         "planHash": plan_hash(items),
+        "state": "ready",
         "items": [
             {"action": "create", "kind": "deck", "name": f"{prefix}::Study"},
             {"action": "repair", "kind": "templates", "name": f"{prefix} English Vocabulary"},

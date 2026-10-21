@@ -3,7 +3,7 @@
 import asyncio
 
 from language_lab.domain.errors import AppError, ErrorCode
-from language_lab.domain.setup import SetupPreview
+from language_lab.domain.setup import SetupPreview, SetupState
 from language_lab.domain.setup import plan_hash as _plan_hash
 from language_lab.domain.sync import SyncOutcome
 
@@ -11,7 +11,8 @@ from language_lab.domain.sync import SyncOutcome
 class FakeAnkiStore:
     """`available` says whether AnkiConnect answers; `busy` makes every call wait out the lock.
 
-    `setup_preview()` returns `preview` (an empty one by default).
+    `setup_preview()` returns `preview` (an empty one by default). `setup_state()` returns its
+    `state`, raises as `setup_preview()` does, and counts every call (`state_calls`).
 
     `setup_apply(plan_hash)` raises `plan_changed` unless the hash is the preview's, then makes
     `verified` (empty by default) the preview and returns it. With `apply_gated=True` each one
@@ -39,6 +40,7 @@ class FakeAnkiStore:
         self.gated = gated
         self.outcome = outcome
         self.preview = preview if preview is not None else SetupPreview()
+        self.state_calls = 0
         self.sync_calls = 0
         self.syncs = 0
         self.in_flight = 0
@@ -54,6 +56,10 @@ class FakeAnkiStore:
         if self.busy:
             raise AppError(ErrorCode.ANKI_BUSY)
         return self.available
+
+    async def setup_state(self) -> SetupState:
+        self.state_calls += 1
+        return (await self.setup_preview()).state
 
     async def setup_preview(self) -> SetupPreview:
         if self.busy:
