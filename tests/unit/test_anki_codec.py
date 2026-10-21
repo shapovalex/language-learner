@@ -5,15 +5,15 @@ Reading turns `<br>` and block tags into `\\n`, strips every other tag, unescape
 to a space, so markup the Anki editor adds never reaches the UI or the duplicate check.
 `RussianAlternatives` is a list in the domain, joined with `", "` in Anki; only the codec joins
 and splits it. Splitting tolerates the list after a hand edit in Anki.
-
-Skipped until adapters/anki/codec.py exists. Un-skip a test, watch it fail, then implement.
-Hoist the imports once it's green.
 """
 
 import pytest
 
-RED_PHASE = pytest.mark.skip(
-    reason="ATDD red phase, story 2.4: un-skip with adapters/anki/codec.py"
+from language_lab.adapters.anki.codec import (
+    decode_field,
+    encode_field,
+    join_alternatives,
+    split_alternatives,
 )
 
 NBSP = " "
@@ -52,33 +52,24 @@ READS = [
 ]
 
 
-@RED_PHASE
 @pytest.mark.p0
 @pytest.mark.parametrize(("value", "stored"), WRITES)
 def test_write_escapes_only_amp_lt_gt_and_turns_newlines_into_br(value: str, stored: str) -> None:
     """AC-10: no other markup is added, and reading the stored field gives the value back."""
-    from language_lab.adapters.anki.codec import decode_field, encode_field
-
     assert encode_field(value) == stored
     assert decode_field(encode_field(value)) == value
 
 
-@RED_PHASE
 @pytest.mark.p0
 @pytest.mark.parametrize(("stored", "value"), READS)
 def test_read_turns_anki_markup_into_plain_text(stored: str, value: str) -> None:
     """AC-11: `<br>` and block tags become newlines, other tags go, entities and NBSP resolve."""
-    from language_lab.adapters.anki.codec import decode_field
-
     assert decode_field(stored) == value
 
 
-@RED_PHASE
 @pytest.mark.p1
 def test_russian_alternatives_are_joined_and_split_with_comma_space() -> None:
     """AC-12: the list joins with ", " and splits back; a hand edit in Anki still splits."""
-    from language_lab.adapters.anki.codec import join_alternatives, split_alternatives
-
     assert join_alternatives(["à la carte", "menu"]) == "à la carte, menu"
     assert split_alternatives("à la carte, menu") == ["à la carte", "menu"]
     assert join_alternatives(["seul"]) == "seul"
@@ -93,3 +84,11 @@ def test_russian_alternatives_are_joined_and_split_with_comma_space() -> None:
     }
     for stored, alternatives in edited_in_anki.items():
         assert split_alternatives(stored) == alternatives, stored
+
+
+@pytest.mark.p2
+def test_write_stores_crlf_as_one_br() -> None:
+    """AC-10: a client's `\\r\\n` is one line break in Anki, not `\\r<br>`."""
+    assert encode_field("one\r\ntwo") == "one<br>two"
+    assert decode_field(encode_field("one\r\ntwo")) == "one\ntwo"
+    assert encode_field("one\rtwo") == "one<br>two"  # a lone CR is a line break too

@@ -7,9 +7,6 @@ SchemaVersion. Setup diffs Anki against it (entry 6) and every feature reads nam
 
 Fields put Target (or Text) first, decided with the user on 2026-10-21: Anki sorts and marks
 duplicates by the first field. The ids and SchemaVersion are hidden: no template renders them.
-
-Skipped until the manifest exists. Un-skip a test, watch it fail, then implement. Hoist the
-imports once it's green.
 """
 
 import re
@@ -18,11 +15,13 @@ from pathlib import Path
 import pytest
 
 import language_lab.adapters.anki
-from tests.support.anki_connect import anki_fixture
-
-RED_PHASE = pytest.mark.skip(
-    reason="ATDD red phase, story 2.4: un-skip with adapters/anki/manifest.py and templates/"
+from language_lab.adapters.anki.manifest import (
+    EXERCISE_BY_ORD,
+    SCHEMA_VERSION,
+    build_manifest,
 )
+from language_lab.domain.catalog import Exercise
+from tests.support.anki_connect import anki_fixture
 
 RELEASE = "LanguageLab"
 DEV = "LanguageLabDev"
@@ -101,12 +100,9 @@ def _in_deck_scope(deck: str, root: str) -> bool:
     return deck == root or deck.startswith(f"{root}::")
 
 
-@RED_PHASE
 @pytest.mark.p0
 def test_every_manifest_name_derives_from_the_prefix_and_prefixes_never_overlap() -> None:
     """AC-1: each name is the Prefix or under it; LanguageLab and LanguageLabDev share none."""
-    from language_lab.adapters.anki.manifest import build_manifest
-
     names = _all_names(build_manifest("Zq"))
     release = build_manifest(RELEASE)
     dev = build_manifest(DEV)
@@ -121,12 +117,9 @@ def test_every_manifest_name_derives_from_the_prefix_and_prefixes_never_overlap(
     assert dev.prefix == DEV
 
 
-@RED_PHASE
 @pytest.mark.p1
 def test_manifest_declares_five_note_types_with_their_fields() -> None:
     """AC-2: Capture and four Item note types with the A3/AD-10 fields, ids and version hidden."""
-    from language_lab.adapters.anki.manifest import build_manifest
-
     manifest = build_manifest(RELEASE)
     fields = {nt.name: tuple(f.name for f in nt.fields) for nt in manifest.note_types}
     hidden = {nt.name: {f.name for f in nt.fields if f.hidden} for nt in manifest.note_types}
@@ -148,12 +141,9 @@ def test_manifest_declares_five_note_types_with_their_fields() -> None:
     }
 
 
-@RED_PHASE
 @pytest.mark.p1
 def test_item_note_types_have_four_card_templates_and_capture_one() -> None:
     """AC-3: Understand, Produce, Write, Pronounce at ord 0-3 per Item type; one Capture card."""
-    from language_lab.adapters.anki.manifest import build_manifest
-
     manifest = build_manifest(RELEASE)
     counts = {nt.name: len(nt.templates) for nt in manifest.note_types}
     cards = {nt.name: tuple((t.ord, t.name) for t in nt.templates) for nt in manifest.note_types}
@@ -164,13 +154,9 @@ def test_item_note_types_have_four_card_templates_and_capture_one() -> None:
     assert all(cards[name] == tuple(enumerate(EXERCISES)) for name in items)
 
 
-@RED_PHASE
 @pytest.mark.p0
 def test_card_ord_maps_to_its_exercise_and_deck() -> None:
     """AC-4: ord 0-2 go to Study::<Language>::<Category>::<Exercise>, ord 3 to Pronunciation."""
-    from language_lab.adapters.anki.manifest import EXERCISE_BY_ORD, build_manifest
-    from language_lab.domain.catalog import Exercise
-
     manifest = build_manifest(RELEASE)
     expected = {("LanguageLab Capture", 0): "LanguageLab::Captures"}
     for lang in LANGUAGES:
@@ -195,12 +181,9 @@ def test_card_ord_maps_to_its_exercise_and_deck() -> None:
     }
 
 
-@RED_PHASE
 @pytest.mark.p1
 def test_manifest_declares_the_28_deck_tree() -> None:
     """AC-5: the root, Captures, the Study tree to each Exercise, and the Pronunciation tree."""
-    from language_lab.adapters.anki.manifest import build_manifest
-
     decks = build_manifest(RELEASE).decks
 
     assert sorted(decks) == _expected_decks(RELEASE)
@@ -209,12 +192,9 @@ def test_manifest_declares_the_28_deck_tree() -> None:
     assert all(decks.index(d.rsplit("::", 1)[0]) < decks.index(d) for d in decks if "::" in d)
 
 
-@RED_PHASE
 @pytest.mark.p0
 def test_preset_turns_off_the_three_bury_flags_on_every_study_and_pronunciation_deck() -> None:
     """AC-6: the `<Prefix>` preset owns only the three bury flags, all off (FR-8, AC7)."""
-    from language_lab.adapters.anki.manifest import build_manifest
-
     manifest = build_manifest(RELEASE)
     recorded = anki_fixture("getDeckConfig")["response"]["result"]  # spike 2.2, Q5
 
@@ -236,23 +216,17 @@ def test_preset_turns_off_the_three_bury_flags_on_every_study_and_pronunciation_
     assert len(manifest.preset.decks) == 26
 
 
-@RED_PHASE
 @pytest.mark.p2
 def test_manifest_declares_the_current_schema_version() -> None:
     """AC-7: SchemaVersion 1, the same for every Prefix (AD-3: bumps only with a migration)."""
-    from language_lab.adapters.anki.manifest import SCHEMA_VERSION, build_manifest
-
     assert build_manifest(RELEASE).schema_version == 1
     assert SCHEMA_VERSION == 1
     assert build_manifest(DEV).schema_version == SCHEMA_VERSION
 
 
-@RED_PHASE
 @pytest.mark.p1
 def test_card_templates_and_css_come_from_template_files_and_render_only_shown_fields() -> None:
     """AC-8: fronts, backs and CSS are files under templates/ and read only declared fields."""
-    from language_lab.adapters.anki.manifest import build_manifest
-
     manifest = build_manifest(RELEASE)
     file_texts = {p.read_text(encoding="utf-8") for p in TEMPLATES_DIR.rglob("*") if p.is_file()}
     texts = [(nt.name, "css", nt.css) for nt in manifest.note_types] + [
@@ -291,3 +265,26 @@ def test_card_templates_and_css_come_from_template_files_and_render_only_shown_f
         assert "Russian" in _field_refs(write.front)
         assert "Audio" not in _field_refs(write.front)
         assert "Target" in _field_refs(pronounce.front)
+
+
+@pytest.mark.p2
+@pytest.mark.parametrize("prefix", ["Bad Prefix", "Lang::Lab", 'Lang"Lab', "", "1Lab"])
+def test_build_manifest_rejects_a_prefix_outside_the_pattern(prefix: str) -> None:
+    """AC-1: a Prefix that fails PREFIX_PATTERN never becomes Anki names, even past settings."""
+    with pytest.raises(ValueError, match="Prefix"):
+        build_manifest(prefix)
+
+
+@pytest.mark.p2
+def test_card_deck_rejects_an_unknown_note_type_or_ord() -> None:
+    """AC-4: no deck is guessed for a note type or card ord the manifest doesn't declare."""
+    manifest = build_manifest(RELEASE)
+
+    with pytest.raises(KeyError):
+        manifest.card_deck("Basic", 0)
+    with pytest.raises(KeyError):
+        manifest.card_deck("LanguageLabDev French Sentence", 0)
+    with pytest.raises(ValueError):
+        manifest.card_deck("LanguageLab French Sentence", 4)
+    with pytest.raises(ValueError):
+        manifest.card_deck("LanguageLab Capture", 1)
