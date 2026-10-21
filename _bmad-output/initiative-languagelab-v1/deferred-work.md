@@ -10,3 +10,6 @@
 - source_plan: `_bmad-output/initiative-languagelab-v1/epic-platform-baseline/story-device-acceptance-over-tailscale-serve-plan.md`
   summary: Record the per-step results of the story 1.10 device run (parts A to D and E2 of `_bmad-output/test-artifacts/acceptance/device-acceptance-1-10.md`) on iPhone, iPad and desktop, including the LAN probes for 8787 and 8765.
   evidence: On 2026-10-14 the user ran v0.2.1 on the Mac Mini, recorded both Tailscale fixtures, said they were satisfied with how it works, and postponed reporting the steps. Those rows say "not run", so AC2 reach and R-12 have no recorded evidence yet.
+- source_plan: `_bmad-output/initiative-languagelab-v1/epic-anki-setup-sync/story-sync-feature-coalesced-scheduled-non-blocking-plan.md`
+  summary: After a Sync stops polling (120 s budget, `waitingForUser` or `cancelled`), the Anki lock is released while Anki may still be syncing or showing a dialog, and the v1 operation is never cancelled.
+  evidence: maybe-false, medium if true (unverified). `AnkiConnectStore.sync()` returns without cancelling the operation, per the user's 2026-10-21 decision. Settle it with a Mac Mini run that calls `reachable()` and a second Sync while a `waitingForUser` Sync is open in Anki Desktop.

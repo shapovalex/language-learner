@@ -1,7 +1,8 @@
 """Story 2.1: the AnkiConnect adapter's client and lock (AD-5), against recorded replies.
 
-The client speaks AnkiConnect API v6 through one httpx.AsyncClient, with a 10 s timeout by
-default and 120 s for `sync`, and turns every failure into `anki_unavailable`. One
+The client speaks AnkiConnect API v6 through one httpx.AsyncClient, with a 10 s timeout, and
+turns every failure into `anki_unavailable`. Sync moved to API v1 in story 2.10, with its own
+120 s budget (tests/integration/test_anki_sync.py). One
 asyncio.Lock wraps every AnkiStore call, and waiting longer than 15 s for it is `anki_busy`.
 
 Nothing reaches a real Anki: the client takes an httpx transport, and these tests pass a
@@ -18,7 +19,6 @@ from tests.support.aio import settle, settled
 from tests.support.anki_connect import (
     ANKI_CONNECT_VERSION,
     ANKI_URL,
-    SYNC_OK,
     AnkiConnectReplay,
     anki_fixture,
     error_reply,
@@ -29,7 +29,6 @@ from tests.support.anki_connect import (
 )
 
 DEFAULT_TIMEOUT_S = 10.0
-SYNC_TIMEOUT_S = 120.0
 LOCK_WAIT_S = 15.0
 SHORT_LOCK_WAIT_S = 0.05  # stands in for the 15 s limit, so the test doesn't wait it out
 
@@ -39,15 +38,14 @@ SHORT_LOCK_WAIT_S = 0.05  # stands in for the 15 s limit, so the test doesn't wa
     ("method", "action", "timeout_s", "expected"),
     [
         ("reachable", "version", DEFAULT_TIMEOUT_S, True),
-        ("sync", "sync", SYNC_TIMEOUT_S, None),
     ],
-    ids=["reachable", "sync"],
+    ids=["reachable"],
 )
 def test_store_sends_ankiconnect_v6_with_the_action_timeout(
     method: str, action: str, timeout_s: float, expected: object
 ) -> None:
-    """AC-2: each AnkiStore call is one v6 request, with 10 s by default and 120 s for sync."""
-    anki = AnkiConnectReplay({"version": anki_fixture("version")["response"], "sync": SYNC_OK})
+    """AC-2: each v6 AnkiStore call is one v6 request, with the 10 s default timeout."""
+    anki = AnkiConnectReplay({"version": anki_fixture("version")["response"]})
     store = AnkiConnectStore(AnkiConnectClient(ANKI_URL, transport=anki.transport), AnkiLock())
 
     result = settle(getattr(store, method)())

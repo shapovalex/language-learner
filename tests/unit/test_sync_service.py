@@ -7,34 +7,27 @@ never raised. The last status lives in memory only (AD-2).
 
 The AnkiStore is the in-memory fake. With `gated=True` each `sync()` stays in flight until the
 test calls `finish()`, so the test decides when a Sync ends and nothing waits in real time.
-
-Skipped until features/sync and the fake's gate exist. Un-skip one, watch it fail, then
-implement. Hoist the imports once it's green.
 """
 
 import asyncio
 
 import pytest
 
-from language_lab.domain.errors import ErrorCode
+from language_lab.domain.errors import AppError, ErrorCode
+from language_lab.domain.sync import SyncOutcome, SyncStatus
+from language_lab.features.sync.service import SyncService
+from tests.fakes.anki_store import FakeAnkiStore
 from tests.support.aio import settle, settled
 from tests.support.clock import bounded, drain, until
 from tests.support.fixtures.logs import LogCapture
-
-RED_PHASE = pytest.mark.skip(
-    reason="ATDD red phase, story 2.10: un-skip with features/sync and the fake's sync gate"
-)
 
 SYNC_LOGGER = "language_lab.sync"
 CONCURRENT_REQUESTS = 10
 
 
-@RED_PHASE
 @pytest.mark.p0
 def test_ten_concurrent_requests_make_at_most_two_syncs() -> None:
     """AC-2: one Sync running and one pending; nine requests during a Sync add one more."""
-    from language_lab.features.sync.service import SyncService
-    from tests.fakes.anki_store import FakeAnkiStore
 
     async def scenario() -> tuple[int, int, int]:
         store = FakeAnkiStore(gated=True)
@@ -57,13 +50,9 @@ def test_ten_concurrent_requests_make_at_most_two_syncs() -> None:
     assert in_flight == 0
 
 
-@RED_PHASE
 @pytest.mark.p1
 def test_request_and_wait_returns_the_status_of_a_sync_started_after_the_call() -> None:
     """AC-7: awaited while a Sync runs, the call waits for the pending one and gets its status."""
-    from language_lab.domain.sync import SyncOutcome
-    from language_lab.features.sync.service import SyncService
-    from tests.fakes.anki_store import FakeAnkiStore
 
     async def scenario() -> tuple[object, bool, int]:
         store = FakeAnkiStore(gated=True)
@@ -85,7 +74,6 @@ def test_request_and_wait_returns_the_status_of_a_sync_started_after_the_call() 
     assert sync_calls == 2
 
 
-@RED_PHASE
 @pytest.mark.p0
 @pytest.mark.parametrize(
     "failure",
@@ -93,11 +81,6 @@ def test_request_and_wait_returns_the_status_of_a_sync_started_after_the_call() 
 )
 def test_a_failed_sync_is_logged_and_never_raised(failure: str, log_capture: LogCapture) -> None:
     """AC-9: whatever the failure, the caller gets a status, and the terminal gets one line."""
-    from language_lab.domain.errors import AppError
-    from language_lab.domain.sync import SyncOutcome
-    from language_lab.features.sync.service import SyncService
-    from tests.fakes.anki_store import FakeAnkiStore
-
     # anki_unavailable and anki_busy are raised by the store, the others are its outcome
     end = ErrorCode(failure) if failure in {c.value for c in ErrorCode} else SyncOutcome(failure)
 
@@ -127,13 +110,9 @@ def test_a_failed_sync_is_logged_and_never_raised(failure: str, log_capture: Log
     assert not any(isinstance(v, AppError) for v in (waited, requested))
 
 
-@RED_PHASE
 @pytest.mark.p1
 def test_the_last_sync_status_is_kept_in_memory() -> None:
     """AC-10: `last_status()` is the latest Sync's status, full-sync-required included."""
-    from language_lab.domain.sync import SyncOutcome, SyncStatus
-    from language_lab.features.sync.service import SyncService
-    from tests.fakes.anki_store import FakeAnkiStore
 
     async def scenario() -> tuple[object, object, object, int]:
         store = FakeAnkiStore(outcome=SyncOutcome.AUTH_REQUIRED)
@@ -151,3 +130,79 @@ def test_the_last_sync_status_is_kept_in_memory() -> None:
     assert after_success == SyncStatus(SyncOutcome.OK, full_sync_required=False)
     assert before is None
     assert sync_calls == 2  # reading the status never asks Anki
+
+
+@pytest.mark.p1
+def test_a_disabled_service_never_calls_the_store() -> None:
+    """AC-8: disabled (dev mode), no request reaches the store and the status stays unset."""
+
+    async def scenario() -> tuple[object, int, object]:
+        store = FakeAnkiStore()
+        service = SyncService(store, enabled=False)
+        await service.request()
+        waited = await service.request_and_wait()
+        await drain()
+        return waited, store.sync_calls, service.last_status()
+
+    waited, sync_calls, last = settle(bounded(scenario()))
+
+    assert sync_calls == 0
+    assert waited == SyncStatus(SyncOutcome.DISABLED)
+    assert last is None
+
+
+class _BrokenOnceStore(FakeAnkiStore):
+    """A store whose first `sync()` fails with a bug, not an `AppError`."""
+
+    async def sync(self) -> SyncOutcome:
+        if not self.sync_calls:
+            self.sync_calls += 1
+            raise RuntimeError("bug in the store")
+        return await super().sync()
+
+
+@pytest.mark.p1
+def test_an_unexpected_store_exception_is_logged_and_the_next_request_still_syncs(
+    log_capture: LogCapture,
+) -> None:
+    """AC-9: a bug in the store is a logged `anki_unavailable`, and later Syncs still run."""
+
+    async def scenario() -> tuple[object, object, int]:
+        store = _BrokenOnceStore()
+        service = SyncService(store, enabled=True)
+        first = await settled(service.request_and_wait())
+        second = await settled(service.request_and_wait())
+        return first, second, store.sync_calls
+
+    first, second, sync_calls = settle(bounded(scenario()))
+
+    assert first == SyncStatus(SyncOutcome.ANKI_UNAVAILABLE)
+    assert second == SyncStatus(SyncOutcome.OK)
+    assert sync_calls == 2
+    warnings = [
+        r for r in log_capture.records if r.name == SYNC_LOGGER and r.levelname == "WARNING"
+    ]
+    assert len(warnings) == 1
+    assert "anki_unavailable" in warnings[0].getMessage()
+    assert not any(r.exc_info for r in log_capture.records)
+
+
+@pytest.mark.p1
+def test_aclose_gives_every_waiter_a_status_and_ends_the_running_sync() -> None:
+    """AC-9: closing with a Sync running and one pending, both waiters get a status, not raise."""
+
+    async def scenario() -> tuple[object, object, int]:
+        store = FakeAnkiStore(gated=True)
+        service = SyncService(store, enabled=True)
+        on_running = asyncio.create_task(settled(service.request_and_wait()))
+        await until(lambda: store.in_flight == 1)
+        on_pending = asyncio.create_task(settled(service.request_and_wait()))
+        await drain()
+        await service.aclose()
+        return await on_running, await on_pending, store.in_flight
+
+    on_running, on_pending, in_flight = settle(bounded(scenario()))
+
+    assert isinstance(on_running, SyncStatus)
+    assert isinstance(on_pending, SyncStatus)
+    assert in_flight == 0
