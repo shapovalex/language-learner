@@ -54,3 +54,8 @@ export function getHealth() {
 export function getReadiness() {
   return request("/api/setup/readiness");
 }
+
+// `{prefix, planHash, items: [{action, kind, name}], unmanaged: [{kind, name}]}` (FR-6, AD-3)
+export function getPlan() {
+  return request("/api/setup/plan");
+}

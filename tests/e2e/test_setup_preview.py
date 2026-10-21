@@ -14,8 +14,6 @@ listed, read-only, under "Not managed by LanguageLab". The footer says to study
 
 The browser stubs readiness and the plan, so this checks rendering only. The plan logic is in
 tests/integration/test_anki_setup_preview.py and the route in tests/api/test_setup_plan.py.
-
-Skipped until the screen renders the plan. Un-skip a test, watch it fail, then implement.
 """
 
 from typing import Any
@@ -23,11 +21,7 @@ from typing import Any
 import pytest
 from playwright.sync_api import Locator, Page, expect
 
-from tests.support.network import stub_api_json
-
-RED_PHASE = pytest.mark.skip(
-    reason="ATDD red phase, story 2.6: un-skip with the change list in static/screens/setup.js"
-)
+from tests.support.network import stub_api_error, stub_api_json
 
 READINESS = "/api/setup/readiness"
 PLAN = "/api/setup/plan"
@@ -91,7 +85,6 @@ def open_setup(page: Page, plan_body: dict) -> Locator:
     return page.get_by_role("main")
 
 
-@RED_PHASE
 @pytest.mark.p0
 def test_setup_lists_what_will_change_grouped_by_kind_and_action(page: Page) -> None:
     """AC-10: one read-only change row per kind and action, with its count, under the heading."""
@@ -109,7 +102,6 @@ def test_setup_lists_what_will_change_grouped_by_kind_and_action(page: Page) -> 
     expect(main.get_by_role("list", name=CHANGES_HEADING).get_by_role("button")).to_have_count(0)
 
 
-@RED_PHASE
 @pytest.mark.p1
 def test_setup_shows_nothing_to_change_when_the_plan_is_empty(page: Page) -> None:
     """AC-11: an empty plan shows the info callout instead of the change list."""
@@ -125,7 +117,6 @@ def test_setup_shows_nothing_to_change_when_the_plan_is_empty(page: Page) -> Non
     expect(main.get_by_role("button", name="Apply setup")).to_have_count(0)
 
 
-@RED_PHASE
 @pytest.mark.p1
 def test_setup_lists_unrecognized_content_as_not_managed(page: Page) -> None:
     """AC-12: unknown decks and note types under the Prefix are read-only "Not managed" rows."""
@@ -148,7 +139,6 @@ def test_setup_lists_unrecognized_content_as_not_managed(page: Page) -> None:
     expect(changes).to_contain_text(["Repair 1"])
 
 
-@RED_PHASE
 @pytest.mark.p2
 def test_setup_footer_says_to_study_the_study_deck_not_the_root(page: Page) -> None:
     """AC-13: the footer names "<Prefix>::Study", under the subtitle naming the Prefix."""
@@ -157,3 +147,50 @@ def test_setup_footer_says_to_study_the_study_deck_not_the_root(page: Page) -> N
     expect(main.get_by_text(STUDY_FOOTER, exact=True)).to_be_visible()
     expect(main.get_by_text(PRONOUNCE_FOOTER, exact=True)).to_be_visible()
     expect(main.get_by_text(f"under the prefix {PREFIX}.")).to_be_visible()
+
+
+@pytest.mark.p1
+def test_setup_orders_a_mixed_plan_by_kind_then_action(page: Page) -> None:
+    """AC-10: rows go in kind order, then create, repair, migrate within a kind."""
+    vocabulary, sentence = NOTE_TYPES[1], NOTE_TYPES[4]
+    mixed = [
+        item("repair", "preset", PREFIX),
+        item("repair", "templates", sentence),
+        item("migrate", "noteType", sentence),
+        item("create", "templates", vocabulary),
+        item("create", "noteType", vocabulary),
+        item("create", "deck", f"{PREFIX}::Captures"),
+    ]
+    main = open_setup(page, plan(mixed))
+
+    rows = main.get_by_role("list", name=CHANGES_HEADING).get_by_role("listitem")
+
+    expect(rows).to_have_count(6)
+    expect(rows).to_contain_text(
+        [
+            "Decks",
+            "Note types",
+            "Note types",
+            "Card templates and CSS",
+            "Card templates and CSS",
+            "Deck options",
+        ]
+    )
+    expect(rows).to_contain_text(
+        ["Create 1", "Create 1", "Migrate 1", "Create 1", "Repair 1", "Repair 1"]
+    )
+    expect(rows.nth(2)).to_contain_text(sentence)
+
+
+@pytest.mark.p2
+def test_setup_shows_an_inline_alert_when_the_plan_fails(page: Page) -> None:
+    """AC-10: a plan error is an inline alert in place of the list; readiness still renders."""
+    stub_api_json(page, READINESS, readiness())
+    envelope = stub_api_error(page, PLAN, status=503, code="anki_unavailable", message="Down")
+    page.goto("/setup")
+    main = page.get_by_role("main")
+
+    expect(main.get_by_role("alert")).to_have_text(envelope["error"]["message"])
+    expect(main.get_by_role("heading", name="Ready to go?")).to_be_visible()
+    expect(main.get_by_role("heading", name=CHANGES_HEADING)).to_have_count(0)
+    expect(main.get_by_text(NOTHING_TO_CHANGE, exact=True)).to_have_count(0)

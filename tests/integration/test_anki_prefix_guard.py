@@ -12,9 +12,6 @@ to a manifest note type. A preset given by id must be the config a managed deck 
 
 Nothing reaches a real Anki: the client takes an httpx transport, and these tests replay
 through `AnkiConnectReplay` (tests/support/anki_connect.py).
-
-Skipped until the guard exists. Un-skip a test, watch it fail, then implement. Hoist the
-imports once it's green.
 """
 
 import uuid
@@ -22,14 +19,18 @@ from typing import Any
 
 import pytest
 
+from language_lab import app as app_module
 from language_lab.adapters.anki.client import AnkiConnectClient
+from language_lab.adapters.anki.guard import PrefixGuard, PrefixViolation
 from language_lab.adapters.anki.manifest import build_manifest
 from tests.support.aio import settle
-from tests.support.anki_connect import ANKI_URL, AnkiConnectReplay, anki_fixture
-
-RED_PHASE = pytest.mark.skip(
-    reason="ATDD red phase, story 2.6: un-skip with adapters/anki/guard.py wired into the client"
+from tests.support.anki_connect import (
+    ANKI_URL,
+    AnkiConnectReplay,
+    anki_fixture,
+    run_stub_ankiconnect,
 )
+from tests.support.fixtures.settings import SettingsFactory
 
 RELEASE = "LanguageLab"
 DEV = "LanguageLabDev"
@@ -69,6 +70,7 @@ REJECTED: list[tuple[str, dict[str, Any]]] = [
     ("createDeck", {"deck": f"{RELEASE}::Study::Spanish"}),  # under the Prefix, not managed
     ("createDeck", {"deck": f"{RELEASE}X"}),
     ("deleteDecks", {"decks": [STUDY_LEAF, "Default"], "cardsToo": True}),
+    ("deleteDecks", {"decks": [RELEASE], "cardsToo": True}),  # takes unmanaged subdecks too
     ("createModel", {"modelName": "Basic", "inOrderFields": ["Front"]}),
     ("createModel", {"modelName": f"{DEV} Capture", "inOrderFields": ["Text"]}),
     ("modelFieldAdd", {"modelName": "Basic", "fieldName": "Extra"}),
@@ -78,6 +80,17 @@ REJECTED: list[tuple[str, dict[str, Any]]] = [
     ("setDeckConfigId", {"decks": [STUDY_LEAF, "Default"], "configId": 1}),
     ("addNote", {"note": {"modelName": "Basic", "deckName": CAPTURES, "fields": {}}}),
     ("addNote", {"note": {"modelName": VOCABULARY, "deckName": "Default", "fields": {}}}),
+    (
+        "addNote",
+        {
+            "note": {
+                "modelName": VOCABULARY,
+                "deckName": STUDY_LEAF,
+                "fields": {},
+                "audio": [{"url": "https://example.com/a.mp3", "filename": "evil.mp3"}],
+            }
+        },
+    ),
     ("storeMediaFile", {"filename": "pronunciation.mp3", "data": ""}),
     ("storeMediaFile", {"filename": media_name(DEV), "data": ""}),
     ("deleteMediaFile", {"filename": f"{RELEASE}_not-an-item-id_0123456789ab.mp3"}),
@@ -87,8 +100,6 @@ REJECTED: list[tuple[str, dict[str, Any]]] = [
 
 
 def guarded_client(replay: AnkiConnectReplay, prefix: str = RELEASE) -> Any:
-    from language_lab.adapters.anki.guard import PrefixGuard
-
     guard = PrefixGuard(build_manifest(prefix))
     return AnkiConnectClient(ANKI_URL, transport=replay.transport, guard=guard)
 
@@ -98,12 +109,9 @@ def accept_everything(actions: list[str]) -> dict[str, Any]:
     return {action: OK_NULL for action in actions}
 
 
-@RED_PHASE
 @pytest.mark.p0
 def test_guard_rejects_writes_outside_the_prefix_before_sending_anything() -> None:
     """AC-1: only writes to manifest resources, the preset and AD-7 media names are sent."""
-    from language_lab.adapters.anki.guard import PrefixViolation
-
     rejected_sent: dict[str, list[Any]] = {}
     for action, params in REJECTED:
         replay = AnkiConnectReplay(accept_everything([action, "createDeck"]))
@@ -197,12 +205,9 @@ BY_ID: list[tuple[str, dict[str, Any], bool]] = [
 ]
 
 
-@RED_PHASE
 @pytest.mark.p0
 def test_guard_looks_up_id_targets_and_sends_the_write_only_for_managed_notes() -> None:
     """AC-2: a write by note, card or preset id is sent only after a lookup shows it managed."""
-    from language_lab.adapters.anki.guard import PrefixViolation
-
     writes_sent: dict[str, bool] = {}
     for action, params, _ in BY_ID:
         replay = AnkiConnectReplay(lookup_replies(action, PRESET_ID))
@@ -220,3 +225,35 @@ def test_guard_looks_up_id_targets_and_sends_the_write_only_for_managed_notes() 
         else:
             assert isinstance(outcome, PrefixViolation), (action, params, outcome)
             assert {s.body["action"] for s in replay.sent} <= LOOKUPS, (action, params)
+
+
+@pytest.mark.p1
+def test_composed_app_client_rejects_an_out_of_prefix_write(
+    settings_factory: SettingsFactory, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """AC-1: `create_app` wires the guard, so its client refuses a write outside the Prefix."""
+    built: list[AnkiConnectClient] = []
+
+    class Recording(AnkiConnectClient):
+        def __init__(self, *args: Any, **kwargs: Any) -> None:
+            super().__init__(*args, **kwargs)
+            built.append(self)
+
+    monkeypatch.setattr(app_module, "AnkiConnectClient", Recording)
+    with run_stub_ankiconnect({"createDeck": OK_NULL}) as anki:
+        settings = settings_factory(anki_connect_url=anki.url, anki_prefix=RELEASE)
+        app_module.create_app(settings)
+        [client] = built
+
+        rogue = settle(client.invoke("createDeck", deck=f"{DEV}::Study"))
+        sent_after_rogue = list(anki.received)
+        # A managed write goes through, so the guard is wired, not the client's read-only default
+        managed = settle(client.invoke("createDeck", deck=f"{RELEASE}::Study"))
+        settle(client.aclose())
+
+    assert isinstance(rogue, PrefixViolation)
+    assert sent_after_rogue == []
+    assert str(rogue).find(DEV) == -1  # no target name (AD-15)
+    assert not isinstance(managed, Exception), managed
+    assert [body["action"] for body in anki.received] == ["createDeck"]
+    assert anki.received[0]["params"] == {"deck": f"{RELEASE}::Study"}

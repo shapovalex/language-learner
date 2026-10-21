@@ -8,9 +8,6 @@ that hash back. The Setup screen owns the copy.
 The app takes the AnkiStore, so these tests pass the in-memory fake from tests/fakes/ with a
 canned `SetupPreview` and never reach Anki. The diff itself is in
 tests/integration/test_anki_setup_preview.py.
-
-Skipped until the route exists. Un-skip the test, watch it fail, then implement. Hoist the
-imports once it's green.
 """
 
 import uuid
@@ -18,32 +15,27 @@ import uuid
 import pytest
 
 from language_lab.app import create_app
+from language_lab.domain.errors import MESSAGES, ErrorCode
+from language_lab.domain.setup import (
+    PlanAction,
+    PlanItem,
+    ResourceKind,
+    SetupPreview,
+    Unmanaged,
+    plan_hash,
+)
 from tests.fakes.anki_store import FakeAnkiStore
 from tests.support.fixtures.settings import SettingsFactory
 from tests.support.hosts import app_client
 
-RED_PHASE = pytest.mark.skip(
-    reason="ATDD red phase, story 2.6: un-skip with GET /api/setup/plan and FakeAnkiStore(preview=)"
-)
-
 PLAN = "/api/setup/plan"
 
 
-@RED_PHASE
 @pytest.mark.p0
 def test_plan_route_returns_items_unmanaged_rows_and_the_plan_hash(
     settings_factory: SettingsFactory,
 ) -> None:
     """AC-9: the route returns the store's preview, its hash and the Prefix, in camelCase."""
-    from language_lab.domain.setup import (
-        PlanAction,
-        PlanItem,
-        ResourceKind,
-        SetupPreview,
-        Unmanaged,
-        plan_hash,
-    )
-
     prefix = f"Ll{uuid.uuid4().hex}"
     items = (
         PlanItem(PlanAction.CREATE, ResourceKind.DECK, f"{prefix}::Study"),
@@ -70,3 +62,25 @@ def test_plan_route_returns_items_unmanaged_rows_and_the_plan_hash(
         ],
         "unmanaged": [{"kind": "deck", "name": f"{prefix}::Old stuff"}],
     }
+
+
+@pytest.mark.p1
+@pytest.mark.parametrize(
+    ("store", "code"),
+    [(FakeAnkiStore(busy=True), "anki_busy"), (FakeAnkiStore(available=False), "anki_unavailable")],
+    ids=["busy", "unavailable"],
+)
+def test_plan_route_while_anki_is_busy_or_down_is_the_503_envelope(
+    settings_factory: SettingsFactory, store: FakeAnkiStore, code: str
+) -> None:
+    """AC-9: a preview Anki can't answer is the AD-15 503 envelope, with its fixed message."""
+    settings = settings_factory()
+    app = create_app(settings, anki_store=store)
+
+    response = app_client(app, settings).get(PLAN)
+
+    assert response.status_code == 503
+    error = response.json()["error"]
+    assert error["code"] == code
+    assert error["message"] == MESSAGES[ErrorCode(code)]
+    assert error["requestId"]

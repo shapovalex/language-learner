@@ -7,27 +7,21 @@ an `Unmanaged` entry (`kind` deck or noteType, `name`), and `SetupPreview(items,
 `plan_hash(items)` is what apply (entry 7) re-checks before it writes: a fresh diff must hash to
 the plan the user confirmed. So the hash depends on the items alone, as a set: the order Anki
 lists things in can't change it, and any change to an item does.
-
-Skipped until the domain types exist. Un-skip the test, watch it fail, then implement. Hoist the
-imports once it's green.
 """
 
 import re
 
 import pytest
 
-RED_PHASE = pytest.mark.skip(reason="ATDD red phase, story 2.6: un-skip with domain/setup.py")
+from language_lab.domain.setup import PlanAction, PlanItem, ResourceKind, plan_hash
 
 PREFIX = "LanguageLab"
 SHA256_HEX = re.compile(r"[0-9a-f]{64}")
 
 
-@RED_PHASE
 @pytest.mark.p0
 def test_plan_hash_is_stable_across_order_and_changes_with_any_item() -> None:
     """AC-7: the same items hash the same in any order; a changed, added or dropped item doesn't."""
-    from language_lab.domain.setup import PlanAction, PlanItem, ResourceKind, plan_hash
-
     items = (
         PlanItem(PlanAction.CREATE, ResourceKind.DECK, f"{PREFIX}::Study"),
         PlanItem(PlanAction.REPAIR, ResourceKind.TEMPLATES, f"{PREFIX} English Vocabulary"),

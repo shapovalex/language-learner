@@ -2,7 +2,7 @@
 
 from fastapi import APIRouter
 
-from language_lab.features.setup.service import Readiness, SetupService
+from language_lab.features.setup.service import Plan, Readiness, SetupService
 
 
 def setup_router(service: SetupService) -> APIRouter:
@@ -11,5 +11,9 @@ def setup_router(service: SetupService) -> APIRouter:
     @router.get("/readiness")
     async def readiness() -> Readiness:
         return await service.readiness()
+
+    @router.get("/plan")
+    async def plan() -> Plan:
+        return await service.plan()
 
     return router

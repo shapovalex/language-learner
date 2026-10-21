@@ -3,11 +3,14 @@
 import asyncio
 
 from language_lab.domain.errors import AppError, ErrorCode
+from language_lab.domain.setup import SetupPreview
 from language_lab.domain.sync import SyncOutcome
 
 
 class FakeAnkiStore:
     """`available` says whether AnkiConnect answers; `busy` makes every call wait out the lock.
+
+    `setup_preview()` returns `preview` (an empty one by default).
 
     `sync()` returns `outcome`. With `gated=True` each `sync()` stays in flight until
     `finish()` ends it, oldest first. Counts every `sync()` call (`sync_calls`), the ones that
@@ -21,11 +24,13 @@ class FakeAnkiStore:
         busy: bool = False,
         gated: bool = False,
         outcome: SyncOutcome = SyncOutcome.OK,
+        preview: SetupPreview | None = None,
     ) -> None:
         self.available = available
         self.busy = busy
         self.gated = gated
         self.outcome = outcome
+        self.preview = preview if preview is not None else SetupPreview()
         self.sync_calls = 0
         self.syncs = 0
         self.in_flight = 0
@@ -36,6 +41,13 @@ class FakeAnkiStore:
         if self.busy:
             raise AppError(ErrorCode.ANKI_BUSY)
         return self.available
+
+    async def setup_preview(self) -> SetupPreview:
+        if self.busy:
+            raise AppError(ErrorCode.ANKI_BUSY)
+        if not self.available:
+            raise AppError(ErrorCode.ANKI_UNAVAILABLE)
+        return self.preview
 
     async def sync(self) -> SyncOutcome:
         self.sync_calls += 1
