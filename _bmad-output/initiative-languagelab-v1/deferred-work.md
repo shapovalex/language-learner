@@ -13,3 +13,6 @@
 - source_plan: `_bmad-output/initiative-languagelab-v1/epic-anki-setup-sync/story-sync-feature-coalesced-scheduled-non-blocking-plan.md`
   summary: After a Sync stops polling (120 s budget, `waitingForUser` or `cancelled`), the Anki lock is released while Anki may still be syncing or showing a dialog, and the v1 operation is never cancelled.
   evidence: maybe-false, medium if true (unverified). `AnkiConnectStore.sync()` returns without cancelling the operation, per the user's 2026-10-21 decision. Settle it with a Mac Mini run that calls `reachable()` and a second Sync while a `waitingForUser` Sync is open in Anki Desktop.
+- source_plan: `_bmad-output/initiative-languagelab-v1/epic-anki-setup-sync/story-managed-manifest-template-files-and-field-codec-plan.md`
+  summary: Decide how `decode_field` reads Anki-editor empty-line markup (`a<div><br></div><div>b</div>`), which today reads as three newlines instead of one blank line.
+  evidence: Unverified (medium if true). Settled by recording a `notesInfo` of a field edited with blank lines in the Mac Mini Anki and adding it as an AC-11 row.

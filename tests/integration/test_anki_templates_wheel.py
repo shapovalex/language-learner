@@ -4,9 +4,6 @@ The manifest reads its templates from `adapters/anki/templates/` as package data
 without them would leave Setup with nothing to create. The wheel is the one `release_wheel`
 builds (or `--wheel`), and the manifest is then imported from it in uv's throwaway env, away
 from `src/`.
-
-Skipped until the template files and the manifest exist. Un-skip it, watch it fail, then
-implement. Hoist the import once it's green.
 """
 
 import json
@@ -16,11 +13,8 @@ from zipfile import ZipFile
 import pytest
 
 import language_lab.adapters.anki
+from language_lab.adapters.anki.manifest import build_manifest
 from tests.support.release import REPO_ROOT, run_python_from_wheel
-
-RED_PHASE = pytest.mark.skip(
-    reason="ATDD red phase, story 2.4: un-skip with adapters/anki/templates/ and manifest.py"
-)
 
 SRC_ROOT = REPO_ROOT / "src"
 TEMPLATES_DIR = Path(language_lab.adapters.anki.__file__).parent / "templates"
@@ -38,12 +32,9 @@ print(json.dumps({
 """
 
 
-@RED_PHASE
 @pytest.mark.p1
 def test_template_files_ship_in_the_built_wheel(release_wheel: Path, tmp_path: Path) -> None:
     """AC-9: every file under templates/ is in the wheel, and the installed manifest reads it."""
-    from language_lab.adapters.anki.manifest import build_manifest
-
     source = {
         p.relative_to(SRC_ROOT).as_posix(): p.read_bytes()
         for p in TEMPLATES_DIR.rglob("*")

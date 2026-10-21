@@ -1,0 +1,31 @@
+/* Working styles for the managed note types; epic-capture-to-item owns the final look. */
+.card {
+  font-family: -apple-system, "Segoe UI", Roboto, sans-serif;
+  font-size: 22px;
+  line-height: 1.4;
+  text-align: center;
+  color: #1f1f1f;
+  background-color: #ffffff;
+}
+
+.card.nightMode,
+.nightMode .card {
+  color: #e8e8e8;
+  background-color: #1f1f1f;
+}
+
+.prompt {
+  font-size: 28px;
+}
+
+.hint,
+.meta,
+.note {
+  font-size: 16px;
+  opacity: 0.75;
+}
+
+.example {
+  margin-top: 12px;
+  font-style: italic;
+}
