@@ -1,0 +1,14 @@
+{
+  "request": {
+    "action": "cloneDeckConfigId",
+    "version": 6,
+    "params": {
+      "name": "LLProbe",
+      "cloneFrom": 1
+    }
+  },
+  "response": {
+    "result": 1792093018049,
+    "error": null
+  }
+}

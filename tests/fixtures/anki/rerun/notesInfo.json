@@ -1,0 +1,46 @@
+{
+  "request": {
+    "action": "notesInfo",
+    "version": 6,
+    "params": {
+      "notes": [
+        1792093018310
+      ]
+    }
+  },
+  "response": {
+    "result": [
+      {
+        "noteId": 1792093018310,
+        "profile": "LLProbeProfile",
+        "tags": [
+          "LLProbe"
+        ],
+        "fields": {
+          "Front": {
+            "value": "LLProbe front",
+            "order": 0
+          },
+          "Back": {
+            "value": "LLProbe back",
+            "order": 1
+          },
+          "LLProbeExtra2": {
+            "value": "",
+            "order": 2
+          },
+          "LLProbeExtra1": {
+            "value": "",
+            "order": 3
+          }
+        },
+        "modelName": "LLProbe Probe",
+        "mod": 1792093196,
+        "cards": [
+          1792093018310
+        ]
+      }
+    ],
+    "error": null
+  }
+}

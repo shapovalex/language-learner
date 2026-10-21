@@ -1,0 +1,18 @@
+{
+  "request": {
+    "action": "modelNames",
+    "version": 6
+  },
+  "response": {
+    "result": [
+      "Basic",
+      "Basic (and reversed card)",
+      "Basic (optional reversed card)",
+      "Basic (type in the answer)",
+      "Cloze",
+      "Image Occlusion",
+      "LLProbe Probe"
+    ],
+    "error": null
+  }
+}

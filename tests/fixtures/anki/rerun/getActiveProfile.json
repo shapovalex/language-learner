@@ -1,0 +1,10 @@
+{
+  "request": {
+    "action": "getActiveProfile",
+    "version": 6
+  },
+  "response": {
+    "result": "LLProbeProfile",
+    "error": null
+  }
+}

@@ -1,0 +1,18 @@
+{
+  "request": {
+    "action": "modelTemplates",
+    "version": 6,
+    "params": {
+      "modelName": "LLProbe Probe"
+    }
+  },
+  "response": {
+    "result": {
+      "Card 1": {
+        "Front": "<div class=probe>{{Front}}</div>",
+        "Back": "{{FrontSide}}<hr id=answer>{{Back}}"
+      }
+    },
+    "error": null
+  }
+}

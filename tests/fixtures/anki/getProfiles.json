@@ -1,0 +1,13 @@
+{
+  "request": {
+    "action": "getProfiles",
+    "version": 6
+  },
+  "response": {
+    "result": [
+      "LLProbeProfile",
+      "LLProbeProfile"
+    ],
+    "error": null
+  }
+}

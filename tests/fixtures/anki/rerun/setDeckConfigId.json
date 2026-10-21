@@ -1,0 +1,16 @@
+{
+  "request": {
+    "action": "setDeckConfigId",
+    "version": 6,
+    "params": {
+      "decks": [
+        "LLProbe::Study"
+      ],
+      "configId": 1792093018049
+    }
+  },
+  "response": {
+    "result": true,
+    "error": null
+  }
+}
