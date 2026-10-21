@@ -477,6 +477,91 @@ main h1 {
   font-size: var(--font-size-label);
 }
 
+.setup-card-header {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: var(--space-3);
+}
+
+.setup-card-note {
+  margin: 0;
+  color: var(--color-ink-muted);
+  font-size: var(--font-size-label);
+}
+
+/* Change row (DESIGN.md Setup): read-only, a 2px border edge, the chip kept on the row */
+.change-rows {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.change-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-3) var(--space-6);
+  padding: var(--space-5) var(--space-7);
+  border: 2px solid var(--color-border);
+  border-radius: var(--radius-inner);
+}
+
+.change-row-text {
+  flex: 1 1 240px;
+  min-width: 0;
+  font-weight: 600;
+  overflow-wrap: anywhere;
+}
+
+.change-row-detail {
+  color: var(--color-ink-muted);
+  font-weight: 400;
+}
+
+.chip {
+  flex: none;
+  padding: var(--space-1) var(--space-4);
+  border-radius: var(--radius-chip);
+  background: var(--color-surface-sunken);
+  color: var(--color-ink);
+  font-size: var(--font-size-caption);
+  font-weight: 700;
+  white-space: nowrap;
+}
+
+.chip-accent {
+  background: var(--color-accent-soft);
+  color: var(--color-on-accent-soft);
+}
+
+/* Info callout (DESIGN.md): "Nothing to change." and the study footer */
+.info-callout {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+  margin: 0 0 var(--space-7);
+  padding: var(--space-6) var(--space-8);
+  border-radius: var(--radius-row);
+  background: var(--color-feedback-panel);
+}
+
+.info-callout-title {
+  margin: 0;
+  font-size: var(--font-size-body-sm);
+  font-weight: 700;
+}
+
+.info-callout-detail {
+  margin: 0;
+  color: var(--color-ink-muted);
+  font-size: var(--font-size-label);
+}
+
 .setup-version {
   color: var(--color-ink-muted);
 }

@@ -2,6 +2,9 @@
 
 Every action speaks API v6, except Sync, which speaks API v1 (JSON-RPC on `/api/v1`) so it can
 be polled to its end (spike 2.2, Q7).
+
+Every v6 request passes the AD-4 Prefix guard first (adapters/anki/guard.py). Without a guard
+the client sends reads only. v1 Sync is not a resource write and is not guarded.
 """
 
 import itertools
@@ -9,6 +12,7 @@ from typing import Any
 
 import httpx
 
+from language_lab.adapters.anki.guard import PrefixGuard, check_read_only
 from language_lab.domain.errors import AppError, ErrorCode
 
 API_VERSION = 6
@@ -17,18 +21,35 @@ DEFAULT_TIMEOUT_S = 10.0
 
 
 class AnkiConnectClient:
-    def __init__(self, url: str, *, transport: httpx.AsyncBaseTransport | None = None) -> None:
+    def __init__(
+        self,
+        url: str,
+        *,
+        transport: httpx.AsyncBaseTransport | None = None,
+        guard: PrefixGuard | None = None,
+    ) -> None:
         self._url = url
+        self._guard = guard
         self._v1_url = url.rstrip("/") + API_V1_PATH
         self._v1_ids = itertools.count(1)
         self._http = httpx.AsyncClient(transport=transport, timeout=DEFAULT_TIMEOUT_S)
 
     async def invoke(self, action: str, **params: Any) -> Any:
-        """POST one v6 action and return its `result`.
+        """POST one v6 action and return its `result`, once the guard allows it.
 
-        Raises `AppError(ANKI_UNAVAILABLE)` for an httpx error, a non-2xx status, a body that
-        isn't a JSON object, or a non-null `error`. No upstream text is carried (AD-15).
+        Raises `PrefixViolation` before anything is sent for a request outside the Prefix (with
+        no guard: anything but a read). Raises `AppError(ANKI_UNAVAILABLE)` for an httpx error,
+        a non-2xx status, a body that isn't a JSON object, or a non-null `error`. No upstream
+        text is carried (AD-15).
         """
+        if self._guard is None:
+            check_read_only(action, params)
+        else:
+            await self._guard.check(action, params, self._invoke_raw)
+        return await self._invoke_raw(action, **params)
+
+    async def _invoke_raw(self, action: str, **params: Any) -> Any:
+        """`invoke` without the guard: for the guard's own lookups only."""
         body: dict[str, Any] = {"action": action, "version": API_VERSION}
         if params:
             body["params"] = params

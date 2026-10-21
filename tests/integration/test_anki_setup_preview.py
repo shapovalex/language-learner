@@ -18,9 +18,6 @@ listed as `unmanaged`, read-only, and never become plan items. A preview sends n
 
 Anki is the in-memory collection in tests/support/anki_state.py, which answers with the reply
 shapes recorded in tests/fixtures/anki/ (spike 2.2).
-
-Skipped until the preview exists. Un-skip a test, watch it fail, then implement. Hoist the
-imports once it's green.
 """
 
 from collections.abc import Callable
@@ -32,6 +29,7 @@ from language_lab.adapters.anki.client import AnkiConnectClient
 from language_lab.adapters.anki.lock import AnkiLock
 from language_lab.adapters.anki.manifest import Manifest, build_manifest
 from language_lab.adapters.anki.store import AnkiConnectStore
+from language_lab.domain.setup import plan_hash
 from tests.support.aio import settle
 from tests.support.anki_connect import ANKI_URL, AnkiConnectReplay
 from tests.support.anki_state import (
@@ -47,10 +45,6 @@ from tests.support.anki_state import (
     sent_queries,
     set_path,
     stock_collection,
-)
-
-RED_PHASE = pytest.mark.skip(
-    reason="ATDD red phase, story 2.6: un-skip with AnkiStore.setup_preview and the diff"
 )
 
 PREFIX = "LanguageLab"
@@ -110,12 +104,26 @@ def _no_preset(c: Collection) -> None:
             c.decks[deck] = DEFAULT_PRESET
 
 
+def _two_prefix_presets(c: Collection) -> None:
+    c.presets["Twin"] = preset_config(PREFIX)  # a second config named the Prefix, its own id
+    c.decks[STUDY_LEAF] = "Twin"
+
+
 def _field_removed(c: Collection) -> None:
     c.models[VOCABULARY].fields.remove("Mnemonic")
 
 
 def _field_added(c: Collection) -> None:
     c.models[SENTENCE].fields.append("Extra")
+
+
+def _fields_reordered(c: Collection) -> None:
+    fields = c.models[VOCABULARY].fields
+    fields[0], fields[1] = fields[1], fields[0]
+
+
+def _extra_card_template(c: Collection) -> None:
+    c.models[SENTENCE].templates["Card 5"] = {"Front": "{{Target}}", "Back": "{{Russian}}"}
 
 
 def _user_options(c: Collection) -> None:
@@ -173,15 +181,17 @@ CASES |= {
         ("bury-flag-on", _bury_flag_on, {("repair", "preset", PREFIX)}),
         ("deck-on-default-preset", _deck_on_default, {("repair", "preset", PREFIX)}),
         ("no-preset", _no_preset, {("create", "preset", PREFIX)}),
+        ("two-prefix-presets", _two_prefix_presets, {("repair", "preset", PREFIX)}),
         ("field-removed", _field_removed, {("migrate", "noteType", VOCABULARY)}),
         ("field-added", _field_added, {("migrate", "noteType", SENTENCE)}),
+        ("fields-reordered", _fields_reordered, {("migrate", "noteType", VOCABULARY)}),
+        ("extra-card-template", _extra_card_template, {("repair", "templates", SENTENCE)}),
         ("user-deck-options", _user_options, set()),
         ("dev-prefix-beside", _dev_prefix_set_up, set()),
     ]
 }
 
 
-@RED_PHASE
 @pytest.mark.p0
 def test_preview_sends_only_reads_and_exact_scope_queries() -> None:
     """AC-5: a preview reads the managed state with reads only; no write action is sent."""
@@ -200,7 +210,6 @@ def test_preview_sends_only_reads_and_exact_scope_queries() -> None:
     assert [q for q in sent_queries(sent) if not set(q.split(" ")) <= set(exact)] == []
 
 
-@RED_PHASE
 @pytest.mark.p0
 @pytest.mark.parametrize("case", list(CASES))
 def test_preview_diffs_the_manifest_into_create_repair_and_migrate_items(case: str) -> None:
@@ -214,12 +223,9 @@ def test_preview_diffs_the_manifest_into_create_repair_and_migrate_items(case: s
     assert len(outcome.items) == len(expected)  # no item listed twice
 
 
-@RED_PHASE
 @pytest.mark.p1
 def test_unrecognized_content_under_the_prefix_is_listed_read_only() -> None:
     """AC-8: unknown decks and note types under the Prefix are unmanaged, never plan items."""
-    from language_lab.domain.setup import plan_hash
-
     collection = managed_collection(MANIFEST)
     collection.decks |= {
         f"{PREFIX}::Old stuff": DEFAULT_PRESET,

@@ -28,7 +28,9 @@ from starlette.types import ASGIApp, Message, Receive, Scope, Send
 from language_lab import __version__
 from language_lab.adapters import tailscale
 from language_lab.adapters.anki.client import AnkiConnectClient
+from language_lab.adapters.anki.guard import PrefixGuard
 from language_lab.adapters.anki.lock import AnkiLock
+from language_lab.adapters.anki.manifest import build_manifest
 from language_lab.adapters.anki.store import AnkiConnectStore
 from language_lab.domain.errors import AppError, ErrorCode, error_envelope
 from language_lab.features.setup.routes import setup_router
@@ -269,8 +271,9 @@ def create_app(
 
     anki_client: AnkiConnectClient | None = None
     if anki_store is None:
-        anki_client = AnkiConnectClient(settings.anki_connect_url)
-        anki_store = AnkiConnectStore(anki_client, AnkiLock())
+        manifest = build_manifest(settings.anki_prefix)
+        anki_client = AnkiConnectClient(settings.anki_connect_url, guard=PrefixGuard(manifest))
+        anki_store = AnkiConnectStore(anki_client, AnkiLock(), manifest=manifest)
 
     # Later entries inject `sync` as the SyncRequester port; no feature imports it (AD-1, AD-13)
     sync = SyncService(anki_store, enabled=not settings.dev)

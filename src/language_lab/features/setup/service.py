@@ -1,11 +1,14 @@
-"""Setup readiness (FR-5): AnkiConnect reachable, Azure and OpenRouter configured, the Prefix.
+"""Setup readiness (FR-5) and preview (FR-6).
 
-The keys are checked as configured only, with no live call. The response carries check ids and
-results; the Setup screen owns the copy.
+Readiness: AnkiConnect reachable, Azure and OpenRouter configured, the Prefix. The keys are
+checked as configured only, with no live call. The plan: what Setup would change in Anki, with
+its hash (AD-3), read without touching Anki. Responses carry ids and names; the Setup screen
+owns the copy.
 """
 
 from typing import Literal, TypedDict
 
+from language_lab.domain.setup import plan_hash
 from language_lab.ports.anki_store import AnkiStore
 
 type CheckId = Literal["ankiConnect", "azure", "openrouter"]
@@ -19,6 +22,24 @@ class Check(TypedDict):
 class Readiness(TypedDict):
     prefix: str
     checks: list[Check]
+
+
+class PlanRow(TypedDict):
+    action: str
+    kind: str
+    name: str
+
+
+class UnmanagedRow(TypedDict):
+    kind: str
+    name: str
+
+
+class Plan(TypedDict):
+    prefix: str
+    planHash: str  # camelCase on the wire (Consistency Conventions)
+    items: list[PlanRow]
+    unmanaged: list[UnmanagedRow]
 
 
 class SetupService:
@@ -44,4 +65,17 @@ class SetupService:
                 {"id": "azure", "ok": self._azure},
                 {"id": "openrouter", "ok": self._openrouter},
             ],
+        }
+
+    async def plan(self) -> Plan:
+        """The preview, items in the store's order. `anki_busy`/`anki_unavailable` propagate."""
+        preview = await self._anki.setup_preview()
+        return {
+            "prefix": self._prefix,
+            "planHash": plan_hash(preview.items),
+            "items": [
+                {"action": str(i.action), "kind": str(i.kind), "name": i.name}
+                for i in preview.items
+            ],
+            "unmanaged": [{"kind": str(u.kind), "name": u.name} for u in preview.unmanaged],
         }

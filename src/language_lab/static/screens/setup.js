@@ -1,7 +1,8 @@
-// Setup screen (AD-13). Readiness tiles from /api/setup/readiness (FR-5), then the server
-// version from /api/health.
+// Setup screen (AD-13). Readiness tiles from /api/setup/readiness (FR-5), then what Setup would
+// change in Anki from /api/setup/plan (FR-6) and the study footer, then the server version from
+// /api/health. Read-only: Apply setup is entry 7's.
 
-import { getHealth, getReadiness } from "../api.js";
+import { getHealth, getPlan, getReadiness } from "../api.js";
 
 const SVG_NS = "http://www.w3.org/2000/svg";
 
@@ -23,6 +24,20 @@ const CHECKS = {
     fix: "Add your OpenRouter key to the LanguageLab configuration on the Mac mini, restart LanguageLab, then reload this page.",
   },
 };
+
+// Change rows go in this kind order, then action order within a kind (mockup S-Setup)
+const KINDS = [
+  ["deck", "Decks"],
+  ["noteType", "Note types"],
+  ["templates", "Card templates and CSS"],
+  ["preset", "Deck options"],
+];
+const ACTIONS = [
+  ["create", "Create"],
+  ["repair", "Repair"],
+  ["migrate", "Migrate"],
+];
+const UNMANAGED_KINDS = { deck: "Deck", noteType: "Note type" };
 
 function element(tag, className, text) {
   const node = document.createElement(tag);
@@ -90,7 +105,89 @@ function readinessCard(checks) {
   return card;
 }
 
-function readinessError(message) {
+// One row per kind and action: the kind, its resource names as muted detail, and a count chip
+function changeRows(items) {
+  const rows = [];
+  for (const [kind, label] of KINDS) {
+    for (const [action, word] of ACTIONS) {
+      const names = items.filter((i) => i.kind === kind && i.action === action).map((i) => i.name);
+      if (names.length === 0) continue;
+      const row = element("li", "change-row");
+      const text = element("span", "change-row-text", label);
+      text.append(element("span", "change-row-detail", ` · ${names.join(", ")}`));
+      row.append(text, element("span", "chip chip-accent", `${word} ${names.length}`));
+      rows.push(row);
+    }
+  }
+  return rows;
+}
+
+function changesCard(items) {
+  const card = element("section", "setup-card");
+  const header = element("div", "setup-card-header");
+  const heading = element("h2", "setup-card-title", "What will change in Anki");
+  heading.id = "changes-heading";
+  header.append(heading, element("p", "setup-card-note", "Nothing changes until you apply."));
+  const list = element("ul", "change-rows");
+  list.setAttribute("aria-labelledby", heading.id);
+  list.append(...changeRows(items));
+  card.append(header, list);
+  return card;
+}
+
+function nothingToChange() {
+  const callout = element("section", "info-callout");
+  callout.append(
+    element("p", "info-callout-title", "Nothing to change."),
+    element("p", "info-callout-detail", "Everything LanguageLab manages is already set up."),
+  );
+  return callout;
+}
+
+function unmanagedCard(unmanaged) {
+  const card = element("section", "setup-card");
+  const heading = element("h2", "setup-card-title", "Not managed by LanguageLab");
+  heading.id = "unmanaged-heading";
+  const list = element("ul", "change-rows");
+  list.setAttribute("aria-labelledby", heading.id);
+  for (const { kind, name } of unmanaged) {
+    const row = element("li", "change-row");
+    const text = element("span", "change-row-text", name);
+    const kindLabel = UNMANAGED_KINDS[kind];
+    if (kindLabel) text.append(element("span", "change-row-detail", ` · ${kindLabel}`));
+    row.append(text);
+    list.append(row);
+  }
+  card.append(heading, list);
+  return card;
+}
+
+function studyFooter(prefix) {
+  const footer = element("section", "info-callout");
+  footer.append(
+    element("p", "info-callout-title", `In Anki, study “${prefix}::Study”, not the root deck`),
+    element(
+      "p",
+      "info-callout-detail",
+      `Pronounce Cards live under ${prefix}::Pronunciation and are reviewed here, in LanguageLab.`,
+    ),
+  );
+  return footer;
+}
+
+function planSection({ prefix, items, unmanaged }) {
+  const nodes = [items.length > 0 ? changesCard(items) : nothingToChange()];
+  if (unmanaged.length > 0) nodes.push(unmanagedCard(unmanaged));
+  nodes.push(studyFooter(prefix));
+  return nodes;
+}
+
+function errorMessage(error) {
+  // An ApiError carries the envelope's fixed message (AD-15)
+  return error?.name === "ApiError" ? error.message : "LanguageLab could not reach the server.";
+}
+
+function inlineError(message) {
   const node = element("p", "inline-alert-error", message);
   node.setAttribute("role", "alert");
   return node;
@@ -101,21 +198,31 @@ export function mount(root) {
   const heading = element("h1", "", "Setup");
   const readiness = element("div", "setup-readiness");
   readiness.append(skeleton());
+  // Empty until the plan arrives: nothing before the version line may be a <p> until then
+  const plan = element("div", "setup-plan");
   const status = element("p", "setup-version");
-  root.replaceChildren(heading, readiness, status);
+  root.replaceChildren(heading, readiness, plan, status);
 
   getReadiness().then(
     ({ prefix, checks }) => {
       if (mounted) readiness.replaceChildren(subtitle(prefix), readinessCard(checks));
     },
     (error) => {
-      // An ApiError carries the envelope's fixed message (AD-15)
-      const message =
-        error?.name === "ApiError" ? error.message : "LanguageLab could not reach the server.";
-      if (mounted) readiness.replaceChildren(readinessError(message));
+      if (mounted) readiness.replaceChildren(inlineError(errorMessage(error)));
     },
   );
 
+  getPlan().then(
+    (body) => {
+      if (mounted) plan.replaceChildren(...planSection(body));
+    },
+    (error) => {
+      // In place of the change list; readiness renders on its own
+      if (mounted) plan.replaceChildren(inlineError(errorMessage(error)));
+    },
+  );
+
+  // Last: a late /api/health must not write after unmount (tests/e2e/test_navigation.py)
   getHealth().then(
     ({ version }) => {
       if (mounted) status.textContent = `LanguageLab v${version}`;

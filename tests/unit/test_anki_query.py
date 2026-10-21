@@ -5,9 +5,6 @@ are the only way the adapter builds a search. They emit exact scopes only, `deck
 `deck:"<Prefix>::<path>"` and `note:"<note type>"`, for names the manifest declares, and they
 raise `ValueError` for anything else. User text never reaches them: a name that isn't in the
 manifest, a wildcard, or a quote that would widen the scope is refused.
-
-Skipped until the builder exists. Un-skip the test, watch it fail, then implement. Hoist the
-imports once it's green.
 """
 
 import re
@@ -15,10 +12,7 @@ import re
 import pytest
 
 from language_lab.adapters.anki.manifest import build_manifest
-
-RED_PHASE = pytest.mark.skip(
-    reason="ATDD red phase, story 2.6: un-skip with adapters/anki/query.py"
-)
+from language_lab.adapters.anki.query import deck_query, note_query
 
 RELEASE = "LanguageLab"
 DEV = "LanguageLabDev"
@@ -48,12 +42,9 @@ EXACT_DECK = re.compile(rf'deck:"{RELEASE}(::[^"*:\\][^"*\\]*)?"')
 EXACT_NOTE = re.compile(rf'note:"{RELEASE} [^"*\\]+"')
 
 
-@RED_PHASE
 @pytest.mark.p0
 def test_query_builder_emits_only_exact_scopes_for_manifest_names() -> None:
     """AC-3: every built search is an exact deck or note scope; any other name is refused."""
-    from language_lab.adapters.anki.query import deck_query, note_query
-
     manifest = build_manifest(RELEASE)
 
     assert [deck_query(manifest, deck) for deck in manifest.decks] == [
