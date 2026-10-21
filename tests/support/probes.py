@@ -9,9 +9,13 @@ from fastapi import APIRouter, FastAPI
 from httpx import Response
 from pydantic import BaseModel
 
+from language_lab.domain.errors import AppError, ErrorCode
+
 PROBE_PREFIX = "/api/_probe"
 VALIDATE_ROUTE = f"{PROBE_PREFIX}/validate/{{item_id}}"  # POST: typed path, query and body
 BOOM_ROUTE = f"{PROBE_PREFIX}/boom/{{item_id}}"  # GET: raises with item_id in the message
+# POST: a feature write the Anki adapter's SetupState gate refused (story 2.8, AD-19)
+GATED_ROUTE = f"{PROBE_PREFIX}/gated"
 
 
 class ProbeBody(BaseModel):
@@ -30,6 +34,10 @@ def add_probe_routes(app: FastAPI) -> FastAPI:
     async def boom(item_id: str) -> None:
         # The traceback carries item_id, so a leaked traceback leaks the input (R-02)
         raise RuntimeError(f"probe failure for {item_id}")
+
+    @router.post(GATED_ROUTE)
+    async def gated() -> None:
+        raise AppError(ErrorCode.SETUP_REQUIRED)
 
     first_new = len(app.router.routes)
     app.include_router(router)

@@ -10,10 +10,16 @@ shaped like the recorded `createModel` result. By default only reads are answere
 action gets AnkiConnect's "unsupported action" error, and the replay's `.sent` shows that it was
 sent. With `writes=True` the collection also answers the writes Setup's apply sends
 (`WRITE_ACTIONS`) and changes itself the way AnkiConnect changes Anki (story 2.7).
+
+Notes (story 2.8): `add_note()` puts a note in the collection, and `managed_note()` puts one of
+a manifest note type with its `SchemaVersion` field set. `findNotes` answers an exact
+`note:"<type>"` query, `notesInfo` answers in the recorded shape, and with `writes=True` the
+collection also answers `addNote` and `updateNoteFields` (`NOTE_WRITE_ACTIONS`).
 """
 
 import copy
 import itertools
+import re
 from collections.abc import Callable
 from dataclasses import dataclass, field
 from typing import Any
@@ -62,6 +68,10 @@ WRITE_ACTIONS = frozenset(
 )
 
 
+# The note writes the simulator answers with `writes=True` (story 2.8): what features send
+NOTE_WRITE_ACTIONS = frozenset({"addNote", "updateNoteFields"})
+
+
 @dataclass
 class Model:
     fields: list[str]
@@ -75,6 +85,13 @@ class Collection:
     # a key (the preset's name, unless two share one) -> deck config
     presets: dict[str, dict[str, Any]] = field(default_factory=dict)
     models: dict[str, Model] = field(default_factory=dict)
+    notes: dict[int, Note] = field(default_factory=dict)  # note id -> note
+
+
+@dataclass
+class Note:
+    model: str
+    fields: dict[str, str]  # field name -> stored content, in the model's field order
 
 
 _STOCK_MODELS = tuple(anki_fixture("modelNames")["response"]["result"])
@@ -141,6 +158,74 @@ def managed_collection(manifest: Manifest) -> Collection:
     return apply_manifest(stock_collection(), manifest)
 
 
+def add_note(collection: Collection, model: str, fields: dict[str, str]) -> int:
+    """Put a note of `model` with `fields` (stored content) in `collection`; return its id."""
+    note_id = next(_ids)
+    collection.notes[note_id] = Note(model, dict(fields))
+    return note_id
+
+
+def managed_note(
+    collection: Collection, manifest: Manifest, note_type: str, schema_version: str
+) -> int:
+    """Put a note of the manifest's `note_type` in `collection`, every field empty but
+    `SchemaVersion`, stored as `schema_version` exactly (markup included); return its id.
+    """
+    declared = next(nt for nt in manifest.note_types if nt.name == note_type)
+    fields = {f.name: "" for f in declared.fields}
+    fields["SchemaVersion"] = schema_version
+    return add_note(collection, note_type, fields)
+
+
+_NOTE_QUERY = re.compile(r'note:"([^"]*)"')
+
+
+def _find_notes(collection: Collection, query: str) -> list[int]:
+    """Ids for an exact `note:"<type>"` query; any other query finds nothing."""
+    match = _NOTE_QUERY.fullmatch(query)
+    if match is None:
+        return []
+    return sorted(i for i, note in collection.notes.items() if note.model == match.group(1))
+
+
+def _note_info(note_id: int, note: Note) -> dict[str, Any]:
+    """A note as `notesInfo` returns it, shaped like the recorded `notesInfo` result."""
+    recorded = anki_fixture("notesInfo")["response"]["result"][0]
+    return {
+        **copy.deepcopy(recorded),
+        "noteId": note_id,
+        "tags": [],
+        "fields": {
+            name: {"value": value, "order": order}
+            for order, (name, value) in enumerate(note.fields.items())
+        },
+        "modelName": note.model,
+        "cards": [note_id],
+    }
+
+
+def _answer_note_write(
+    collection: Collection, action: str, params: dict[str, Any]
+) -> dict[str, Any]:
+    note = params.get("note", {})
+    match action:
+        case "addNote":
+            model = collection.models.get(note.get("modelName", ""))
+            if model is None or note.get("deckName") not in collection.decks:
+                return _error("model or deck was not found")
+            fields = {name: note.get("fields", {}).get(name, "") for name in model.fields}
+            return _ok(add_note(collection, note["modelName"], fields))
+        case "updateNoteFields":
+            stored = collection.notes.get(note.get("id"))
+            if stored is None:
+                return _error("Note was not found")
+            stored.fields.update(
+                {k: v for k, v in note.get("fields", {}).items() if k in stored.fields}
+            )
+            return _ok(None)
+    return dict(UNSUPPORTED)
+
+
 def _full_model(name: str, model: Model) -> dict[str, Any]:
     """A model as `findModelsByName` returns it, shaped like the recorded `createModel` result."""
     recorded = anki_fixture("createModel")["response"]["result"]
@@ -196,10 +281,18 @@ def _answer(collection: Collection, action: str, params: dict[str, Any]) -> dict
             preset = decks.get(params.get("deck", ""))
             # AnkiConnect answers `false` for a deck that doesn't exist
             return _ok(copy.deepcopy(collection.presets[preset]) if preset else False)
-        case "findNotes" | "findCards":
-            return _ok([])  # the simulator holds no notes
-        case "notesInfo" | "cardsInfo":
-            return _ok([{} for _ in params.get("notes", params.get("cards", []))])
+        case "findNotes":
+            return _ok(_find_notes(collection, params.get("query", "")))
+        case "notesInfo":
+            notes = collection.notes
+            # AnkiConnect answers `{}` for an id it doesn't have
+            return _ok(
+                [_note_info(i, notes[i]) if i in notes else {} for i in params.get("notes", [])]
+            )
+        case "findCards":
+            return _ok([])  # the simulator holds no cards
+        case "cardsInfo":
+            return _ok([{} for _ in params.get("cards", [])])
         case "getMediaFilesNames":
             return _ok([])
     return dict(UNSUPPORTED)
@@ -305,13 +398,16 @@ def collection_replies(
 ) -> dict[str, StubReply]:
     """Replies for `AnkiConnectReplay`: every read in `READ_ACTIONS`, `multi` included.
 
-    `writes=True` also answers `WRITE_ACTIONS`, changing `collection`. `refuse_save=True` makes
-    `saveDeckConfig` answer `false` and save nothing, as it did in spike 2.2 (Q5).
+    `writes=True` also answers `WRITE_ACTIONS` and `NOTE_WRITE_ACTIONS`, changing `collection`.
+    `refuse_save=True` makes `saveDeckConfig` answer `false` and save nothing, as it did in
+    spike 2.2 (Q5).
     """
 
     def answer(action: str, params: dict[str, Any]) -> dict[str, Any]:
         if writes and action in WRITE_ACTIONS:
             return _answer_write(collection, action, params, refuse_save=refuse_save)
+        if writes and action in NOTE_WRITE_ACTIONS:
+            return _answer_note_write(collection, action, params)
         return _answer(collection, action, params)
 
     def reply_to(action: str) -> Callable[[Any], Any]:
@@ -321,7 +417,7 @@ def collection_replies(
         inner = body.get("params", {}).get("actions", [])
         return _ok([answer(a["action"], a.get("params", {})) for a in inner])
 
-    actions = READ_ACTIONS | WRITE_ACTIONS if writes else READ_ACTIONS
+    actions = READ_ACTIONS | WRITE_ACTIONS | NOTE_WRITE_ACTIONS if writes else READ_ACTIONS
     replies: dict[str, StubReply] = {action: reply_to(action) for action in actions}
     replies["multi"] = multi
     return replies
