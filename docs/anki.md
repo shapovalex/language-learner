@@ -51,4 +51,21 @@ you run either one, so a mistake can be undone.
 In Anki Desktop: File > Create Backup. To keep a copy outside Anki, use File > Export, choose
 "Anki Collection Package (.colpkg)", and include media.
 
-Setup and migrations arrive with later releases; this release has neither.
+This release has no migration yet: Setup runs one only when a later release changes the fields
+of LanguageLab's note types.
+
+## Full sync after a migration
+
+A migration that changes a note type's fields needs a one-way full sync with AnkiWeb. Before
+it applies such a plan, Setup syncs first; if that Sync doesn't end OK, Setup refuses to apply
+("Anki couldn't sync with AnkiWeb"), so the upload can't overwrite changes Anki hasn't pulled
+yet. Sync in Anki Desktop, then apply again.
+
+After the migration, Setup shows a "Full sync required" tile:
+
+1. Open Anki Desktop and sync.
+2. When Anki asks, choose Upload to AnkiWeb.
+3. Back in LanguageLab's Setup, click "I've uploaded".
+
+LanguageLab can't see whether the upload happened, so the tile stays until you click the
+button. Other Anki clients (AnkiMobile) then download the collection on their next sync.

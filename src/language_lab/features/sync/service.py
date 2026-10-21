@@ -3,9 +3,14 @@ one pending Sync (AD-17). Each Sync goes through `AnkiStore.sync`, which holds t
 
 A failure is logged as one line and kept as the last status. It is never raised, so a failing
 or hung AnkiConnect fails no request. The status lives in memory only (AD-2).
+
+Full sync required (entry 9): Sync never reports it (spike 2.2, Q2), so Setup sets it with
+`set_full_sync_required()` after a field change. Every status recorded or returned from then on
+carries it, across later Syncs that end OK, until it is set again (the user says they uploaded).
 """
 
 import asyncio
+import dataclasses
 import logging
 
 from language_lab.domain.errors import AppError, ErrorCode
@@ -29,6 +34,7 @@ class SyncService:
         self._anki = anki
         self._enabled = enabled
         self._last: SyncStatus | None = None
+        self._full_sync_required = False
         self._running: asyncio.Task[None] | None = None
         # Resolved with the status of the Sync that starts when the running one ends
         self._pending: asyncio.Future[SyncStatus] | None = None
@@ -39,12 +45,23 @@ class SyncService:
 
     async def request_and_wait(self) -> SyncStatus:
         if not self._enabled:
-            return _DISABLED
+            return self._flagged(_DISABLED)
         # Shielded: a cancelled caller must not cancel a Sync other callers share
-        return await asyncio.shield(self._submit())
+        return self._flagged(await asyncio.shield(self._submit()))
 
     def last_status(self) -> SyncStatus | None:
-        return self._last
+        """The last Sync's status; with no Sync yet (dev mode), `DISABLED` while a full sync is
+        required, else None.
+        """
+        if self._last is None:
+            return SyncStatus(SyncOutcome.DISABLED, True) if self._full_sync_required else None
+        return self._flagged(self._last)
+
+    def set_full_sync_required(self, required: bool) -> None:
+        self._full_sync_required = required
+
+    def _flagged(self, status: SyncStatus) -> SyncStatus:
+        return dataclasses.replace(status, full_sync_required=self._full_sync_required)
 
     async def aclose(self) -> None:
         """Cancel the running Sync and drop the pending one (shutdown, after its capped wait).
@@ -94,7 +111,7 @@ class SyncService:
             outcome = _STORE_FAILURES.get(exc.code, SyncOutcome.ANKI_UNAVAILABLE)
         except Exception:  # noqa: BLE001 -- a bug must not kill the pending chain
             outcome = SyncOutcome.ANKI_UNAVAILABLE
-        status = SyncStatus(outcome)
+        status = SyncStatus(outcome, self._full_sync_required)
         self._last = status
         if outcome is SyncOutcome.OK:
             _log.info("Sync with AnkiWeb: %s", outcome.value)

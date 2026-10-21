@@ -1,6 +1,6 @@
 """Setup's HTTP routes, under /api/setup."""
 
-from fastapi import APIRouter
+from fastapi import APIRouter, Response
 from pydantic import BaseModel, Field
 
 from language_lab.features.setup.service import (
@@ -34,5 +34,10 @@ def setup_router(service: SetupService) -> APIRouter:
     @router.get("/apply/status")
     async def apply_status() -> ApplyStatus:
         return service.apply_status()
+
+    @router.post("/full-sync/uploaded", status_code=204)
+    async def full_sync_uploaded() -> Response:
+        service.full_sync_uploaded()
+        return Response(status_code=204)
 
     return router

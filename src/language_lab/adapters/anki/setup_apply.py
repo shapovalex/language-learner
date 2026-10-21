@@ -1,7 +1,7 @@
 """The write steps of Setup's apply (FR-6, FR-8, AD-3): plan items into AnkiConnect v6 writes.
 
 `run_plan(invoke, manifest, state, items)` runs every Create and Repair item of a plan diffed
-from `state`, in this order, and skips Migrate (entry 9):
+from `state`, in this order, and skips Migrate (adapters/anki/migrations.py runs it after):
 
 1. deck Create: `createDeck`, in manifest order (parents first).
 2. note type Create: `createModel` with its fields, CSS and card templates, which covers that

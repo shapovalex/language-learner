@@ -1,9 +1,9 @@
 """Story 2.6: GET /api/setup/plan returns the preview, without touching Anki (FR-6, AD-3).
 
-The body is `{"prefix", "planHash", "state", "items": [{"action", "kind", "name"}], "unmanaged":
-[{"kind", "name"}]}` in camelCase (Consistency Conventions), with the items in the order the
-AnkiStore returned them and `planHash` the domain's `plan_hash(items)`. Apply (entry 7) sends
-that hash back. The Setup screen owns the copy.
+The body is `{"prefix", "planHash", "state", "items": [{"action", "kind", "name",
+"requiresFullSync"}], "unmanaged": [{"kind", "name"}]}` in camelCase (Consistency
+Conventions), with the items in the order the AnkiStore returned them and `planHash` the
+domain's `plan_hash(items)`. Apply (entry 7) sends that hash back. The Setup screen owns the copy.
 
 The app takes the AnkiStore, so these tests pass the in-memory fake from tests/fakes/ with a
 canned `SetupPreview` and never reach Anki. The diff itself is in
@@ -56,10 +56,25 @@ def test_plan_route_returns_items_unmanaged_rows_and_the_plan_hash(
         "planHash": plan_hash(items),
         "state": "ready",
         "items": [
-            {"action": "create", "kind": "deck", "name": f"{prefix}::Study"},
-            {"action": "repair", "kind": "templates", "name": f"{prefix} English Vocabulary"},
-            {"action": "migrate", "kind": "noteType", "name": f"{prefix} French Sentence"},
-            {"action": "repair", "kind": "preset", "name": prefix},
+            {
+                "action": "create",
+                "kind": "deck",
+                "name": f"{prefix}::Study",
+                "requiresFullSync": False,
+            },
+            {
+                "action": "repair",
+                "kind": "templates",
+                "name": f"{prefix} English Vocabulary",
+                "requiresFullSync": False,
+            },
+            {
+                "action": "migrate",
+                "kind": "noteType",
+                "name": f"{prefix} French Sentence",
+                "requiresFullSync": True,
+            },
+            {"action": "repair", "kind": "preset", "name": prefix, "requiresFullSync": False},
         ],
         "unmanaged": [{"kind": "deck", "name": f"{prefix}::Old stuff"}],
     }

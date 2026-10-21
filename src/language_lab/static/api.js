@@ -43,6 +43,7 @@ export async function request(path, options = {}) {
   if (!response.ok) {
     throw await toApiError(response);
   }
+  if (response.status === 204) return null; // No Content: nothing to parse
   return response.json();
 }
 
@@ -50,18 +51,20 @@ export function getHealth() {
   return request("/api/health");
 }
 
-// `{prefix, checks: [{id, ok}]}`, the checks in tile order (FR-5)
+// `{prefix, checks: [{id, ok}]}`, the checks in tile order (FR-5); `fullSync` last (AD-17)
 export function getReadiness() {
   return request("/api/setup/readiness");
 }
 
-// `{prefix, planHash, items: [{action, kind, name}], unmanaged: [{kind, name}]}` (FR-6, AD-3)
+// `{prefix, planHash, state, items: [{action, kind, name, requiresFullSync}],
+// unmanaged: [{kind, name}]}` (FR-6, AD-3)
 export function getPlan() {
   return request("/api/setup/plan");
 }
 
 // Apply the plan the user confirmed by its hash, run to its end and verified (FR-6, AD-3):
-// `{verified, planHash, discrepancies: [{action, kind, name}]}`. A stale hash is 409 `plan_changed`.
+// `{verified, planHash, discrepancies: [{action, kind, name, requiresFullSync}], fullSyncRequired}`.
+// A stale hash is 409 `plan_changed`; a field change whose Sync failed is 409 `sync_required`.
 export function applySetup(planHash) {
   return request("/api/setup/apply", {
     method: "POST",
@@ -73,4 +76,9 @@ export function applySetup(planHash) {
 // `{state: "idle" | "running" | "finished", result}`: the last apply run, for a screen coming back
 export function getApplyStatus() {
   return request("/api/setup/apply/status");
+}
+
+// The user uploaded in Anki Desktop after a field change: clears Full sync required (204)
+export function fullSyncUploaded() {
+  return request("/api/setup/full-sync/uploaded", { method: "POST" });
 }

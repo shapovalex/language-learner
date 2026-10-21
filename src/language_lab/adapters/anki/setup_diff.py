@@ -1,7 +1,7 @@
 """The Setup diff (AD-3): Anki's managed state against the manifest, as plan items.
 
 Pure: `diff(manifest, state)` takes what the adapter read (`AnkiState`) and returns the
-`SetupPreview`. Items go in kind order (deck, noteType, templates, preset), each kind in
+`SetupPreview`. Items go in kind order (deck, noteType, notes, templates, preset), each kind in
 manifest order.
 
 - Create: a missing deck, note type (with its templates and CSS), or `<Prefix>` preset.
@@ -9,7 +9,9 @@ manifest order.
   or extra card template, or changed CSS), or the preset with a bury flag on, an existing
   preset deck not on it, or preset decks split across two configs named `<Prefix>`. Other
   deck options are the user's and never show up (FR-8).
-- Migrate: an existing note type whose fields differ, order included (a schema change).
+- Migrate: an existing note type whose fields differ, order included (a schema change), and
+  the notes of each manifest note type holding a note below the manifest's SchemaVersion
+  (empty or not an integer included): their SchemaVersion is rewritten (entry 9).
 
 Decks under the Prefix and note types named `<Prefix> …` that the manifest doesn't declare are
 `unmanaged`: listed, never planned.
@@ -38,6 +40,8 @@ class AnkiState:
     models: frozenset[str]  # every note type name in Anki
     managed_models: Mapping[str, ModelState] = field(default_factory=dict)  # manifest ones only
     preset_configs: Mapping[str, Mapping[str, Any]] = field(default_factory=dict)  # deck -> config
+    # manifest note type -> (note id, stored SchemaVersion or None when not an integer)
+    note_versions: Mapping[str, tuple[tuple[int, int | None], ...]] = field(default_factory=dict)
 
 
 def _dotted(config: Mapping[str, Any], path: str) -> Any:
@@ -91,6 +95,14 @@ def diff(manifest: Manifest, state: AnkiState) -> SetupPreview:
             note_types.append(PlanItem(PlanAction.MIGRATE, ResourceKind.NOTE_TYPE, note_type.name))
         if _templates_differ(note_type, model):
             templates.append(PlanItem(PlanAction.REPAIR, ResourceKind.TEMPLATES, note_type.name))
+    notes = [
+        PlanItem(PlanAction.MIGRATE, ResourceKind.NOTES, note_type.name)
+        for note_type in manifest.note_types
+        if any(
+            v is None or v < manifest.schema_version
+            for _, v in state.note_versions.get(note_type.name, ())
+        )
+    ]
     preset = _preset_item(manifest, state)
 
     prefix = manifest.prefix
@@ -104,5 +116,5 @@ def diff(manifest: Manifest, state: AnkiState) -> SetupPreview:
         for model in sorted(state.models)
         if model.startswith(f"{prefix} ") and model not in managed_types
     ]
-    items = [*decks, *note_types, *templates, *([preset] if preset else [])]
+    items = [*decks, *note_types, *notes, *templates, *([preset] if preset else [])]
     return SetupPreview(items=tuple(items), unmanaged=tuple(unmanaged))

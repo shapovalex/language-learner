@@ -34,9 +34,10 @@ from typing import Any
 import pytest
 
 from language_lab.adapters.anki.client import AnkiConnectClient
-from language_lab.adapters.anki.guard import PrefixGuard
+from language_lab.adapters.anki.guard import PrefixGuard, PrefixViolation
 from language_lab.adapters.anki.lock import AnkiLock
 from language_lab.adapters.anki.manifest import SCHEMA_VERSION, Field, Manifest, build_manifest
+from language_lab.adapters.anki.migrations import AddField, Migration
 from language_lab.adapters.anki.setup_gate import SetupGate
 from language_lab.adapters.anki.store import AnkiConnectStore
 from language_lab.domain.setup import PlanAction, PlanItem, ResourceKind, SetupState, plan_hash
@@ -55,10 +56,6 @@ from tests.support.anki_state import (
     sent_writes,
 )
 from tests.support.clock import bounded
-
-RED_PHASE = pytest.mark.skip(
-    reason="ATDD red phase, story 2.9: un-skip with migrations and the full-sync steps"
-)
 
 PREFIX = "LanguageLab"
 DEV = "LanguageLabDev"
@@ -90,16 +87,12 @@ def manifest_at(version: int, *extra: str) -> Manifest:
 V2 = manifest_at(NEXT, "Extra1")
 
 
-def add_field(from_version: int, field: str) -> Any:
-    """`Migration(from_version, (AddField(<English Vocabulary>, field),))`, imported here: the
-    module doesn't exist before green phase.
-    """
-    from language_lab.adapters.anki.migrations import AddField, Migration
-
+def add_field(from_version: int, field: str) -> Migration:
+    """`Migration(from_version, (AddField(<English Vocabulary>, field),))`."""
     return Migration(from_version=from_version, steps=(AddField(VOCABULARY, field),))
 
 
-def to_v2() -> tuple[Any, ...]:
+def to_v2() -> tuple[Migration, ...]:
     return (add_field(BASE, "Extra1"),)
 
 
@@ -107,7 +100,7 @@ def wired(
     collection: Collection,
     *,
     manifest: Manifest = V2,
-    migrations: tuple[Any, ...] = (),
+    migrations: tuple[Migration, ...] = (),
     sync: dict[str, StubReply] | None = None,
 ) -> tuple[Any, AnkiConnectReplay]:
     """The real client and store over `collection` (writes answered), with `migrations` and,
@@ -164,7 +157,6 @@ def field_names_added(replay: AnkiConnectReplay) -> list[str]:
 # ---- preview (AC-1, AC-3) ----------------------------------------------------------------
 
 
-@RED_PHASE
 @pytest.mark.p0
 def test_an_older_anki_previews_its_migration_as_migrate_rows() -> None:
     """AC-1: the field change is a Migrate noteType row, and each note type with older notes a
@@ -174,7 +166,7 @@ def test_an_older_anki_previews_its_migration_as_migrate_rows() -> None:
 
     preview = run(store.setup_preview())
 
-    notes = ResourceKind("notes")
+    notes = ResourceKind.NOTES
     assert set(preview.items) == {
         PlanItem(PlanAction.MIGRATE, ResourceKind.NOTE_TYPE, VOCABULARY),
         PlanItem(PlanAction.MIGRATE, notes, VOCABULARY),
@@ -183,7 +175,6 @@ def test_an_older_anki_previews_its_migration_as_migrate_rows() -> None:
     assert preview.state is SetupState.NEEDS_MIGRATION
 
 
-@RED_PHASE
 @pytest.mark.p0
 def test_migrations_never_run_at_startup_or_on_a_preview() -> None:
     """AC-3: the startup state and a preview send no write; every SchemaVersion stays."""
@@ -204,7 +195,6 @@ def test_migrations_never_run_at_startup_or_on_a_preview() -> None:
 # ---- apply (AC-4 to AC-8) ----------------------------------------------------------------
 
 
-@RED_PHASE
 @pytest.mark.p0
 def test_a_confirmed_plan_runs_its_migration_and_verifies() -> None:
     """AC-4: the field is added, each older note is stamped with the manifest's SchemaVersion,
@@ -222,7 +212,6 @@ def test_a_confirmed_plan_runs_its_migration_and_verifies() -> None:
     assert verified.state is SetupState.READY
 
 
-@RED_PHASE
 @pytest.mark.p0
 def test_migrations_run_in_schema_version_order() -> None:
     """AC-5: given out of order, v1 to v2 still runs before v2 to v3."""
@@ -238,7 +227,6 @@ def test_migrations_run_in_schema_version_order() -> None:
     assert versions(collection) == [str(NEXT + 1)] * 2
 
 
-@RED_PHASE
 @pytest.mark.p0
 def test_a_second_run_after_a_migration_changes_nothing() -> None:
     """AC-6: after the migration the preview is empty, and applying it sends no write."""
@@ -257,7 +245,6 @@ def test_a_second_run_after_a_migration_changes_nothing() -> None:
     assert again.items == ()
 
 
-@RED_PHASE
 @pytest.mark.p0
 def test_a_migration_stays_inside_the_prefix() -> None:
     """AC-7: a LanguageLabDev note beside keeps its SchemaVersion and its note type its fields;
@@ -281,7 +268,6 @@ def test_a_migration_stays_inside_the_prefix() -> None:
             assert collection.notes[body["params"]["note"]["id"]].model in ours
 
 
-@RED_PHASE
 @pytest.mark.p1
 @pytest.mark.parametrize("stored", ["", "abc", str(BASE - 1)], ids=["empty", "not-int", "below"])
 def test_a_note_with_no_migration_path_is_migrated_from_the_first_version(stored: str) -> None:
@@ -300,7 +286,6 @@ def test_a_note_with_no_migration_path_is_migrated_from_the_first_version(stored
 # ---- Sync around a field change (AC-9, AC-14) --------------------------------------------
 
 
-@RED_PHASE
 @pytest.mark.p0
 def test_setup_syncs_outside_the_lock_before_a_field_changing_plan() -> None:
     """AC-9: through the real SetupService and SyncService over one Anki lock, the Sync is sent
@@ -308,7 +293,7 @@ def test_setup_syncs_outside_the_lock_before_a_field_changing_plan() -> None:
     """
     store, replay = wired(older_anki(), migrations=to_v2(), sync=recorded_v1_sync("normal"))
     sync = SyncService(store, enabled=True)
-    setup = SetupService(  # type: ignore[call-arg]  # `sync=` arrives in green phase
+    setup = SetupService(
         store, sync=sync, prefix=PREFIX, azure_configured=True, openrouter_configured=True
     )
 
@@ -325,7 +310,6 @@ def test_setup_syncs_outside_the_lock_before_a_field_changing_plan() -> None:
     assert writes, "the migration wrote nothing"
 
 
-@RED_PHASE
 @pytest.mark.p0
 def test_full_sync_required_survives_a_sync_that_ends_ok() -> None:
     """AC-14: replaying the Sync recorded right after a field change (it ends `succeeded`),
@@ -339,7 +323,7 @@ def test_full_sync_required_survives_a_sync_that_ends_ok() -> None:
     sync = SyncService(store, enabled=True)
 
     async def flag_then_sync() -> Any:
-        sync.set_full_sync_required(True)  # type: ignore[attr-defined]  # green phase
+        sync.set_full_sync_required(True)
         await sync.request_and_wait()
         return sync.last_status()
 
@@ -347,3 +331,64 @@ def test_full_sync_required_survives_a_sync_that_ends_ok() -> None:
 
     assert status.full_sync_required is True
     assert status.outcome == "ok"
+
+
+# ---- secondary branches ------------------------------------------------------------------
+
+
+@pytest.mark.p1
+def test_only_note_types_holding_older_notes_get_a_notes_row() -> None:
+    """AC-1: a note type whose notes are all current, or which has none, gets no notes row."""
+    collection = managed_collection(MANIFEST)
+    managed_note(collection, MANIFEST, VOCABULARY, str(BASE))
+    managed_note(collection, MANIFEST, SENTENCE, str(NEXT))
+    store, _ = wired(collection, migrations=to_v2())
+
+    preview = run(store.setup_preview())
+
+    notes_rows = [i.name for i in preview.items if i.kind is ResourceKind.NOTES]
+    assert notes_rows == [VOCABULARY]
+
+
+@pytest.mark.p1
+def test_a_plan_without_a_migrate_item_never_rewrites_a_schema_version() -> None:
+    """AC-4: only migrations rewrite SchemaVersion: a Create plan sends no updateNoteFields."""
+    collection = managed_collection(MANIFEST)
+    managed_note(collection, MANIFEST, VOCABULARY, str(BASE))
+    del collection.decks[f"{PREFIX}::Captures"]
+    store, replay = wired(collection, manifest=MANIFEST, migrations=to_v2())
+
+    verified = run(preview_then_apply(store))
+
+    assert "updateNoteFields" not in sent_writes(replay.sent)
+    assert verified.state is SetupState.READY
+
+
+@pytest.mark.p1
+def test_a_partial_rerun_only_rewrites_the_schema_versions() -> None:
+    """AC-6: the field is already there, the notes still older: no modelFieldAdd, only the
+    SchemaVersion rewrite.
+    """
+    collection = apply_manifest(older_anki(), V2)
+    store, replay = wired(collection, migrations=to_v2())
+
+    verified = run(preview_then_apply(store))
+
+    assert set(sent_writes(replay.sent)) == {"updateNoteFields"}
+    assert versions(collection) + versions(collection, SENTENCE) == [str(NEXT)] * 3
+    assert verified.items == ()
+
+
+@pytest.mark.p1
+def test_a_migration_step_outside_the_manifest_is_refused_before_it_is_sent() -> None:
+    """AC-7: an AddField naming a note type the manifest doesn't declare is a PrefixViolation,
+    and nothing of it is sent.
+    """
+    collection = apply_manifest(older_anki(), V2)
+    stray = Migration(from_version=BASE, steps=(AddField("Other", "Extra1"),))
+    store, replay = wired(collection, migrations=(stray,))
+
+    with pytest.raises(PrefixViolation):
+        run(preview_then_apply(store))
+
+    assert sent_writes(replay.sent) == []

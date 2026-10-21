@@ -17,9 +17,11 @@ from typing import Any
 
 import pytest
 
+from language_lab.domain.errors import AppError, ErrorCode
 from language_lab.domain.setup import PlanAction, PlanItem, ResourceKind, SetupPreview, plan_hash
 from language_lab.features.setup.service import SetupService
 from tests.fakes.anki_store import FakeAnkiStore
+from tests.fakes.sync_requester import FakeSyncRequester
 from tests.support.aio import settle
 from tests.support.clock import bounded, drain, until
 
@@ -40,7 +42,13 @@ class Observed:
 
 async def disconnect_mid_apply() -> Observed:
     store = FakeAnkiStore(preview=SetupPreview(items=ITEMS), apply_gated=True)
-    service = SetupService(store, prefix=PREFIX, azure_configured=True, openrouter_configured=True)
+    service = SetupService(
+        store,
+        sync=FakeSyncRequester(),
+        prefix=PREFIX,
+        azure_configured=True,
+        openrouter_configured=True,
+    )
     request = asyncio.create_task(service.apply(plan_hash(ITEMS)))
     await until(lambda: store.apply_calls == 1)
     while_running = service.apply_status()
@@ -64,13 +72,24 @@ def test_apply_completes_server_side_when_the_client_disconnects() -> None:
     assert observed.while_running == {"state": "running", "result": None}
     assert observed.after == {
         "state": "finished",
-        "result": {"verified": True, "planHash": plan_hash(()), "discrepancies": []},
+        "result": {
+            "verified": True,
+            "planHash": plan_hash(()),
+            "discrepancies": [],
+            "fullSyncRequired": False,
+        },
     }
 
 
 async def second_apply_mid_run() -> tuple[int, int, Any, Any]:
     store = FakeAnkiStore(preview=SetupPreview(items=ITEMS), apply_gated=True)
-    service = SetupService(store, prefix=PREFIX, azure_configured=True, openrouter_configured=True)
+    service = SetupService(
+        store,
+        sync=FakeSyncRequester(),
+        prefix=PREFIX,
+        azure_configured=True,
+        openrouter_configured=True,
+    )
     first = asyncio.create_task(service.apply(plan_hash(ITEMS)))
     await until(lambda: store.apply_calls == 1)
     second = asyncio.create_task(service.apply(plan_hash(ITEMS)))
@@ -88,4 +107,46 @@ def test_a_second_apply_while_one_runs_awaits_the_same_run() -> None:
 
     assert apply_calls == 1
     assert applies == 1
-    assert first == second == {"verified": True, "planHash": plan_hash(()), "discrepancies": []}
+    assert (
+        first
+        == second
+        == {
+            "verified": True,
+            "planHash": plan_hash(()),
+            "discrepancies": [],
+            "fullSyncRequired": False,
+        }
+    )
+
+
+async def field_change_fails_mid_apply() -> tuple[ErrorCode | None, bool | None]:
+    items = (PlanItem(PlanAction.MIGRATE, ResourceKind.NOTE_TYPE, f"{PREFIX} Capture"),)
+    store = FakeAnkiStore(preview=SetupPreview(items=items), apply_gated=True)
+    service = SetupService(
+        store,
+        sync=FakeSyncRequester(),
+        prefix=PREFIX,
+        azure_configured=True,
+        openrouter_configured=True,
+    )
+    request = asyncio.create_task(service.apply(plan_hash(items)))
+    await until(lambda: store.apply_calls == 1)
+    store.finish_apply(ErrorCode.ANKI_UNAVAILABLE)  # e.g. verify failed after the field was added
+    try:
+        await request
+        code = None
+    except AppError as exc:
+        code = exc.code
+    checks = (await service.readiness())["checks"]
+    return code, next(c["ok"] for c in checks if c["id"] == "fullSync")
+
+
+@pytest.mark.p1
+def test_a_field_changing_apply_that_fails_after_its_sync_still_requires_a_full_sync() -> None:
+    """Story 2.9, AC-13: a field change whose apply raises mid-run may have changed Anki's schema,
+    so the error propagates and the fullSync check fails.
+    """
+    code, full_sync_ok = settle(bounded(field_change_fails_mid_apply()))
+
+    assert full_sync_ok is False
+    assert code is ErrorCode.ANKI_UNAVAILABLE

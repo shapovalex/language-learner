@@ -3,7 +3,8 @@
 POST carries `{"planHash"}`, the hash of the plan the user confirmed. The server re-diffs. A
 hash the fresh plan no longer has is `409 plan_changed`, a code added with the user on
 2026-10-21 with the fixed message below. Otherwise the run goes to its end and the response is
-the verification `{"verified", "planHash", "discrepancies": [{"action", "kind", "name"}]}`,
+the verification `{"verified", "planHash", "discrepancies": [{"action", "kind", "name",
+"requiresFullSync"}], "fullSyncRequired"}` (story 2.9 added the last two),
 where `planHash` is what a fresh preview hashes to while Anki stays as verify found it.
 
 GET /api/setup/apply/status is `{"state": "idle" | "running" | "finished", "result"}`, so a
@@ -41,13 +42,29 @@ LEFT_OVER = (PlanItem(PlanAction.REPAIR, ResourceKind.PRESET, PREFIX),)
 @pytest.mark.parametrize(
     ("verification", "expected"),
     [
-        (SetupPreview(), {"verified": True, "planHash": plan_hash(()), "discrepancies": []}),
+        (
+            SetupPreview(),
+            {
+                "verified": True,
+                "planHash": plan_hash(()),
+                "discrepancies": [],
+                "fullSyncRequired": False,
+            },
+        ),
         (
             SetupPreview(items=LEFT_OVER),
             {
                 "verified": False,
                 "planHash": plan_hash(LEFT_OVER),
-                "discrepancies": [{"action": "repair", "kind": "preset", "name": PREFIX}],
+                "discrepancies": [
+                    {
+                        "action": "repair",
+                        "kind": "preset",
+                        "name": PREFIX,
+                        "requiresFullSync": False,
+                    }
+                ],
+                "fullSyncRequired": False,
             },
         ),
     ],

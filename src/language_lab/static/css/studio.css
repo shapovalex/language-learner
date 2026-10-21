@@ -472,6 +472,23 @@ main h1 {
   font-weight: 700;
 }
 
+/* Full sync required (EXPERIENCE.md): a warning, not a failing check, in feedback-fair */
+.readiness-tile-warning {
+  border-color: var(--color-on-feedback-fair);
+  background: var(--color-feedback-fair);
+  color: var(--color-on-feedback-fair-strong);
+  font-weight: 700;
+}
+
+.readiness-fix-hint-warning {
+  background: var(--color-feedback-fair);
+  color: var(--color-on-feedback-fair-strong);
+}
+
+.readiness-item > .button {
+  align-self: flex-start;
+}
+
 .readiness-icon {
   flex: none;
   width: 20px;
@@ -535,6 +552,14 @@ main h1 {
 
 .change-row-detail {
   color: var(--color-ink-muted);
+  font-weight: 400;
+}
+
+/* A field change's marker, on its own line under the names */
+.change-row-full-sync {
+  display: block;
+  color: var(--color-on-feedback-fair);
+  font-size: var(--font-size-label);
   font-weight: 400;
 }
 

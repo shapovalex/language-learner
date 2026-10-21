@@ -127,29 +127,33 @@ def _stored_version(info: Any) -> int | None:
     return parse_version(field.get("value") if isinstance(field, dict) else None)
 
 
-async def read_versions(
+async def read_note_versions(
     lookup: Lookup, manifest: Manifest, models: Iterable[str]
-) -> list[int | None]:
-    """Every managed note's `SchemaVersion` (None when not an integer), for the manifest note
-    types in `models`: one `multi` of `findNotes`, then one `notesInfo`.
+) -> dict[str, tuple[tuple[int, int | None], ...]]:
+    """Each manifest note type in `models` -> (note id, `SchemaVersion` or None when not an
+    integer) of each of its notes: one `multi` of `findNotes`, then one `notesInfo`.
     """
     present = set(models)
     types = [nt.name for nt in manifest.note_types if nt.name in present]
     if not types:
-        return []
+        return {}
     found = await multi(lookup, [("findNotes", {"query": note_query(manifest, t)}) for t in types])
-    ids: list[int] = []
-    for result in found:
+    owners: dict[int, str] = {}
+    for note_type, result in zip(types, found, strict=True):
         if not isinstance(result, list):
             raise AppError(ErrorCode.ANKI_UNAVAILABLE)
-        ids += result
-    if not ids:
-        return []
-    infos = await lookup("notesInfo", notes=ids)
-    if not isinstance(infos, list):
-        raise AppError(ErrorCode.ANKI_UNAVAILABLE)
-    # AnkiConnect answers `{}` for a note deleted since `findNotes`: it no longer counts
-    return [_stored_version(info) for info in infos if info != {}]
+        owners |= dict.fromkeys(result, note_type)
+    versions: dict[str, list[tuple[int, int | None]]] = {t: [] for t in types}
+    ids = list(owners)
+    if ids:
+        infos = await lookup("notesInfo", notes=ids)
+        if not isinstance(infos, list) or len(infos) != len(ids):
+            raise AppError(ErrorCode.ANKI_UNAVAILABLE)
+        for note_id, info in zip(ids, infos, strict=True):
+            # AnkiConnect answers `{}` for a note deleted since `findNotes`: it no longer counts
+            if info != {}:
+                versions[owners[note_id]].append((note_id, _stored_version(info)))
+    return {t: tuple(notes) for t, notes in versions.items() if notes}
 
 
 def compute_state(
@@ -170,8 +174,10 @@ def compute_state(
 async def read_preview(lookup: Lookup, manifest: Manifest) -> tuple[AnkiState, SetupPreview]:
     """The managed state and its preview, with its `state`, from reads only."""
     state = await read_state(lookup, manifest)
+    note_versions = await read_note_versions(lookup, manifest, state.models)
+    state = dataclasses.replace(state, note_versions=note_versions)
     preview = diff(manifest, state)
-    versions = await read_versions(lookup, manifest, state.models)
+    versions = (v for notes in note_versions.values() for _, v in notes)
     setup_state = compute_state(preview, versions, manifest.schema_version)
     return state, dataclasses.replace(preview, state=setup_state)
 

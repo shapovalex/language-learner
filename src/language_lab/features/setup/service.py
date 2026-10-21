@@ -8,6 +8,12 @@ it, shielded, so a client that disconnects doesn't cancel it, and a second reque
 runs awaits the same run. `apply_status()` reports it for a screen coming back. Responses
 carry ids and names; the Setup screen owns the copy.
 
+Full sync (entry 9, AD-3, AD-17): a plan with a field-changing row (`requiresFullSync`) first
+awaits a Sync through the SyncRequester, outside the Anki lock, and is refused with
+`sync_required` unless it ends OK (or Sync is disabled, in dev mode). After the run the
+SyncRequester is told a full sync is required; readiness reports it as the `fullSync` check
+until the user says they uploaded (`full_sync_uploaded()`).
+
 The plan carries the SetupState (AD-19). `start_refresh()` computes it once at startup, in a
 task the lifespan doesn't wait for: a failure (Anki down) is logged without its text and the
 adapter's gate computes it on demand later. `aclose()` cancels it if it still runs.
@@ -18,13 +24,21 @@ import contextlib
 import logging
 from typing import Literal, TypedDict
 
-from language_lab.domain.errors import AppError
-from language_lab.domain.setup import PlanItem, SetupPreview, plan_hash
+from language_lab.domain.errors import AppError, ErrorCode
+from language_lab.domain.setup import PlanItem, SetupPreview, SetupState, plan_hash
+from language_lab.domain.setup import plan_hash as _plan_hash
+from language_lab.domain.sync import SyncOutcome
 from language_lab.ports.anki_store import AnkiStore
+from language_lab.ports.sync_requester import SyncRequester
 
 _log = logging.getLogger("language_lab.setup")
 
-type CheckId = Literal["ankiConnect", "azure", "openrouter"]
+type CheckId = Literal["ankiConnect", "azure", "openrouter", "fullSync"]
+
+# A Sync before a field change may end so, and the plan goes on (dev mode never Syncs)
+_SYNCED = frozenset({SyncOutcome.OK, SyncOutcome.DISABLED})
+# What the store's apply refuses with before its first write
+_REFUSED_BEFORE_WRITES = frozenset({ErrorCode.PLAN_CHANGED, ErrorCode.SETUP_REQUIRED})
 
 
 class Check(TypedDict):
@@ -41,6 +55,7 @@ class PlanRow(TypedDict):
     action: str
     kind: str
     name: str
+    requiresFullSync: bool  # a field change: a one-way full sync follows (AD-3)
 
 
 class UnmanagedRow(TypedDict):
@@ -60,6 +75,7 @@ class ApplyResult(TypedDict):
     verified: bool
     planHash: str  # what a fresh preview hashes to while Anki stays as verify found it
     discrepancies: list[PlanRow]
+    fullSyncRequired: bool  # the run's plan changed fields: upload in Anki Desktop
 
 
 class ApplyStatus(TypedDict):
@@ -68,14 +84,23 @@ class ApplyStatus(TypedDict):
 
 
 def _rows(items: tuple[PlanItem, ...]) -> list[PlanRow]:
-    return [{"action": str(i.action), "kind": str(i.kind), "name": i.name} for i in items]
+    return [
+        {
+            "action": str(i.action),
+            "kind": str(i.kind),
+            "name": i.name,
+            "requiresFullSync": i.requires_full_sync,
+        }
+        for i in items
+    ]
 
 
-def _result(verification: SetupPreview) -> ApplyResult:
+def _result(verification: SetupPreview, *, full_sync_required: bool) -> ApplyResult:
     return {
         "verified": not verification.items,
         "planHash": plan_hash(verification.items),
         "discrepancies": _rows(verification.items),
+        "fullSyncRequired": full_sync_required,
     }
 
 
@@ -90,11 +115,13 @@ class SetupService:
         self,
         anki: AnkiStore,
         *,
+        sync: SyncRequester,
         prefix: str,
         azure_configured: bool,
         openrouter_configured: bool,
     ) -> None:
         self._anki = anki
+        self._sync = sync
         self._prefix = prefix
         self._azure = azure_configured
         self._openrouter = openrouter_configured
@@ -103,13 +130,17 @@ class SetupService:
         self._refresh: asyncio.Task[None] | None = None
 
     async def readiness(self) -> Readiness:
-        """Each check on its own, in tile order. `anki_busy` propagates as an `AppError`."""
+        """Each check on its own, in tile order. `anki_busy` propagates as an `AppError`.
+        `fullSync` fails while the last Sync status says a full sync is required.
+        """
+        status = self._sync.last_status()
         return {
             "prefix": self._prefix,
             "checks": [
                 {"id": "ankiConnect", "ok": await self._anki.reachable()},
                 {"id": "azure", "ok": self._azure},
                 {"id": "openrouter", "ok": self._openrouter},
+                {"id": "fullSync", "ok": not (status and status.full_sync_required)},
             ],
         }
 
@@ -125,8 +156,9 @@ class SetupService:
         }
 
     async def apply(self, plan_hash: str) -> ApplyResult:
-        """Run the confirmed plan to its end and return the verification. `plan_changed`,
-        `setup_required` (a `newer_schema` Anki), `anki_busy` and `anki_unavailable` propagate.
+        """Run the confirmed plan to its end and return the verification. `sync_required` (the
+        Sync before a field change didn't end OK), `plan_changed`, `setup_required` (a
+        `newer_schema` Anki), `anki_busy` and `anki_unavailable` propagate.
         A cancelled caller leaves the run going.
         """
         if self._run is None or self._run.done():
@@ -140,6 +172,10 @@ class SetupService:
         if self._last is not None:
             return {"state": "finished", "result": self._last}
         return {"state": "idle", "result": None}
+
+    def full_sync_uploaded(self) -> None:
+        """The user uploaded in Anki Desktop: the `fullSync` check passes again."""
+        self._sync.set_full_sync_required(False)
 
     def start_refresh(self) -> None:
         """Compute the SetupState in the background (startup); never fails or waits."""
@@ -170,6 +206,26 @@ class SetupService:
                 await run
 
     async def _apply(self, plan_hash: str) -> ApplyResult:
-        result = _result(await self._anki.setup_apply(plan_hash))
+        preview = await self._anki.setup_preview()
+        field_change = any(i.requires_full_sync for i in preview.items)
+        # A stale hash or a newer-schema Anki goes straight to the store, which refuses it
+        applicable = (
+            _plan_hash(preview.items) == plan_hash and preview.state is not SetupState.NEWER_SCHEMA
+        )
+        if field_change and applicable:
+            # Before the Anki lock is taken: the Sync holds it itself (AD-5, AD-17)
+            status = await self._sync.request_and_wait()
+            if status.outcome not in _SYNCED:
+                raise AppError(ErrorCode.SYNC_REQUIRED)
+        try:
+            verification = await self._anki.setup_apply(plan_hash)
+        except AppError as exc:
+            # Those two refuse before any write; any other may follow a field already added
+            if field_change and exc.code not in _REFUSED_BEFORE_WRITES:
+                self._sync.set_full_sync_required(True)
+            raise
+        if field_change:
+            self._sync.set_full_sync_required(True)
+        result = _result(verification, full_sync_required=field_change)
         self._last = result  # a run that raised isn't recorded
         return result

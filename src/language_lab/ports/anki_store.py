@@ -34,8 +34,9 @@ class AnkiStore(Protocol):
 
         Re-reads and diffs Anki, and raises `AppError(PLAN_CHANGED)` before any write when
         `plan_hash` isn't the fresh plan's, then `AppError(SETUP_REQUIRED)` when Anki was set
-        up by a newer release (`newer_schema`). Runs every Create and Repair item (Migrate waits for
-        entry 9); a write that fails doesn't end the run. Returns a fresh diff as the
+        up by a newer release (`newer_schema`). Runs every Create and Repair item, then, for a
+        Migrate item, the migrations and the SchemaVersion rewrite of older notes; a write that
+        fails doesn't end the run. Returns a fresh diff as the
         verification: its items are the discrepancies, with its fresh SetupState. Raises
         `AppError(ANKI_UNAVAILABLE | ANKI_BUSY)`.
         """
