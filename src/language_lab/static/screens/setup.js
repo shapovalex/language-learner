@@ -4,9 +4,18 @@
 // until the run ends, then a verification banner. The run is the server's: leaving doesn't
 // cancel it, and coming back reads /api/setup/apply/status (polled while it runs). When the
 // plan's `state` is `newer_schema` (AD-19), a blocking alert takes the change list's place and
-// Apply setup is hidden.
+// Apply setup is hidden. After a field change, readiness's `fullSync` check fails: a warning
+// tile asks for an upload in Anki Desktop until "I've uploaded" clears it (AD-17); it never
+// disables Apply.
 
-import { applySetup, getApplyStatus, getHealth, getPlan, getReadiness } from "../api.js";
+import {
+  applySetup,
+  fullSyncUploaded,
+  getApplyStatus,
+  getHealth,
+  getPlan,
+  getReadiness,
+} from "../api.js";
 
 const SVG_NS = "http://www.w3.org/2000/svg";
 
@@ -33,6 +42,7 @@ const CHECKS = {
 const KINDS = [
   ["deck", "Decks"],
   ["noteType", "Note types"],
+  ["notes", "Notes"],
   ["templates", "Card templates and CSS"],
   ["preset", "Deck options"],
 ];
@@ -42,6 +52,13 @@ const ACTIONS = [
   ["migrate", "Migrate"],
 ];
 const UNMANAGED_KINDS = { deck: "Deck", noteType: "Note type" };
+const NEEDS_FULL_SYNC = "Needs a full sync afterwards.";
+
+// Shown only while the `fullSync` check fails, as a warning: not a failing check (AD-17)
+const FULL_SYNC = "fullSync";
+const FULL_SYNC_TITLE = "Full sync required";
+const FULL_SYNC_FIX = "Open Anki Desktop, sync, and choose Upload to AnkiWeb.";
+const FULL_SYNC_UPLOADED = "I've uploaded";
 
 const APPLY_LABEL = "Apply setup";
 const FIX_REASON = "Fix the failing check to continue.";
@@ -53,6 +70,7 @@ const STATUS_POLL_MS = 1000;
 const DISCREPANCY_KINDS = {
   deck: "Deck",
   noteType: "Note type",
+  notes: "Notes",
   templates: "Card templates and CSS",
   preset: "Deck options",
 };
@@ -65,6 +83,7 @@ const EXPECTED_FOUND = {
   "repair:preset":
     "Expected sibling burying off on every Study and Pronunciation deck; found it on, or a deck on another preset.",
   "migrate:noteType": "Expected LanguageLab's fields; found different ones.",
+  "migrate:notes": "Expected every note at LanguageLab's schema version; found older ones.",
 };
 
 function element(tag, className, text) {
@@ -109,13 +128,34 @@ function subtitle(prefix) {
   return node;
 }
 
-function readinessCard(checks, actions) {
+// The Full sync required warning: title, fix, and "I've uploaded"
+function fullSyncTile(onUploaded) {
+  const item = element("li", "readiness-item");
+  const tile = element("div", "readiness-tile readiness-tile-warning");
+  tile.append(icon(false), FULL_SYNC_TITLE);
+  const hint = element("p", "readiness-fix-hint readiness-fix-hint-warning", FULL_SYNC_FIX);
+  hint.setAttribute("role", "alert");
+  const uploaded = element("button", "button button-secondary", FULL_SYNC_UPLOADED);
+  uploaded.type = "button";
+  uploaded.addEventListener("click", () => {
+    uploaded.disabled = true;
+    onUploaded();
+  });
+  item.append(tile, hint, uploaded);
+  return item;
+}
+
+function readinessCard(checks, actions, onUploaded) {
   const card = element("section", "setup-card");
   const heading = element("h2", "setup-card-title", "Ready to go?");
   heading.id = "readiness-heading";
   const list = element("ul", "readiness-tiles");
   list.setAttribute("aria-labelledby", heading.id);
   for (const { id, ok } of checks) {
+    if (id === FULL_SYNC) {
+      if (!ok) list.append(fullSyncTile(onUploaded));
+      continue;
+    }
     const copy = CHECKS[id];
     if (!copy) continue; // a check this client doesn't know yet
     const item = element("li", "readiness-item");
@@ -138,11 +178,15 @@ function changeRows(items) {
   const rows = [];
   for (const [kind, label] of KINDS) {
     for (const [action, word] of ACTIONS) {
-      const names = items.filter((i) => i.kind === kind && i.action === action).map((i) => i.name);
-      if (names.length === 0) continue;
+      const group = items.filter((i) => i.kind === kind && i.action === action);
+      if (group.length === 0) continue;
+      const names = group.map((i) => i.name);
       const row = element("li", "change-row");
       const text = element("span", "change-row-text", label);
       text.append(element("span", "change-row-detail", ` · ${names.join(", ")}`));
+      if (group.some((i) => i.requiresFullSync)) {
+        text.append(element("span", "change-row-full-sync", NEEDS_FULL_SYNC));
+      }
       row.append(text, element("span", "chip chip-accent", `${word} ${names.length}`));
       rows.push(row);
     }
@@ -334,7 +378,8 @@ export function mount(root) {
       actions.replaceChildren();
       return;
     }
-    const failing = checks.some((check) => !check.ok);
+    // Full sync required is a warning, not a failing check: Apply stays enabled
+    const failing = checks.some((check) => check.id !== FULL_SYNC && !check.ok);
     const disabled = failing || view === "applying";
     applyButton.disabled = disabled;
     applyButton.classList.toggle("button-disabled", disabled);
@@ -410,7 +455,9 @@ export function mount(root) {
     show("applying");
     applySetup(planHash).then(
       (result) => {
-        if (mounted) show("result", { result });
+        if (!mounted) return;
+        show("result", { result });
+        if (result.fullSyncRequired) loadReadiness(); // brings up the Full sync required tile
       },
       (error) => {
         if (!mounted) return;
@@ -461,17 +508,30 @@ export function mount(root) {
     },
   );
 
-  getReadiness().then(
-    ({ prefix, checks }) => {
-      if (!mounted) return;
-      state.checks = checks;
-      readiness.replaceChildren(subtitle(prefix), readinessCard(checks, actions));
-      updateActions();
-    },
-    (error) => {
-      if (mounted) readiness.replaceChildren(inlineError(errorMessage(error)));
-    },
-  );
+  function loadReadiness() {
+    getReadiness().then(
+      ({ prefix, checks }) => {
+        if (!mounted) return;
+        state.checks = checks;
+        readiness.replaceChildren(subtitle(prefix), readinessCard(checks, actions, uploaded));
+        updateActions();
+      },
+      (error) => {
+        if (mounted) readiness.replaceChildren(inlineError(errorMessage(error)));
+      },
+    );
+  }
+
+  // "I've uploaded": clear Full sync required, then read readiness again (on a failure too,
+  // which brings the tile back with its button)
+  function uploaded() {
+    const reload = () => {
+      if (mounted) loadReadiness();
+    };
+    fullSyncUploaded().then(reload, reload);
+  }
+
+  loadReadiness();
 
   getPlan().then(
     (body) => {

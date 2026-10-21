@@ -31,6 +31,7 @@ from language_lab.adapters.anki.client import AnkiConnectClient
 from language_lab.adapters.anki.guard import PrefixGuard
 from language_lab.adapters.anki.lock import AnkiLock
 from language_lab.adapters.anki.manifest import build_manifest
+from language_lab.adapters.anki.migrations import build_migrations
 from language_lab.adapters.anki.setup_gate import SetupGate
 from language_lab.adapters.anki.store import AnkiConnectStore
 from language_lab.domain.errors import AppError, ErrorCode, error_envelope
@@ -110,13 +111,14 @@ async def _on_http_error(request: Request, exc: Exception) -> Response:
 
 
 # Domain failures that mean a dependency is down or busy, or that the request's premise is
-# stale (a Setup plan Anki no longer has) or unmet (a write while Setup isn't ready, AD-19),
-# not a fault in the server
+# stale (a Setup plan Anki no longer has) or unmet (a write while Setup isn't ready, AD-19; a
+# field change whose Sync didn't end OK, AD-17), not a fault in the server
 _APP_ERROR_STATUS = {
     ErrorCode.ANKI_UNAVAILABLE: 503,
     ErrorCode.ANKI_BUSY: 503,
     ErrorCode.PLAN_CHANGED: 409,
     ErrorCode.SETUP_REQUIRED: 409,
+    ErrorCode.SYNC_REQUIRED: 409,
 }
 
 
@@ -284,9 +286,15 @@ def create_app(
         anki_client = AnkiConnectClient(
             settings.anki_connect_url, guard=PrefixGuard(manifest), gate=gate
         )
-        anki_store = AnkiConnectStore(anki_client, AnkiLock(), manifest=manifest, gate=gate)
+        anki_store = AnkiConnectStore(
+            anki_client,
+            AnkiLock(),
+            manifest=manifest,
+            gate=gate,
+            migrations=build_migrations(settings.anki_prefix),
+        )
 
-    # Later entries inject `sync` as the SyncRequester port; no feature imports it (AD-1, AD-13)
+    # Features take `sync` as the SyncRequester port (Setup below); none imports it (AD-1, AD-13)
     sync = SyncService(anki_store, enabled=not settings.dev)
     scheduler = SyncScheduler(sync, clock, enabled=not settings.dev)
 
@@ -327,6 +335,7 @@ def create_app(
 
     setup = SetupService(
         anki_store,
+        sync=sync,
         prefix=settings.anki_prefix,
         azure_configured=bool(
             settings.azure_speech_key.get_secret_value() and settings.azure_speech_region

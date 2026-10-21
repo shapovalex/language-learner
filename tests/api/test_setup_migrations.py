@@ -30,10 +30,6 @@ from tests.fakes.anki_store import FakeAnkiStore
 from tests.support.fixtures.settings import SettingsFactory
 from tests.support.hosts import app_client
 
-RED_PHASE = pytest.mark.skip(
-    reason="ATDD red phase, story 2.9: un-skip with the full-sync steps in Setup"
-)
-
 PLAN = "/api/setup/plan"
 APPLY = "/api/setup/apply"
 READINESS = "/api/setup/readiness"
@@ -69,7 +65,6 @@ def full_sync_ok(client: TestClient) -> bool | None:
     return next((c.get("ok") for c in checks if c.get("id") == "fullSync"), None)
 
 
-@RED_PHASE
 @pytest.mark.p0
 def test_each_plan_row_says_whether_it_requires_a_full_sync(
     settings_factory: SettingsFactory,
@@ -77,7 +72,7 @@ def test_each_plan_row_says_whether_it_requires_a_full_sync(
     """AC-2: `requiresFullSync` is true for the Migrate noteType row only."""
     items = (
         *FIELD_CHANGE,
-        PlanItem(PlanAction.MIGRATE, ResourceKind("notes"), VOCABULARY),
+        PlanItem(PlanAction.MIGRATE, ResourceKind.NOTES, VOCABULARY),
         *NO_FIELD_CHANGE,
     )
     client, _ = client_over(settings_factory, items)
@@ -87,7 +82,6 @@ def test_each_plan_row_says_whether_it_requires_a_full_sync(
     assert [row.get("requiresFullSync") for row in rows] == [True, False, False, False]
 
 
-@RED_PHASE
 @pytest.mark.p1
 @pytest.mark.parametrize(
     ("items", "syncs"), [(FIELD_CHANGE, 1), (NO_FIELD_CHANGE, 0)], ids=["field-change", "none"]
@@ -104,7 +98,6 @@ def test_only_a_field_changing_plan_syncs_before_it_applies(
     assert store.applies == 1
 
 
-@RED_PHASE
 @pytest.mark.p0
 @pytest.mark.parametrize("outcome", [SyncOutcome.AUTH_REQUIRED, SyncOutcome.ANKIWEB_UNREACHABLE])
 def test_a_sync_that_fails_before_a_field_change_refuses_the_apply(
@@ -120,7 +113,6 @@ def test_a_sync_that_fails_before_a_field_change_refuses_the_apply(
     assert store.apply_calls == 0
 
 
-@RED_PHASE
 @pytest.mark.p0
 def test_the_apply_result_says_a_full_sync_is_required(settings_factory: SettingsFactory) -> None:
     """AC-12: after a field-changing plan, `fullSyncRequired` tells the screen to say upload."""
@@ -132,7 +124,6 @@ def test_the_apply_result_says_a_full_sync_is_required(settings_factory: Setting
     assert response.status_code == 200
 
 
-@RED_PHASE
 @pytest.mark.p0
 def test_readiness_reports_full_sync_required_after_a_field_changing_apply(
     settings_factory: SettingsFactory,
@@ -147,7 +138,6 @@ def test_readiness_reports_full_sync_required_after_a_field_changing_apply(
     assert [before, after] == [True, False]
 
 
-@RED_PHASE
 @pytest.mark.p0
 def test_the_user_clears_full_sync_required_once_uploaded(
     settings_factory: SettingsFactory,
@@ -160,3 +150,57 @@ def test_the_user_clears_full_sync_required_once_uploaded(
 
     assert full_sync_ok(client) is True
     assert response.status_code == 204
+
+
+# ---- secondary branches ------------------------------------------------------------------
+
+
+@pytest.mark.p1
+def test_dev_mode_applies_a_field_change_without_a_sync(
+    settings_factory: SettingsFactory,
+) -> None:
+    """AC-11: with Sync disabled (dev mode) the plan applies, and a full sync is still flagged."""
+    dev_prefix = "LanguageLabDev"
+    items = (PlanItem(PlanAction.MIGRATE, ResourceKind.NOTE_TYPE, f"{dev_prefix} Capture"),)
+    store = FakeAnkiStore(preview=SetupPreview(items=items, state=SetupState.NEEDS_MIGRATION))
+    settings = settings_factory(dev=True, anki_prefix=dev_prefix)
+    client = app_client(create_app(settings, anki_store=store), settings)
+
+    response = apply_plan(client, items)
+
+    assert response.status_code == 200
+    assert response.json()["fullSyncRequired"] is True
+    assert (store.sync_calls, store.applies) == (0, 1)
+    assert full_sync_ok(client) is False
+
+
+@pytest.mark.p1
+def test_anki_unavailable_during_the_sync_refuses_the_apply(
+    settings_factory: SettingsFactory,
+) -> None:
+    """AC-11: a Sync that can't reach Anki refuses the field change the same way."""
+    client, store = client_over(settings_factory, FIELD_CHANGE)
+    store.outcome = SyncOutcome.ANKI_UNAVAILABLE
+
+    response = apply_plan(client, FIELD_CHANGE)
+
+    assert response.status_code == 409
+    assert response.json()["error"]["code"] == "sync_required"
+    assert store.apply_calls == 0
+    assert full_sync_ok(client) is True
+
+
+@pytest.mark.p1
+def test_a_stale_hash_is_refused_as_plan_changed_without_a_sync(
+    settings_factory: SettingsFactory,
+) -> None:
+    """AC-11: a hash the field-changing preview no longer has gets `plan_changed`, not a Sync
+    and `sync_required`.
+    """
+    client, store = client_over(settings_factory, FIELD_CHANGE, outcome=SyncOutcome.AUTH_REQUIRED)
+
+    response = client.post(APPLY, json={"planHash": "0" * 64})
+
+    assert response.status_code == 409
+    assert response.json()["error"]["code"] == "plan_changed"
+    assert store.sync_calls == 0

@@ -1,9 +1,9 @@
 """Story 2.1: GET /api/setup/readiness reports each check on its own (FR-5).
 
 Decided 2026-10-14: the body is {"prefix", "checks": [{"id", "ok"}]}, with the checks in tile
-order (ankiConnect, azure, openrouter), and the Setup screen owns the copy. Azure counts as
-configured only when both its key and its region are set. Keys are checked as configured, with
-no live call (epic decision 2026-10-08).
+order (ankiConnect, azure, openrouter, then fullSync from story 2.9), and the Setup screen owns
+the copy. Azure counts as configured only when both its key and its region are set. Keys are
+checked as configured, with no live call (epic decision 2026-10-08).
 
 `create_app(settings, anki_store=...)` takes the AnkiStore, so these tests pass the in-memory
 fake from tests/fakes/ and never reach Anki.
@@ -34,8 +34,8 @@ def configured_keys() -> dict[str, str]:
 
 
 def checks(*, anki: bool = True, azure: bool = True, openrouter: bool = True) -> list:
-    """The expected `(id, ok)` pairs, in tile order."""
-    return [("ankiConnect", anki), ("azure", azure), ("openrouter", openrouter)]
+    """The expected `(id, ok)` pairs, in tile order. No field change ran, so `fullSync` passes."""
+    return [("ankiConnect", anki), ("azure", azure), ("openrouter", openrouter), ("fullSync", True)]
 
 
 @pytest.mark.p0

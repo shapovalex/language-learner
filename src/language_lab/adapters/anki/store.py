@@ -3,6 +3,9 @@ entirely under the Anki lock (AD-5).
 
 With a `SetupGate` shared with the client (AD-19), every SetupState the store computes (the
 startup `setup_state()`, each preview, each apply's verification) is set in the gate.
+
+`migrations` (adapters/anki/migrations.py) run only inside a confirmed apply whose plan has a
+Migrate item, after its Create and Repair items (FR-7, AD-3).
 """
 
 import asyncio
@@ -11,10 +14,11 @@ from typing import Any
 from language_lab.adapters.anki.client import AnkiConnectClient
 from language_lab.adapters.anki.lock import AnkiLock
 from language_lab.adapters.anki.manifest import Manifest
+from language_lab.adapters.anki.migrations import Migration, run_migrations
 from language_lab.adapters.anki.setup_apply import run_plan
 from language_lab.adapters.anki.setup_gate import SetupGate, read_preview
 from language_lab.domain.errors import AppError, ErrorCode
-from language_lab.domain.setup import SetupPreview, SetupState
+from language_lab.domain.setup import PlanAction, SetupPreview, SetupState
 from language_lab.domain.setup import plan_hash as _plan_hash
 from language_lab.domain.sync import SyncOutcome
 
@@ -47,6 +51,7 @@ class AnkiConnectStore:
         *,
         manifest: Manifest | None = None,
         gate: SetupGate | None = None,
+        migrations: tuple[Migration, ...] = (),
         poll_interval_s: float = POLL_INTERVAL_S,
         sync_budget_s: float = SYNC_BUDGET_S,
     ) -> None:
@@ -54,6 +59,7 @@ class AnkiConnectStore:
         self._lock = lock
         self._manifest = manifest
         self._gate = gate
+        self._migrations = migrations
         self._poll_interval_s = poll_interval_s
         self._sync_budget_s = sync_budget_s
 
@@ -86,8 +92,9 @@ class AnkiConnectStore:
 
     async def setup_apply(self, plan_hash: str) -> SetupPreview:
         """Re-diff, refuse a stale `plan_hash` and then a `newer_schema` Anki before any write,
-        run the plan's Create and Repair items through the client's guarded, ungated path, and
-        verify by a fresh diff, all under one lock hold (AD-3, AD-4, AD-5, AD-19). Each fresh
+        run the plan's Create and Repair items, then, when it has a Migrate item, the migrations
+        and the SchemaVersion rewrite, through the client's guarded, ungated path, and verify by
+        a fresh diff, all under one lock hold (AD-3, AD-4, AD-5, AD-19). Each fresh
         SetupState is set in the gate. Raises
         `AppError(PLAN_CHANGED | SETUP_REQUIRED | ANKI_UNAVAILABLE | ANKI_BUSY)`.
         """
@@ -100,6 +107,8 @@ class AnkiConnectStore:
             if before.state is SetupState.NEWER_SCHEMA:
                 raise AppError(ErrorCode.SETUP_REQUIRED)
             await run_plan(self._client.invoke_setup, manifest, state, before.items)
+            if any(i.action is PlanAction.MIGRATE for i in before.items):
+                await run_migrations(self._client.invoke_setup, manifest, self._migrations, state)
             _, verified = await read_preview(self._client.invoke, manifest)
             self._set_gate(verified)
         return verified

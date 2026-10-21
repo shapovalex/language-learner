@@ -32,6 +32,7 @@ class PlanAction(StrEnum):
 class ResourceKind(StrEnum):
     DECK = "deck"
     NOTE_TYPE = "noteType"
+    NOTES = "notes"  # a note type's notes, by its name: their SchemaVersion (entry 9)
     TEMPLATES = "templates"  # a note type's card templates and CSS together
     PRESET = "preset"
 
@@ -41,6 +42,13 @@ class PlanItem:
     action: PlanAction
     kind: ResourceKind
     name: str  # the deck path, the note type, or the preset (the Prefix)
+
+    @property
+    def requires_full_sync(self) -> bool:
+        """A field change (Migrate noteType) needs a one-way full sync (AD-3, AD-17). A
+        property, so it changes neither item equality nor the plan hash.
+        """
+        return self.action is PlanAction.MIGRATE and self.kind is ResourceKind.NOTE_TYPE
 
 
 @dataclass(frozen=True)

@@ -17,12 +17,15 @@ AD15_CODES = {
     "payload_too_large",
     "internal_error",
     "plan_changed",  # story 2.7, decided with the user on 2026-10-21
+    "sync_required",  # story 2.9, decided with the user on 2026-10-21
 }
 
 
 @pytest.mark.p1
 def test_error_code_enum_holds_the_ad15_codes() -> None:
-    """AC-1: domain/errors.py defines the AD-15 code enum (story 2.7 adds `plan_changed`)."""
+    """AC-1: domain/errors.py defines the AD-15 code enum (story 2.7 adds `plan_changed`, story
+    2.9 `sync_required`).
+    """
     from language_lab.domain.errors import ErrorCode
 
     assert {code.value for code in ErrorCode} == AD15_CODES
