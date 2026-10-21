@@ -108,8 +108,13 @@ async def _on_http_error(request: Request, exc: Exception) -> Response:
     return _envelope_response(request, exc.status_code, code, exc.headers)
 
 
-# Domain failures that mean a dependency is down or busy, not a fault in the request
-_APP_ERROR_STATUS = {ErrorCode.ANKI_UNAVAILABLE: 503, ErrorCode.ANKI_BUSY: 503}
+# Domain failures that mean a dependency is down or busy, or that the request's premise is
+# stale (a Setup plan Anki no longer has), not a fault in the server
+_APP_ERROR_STATUS = {
+    ErrorCode.ANKI_UNAVAILABLE: 503,
+    ErrorCode.ANKI_BUSY: 503,
+    ErrorCode.PLAN_CHANGED: 409,
+}
 
 
 async def _on_app_error(request: Request, exc: Exception) -> Response:
@@ -287,6 +292,7 @@ def create_app(
         finally:
             try:
                 await scheduler.stop()
+                await setup.aclose()
                 await sync.aclose()
             finally:
                 if anki_client is not None:

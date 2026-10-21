@@ -15,9 +15,6 @@ user (2026-10-21): that is a failed step, the run goes on, and verify reports it
 
 Anki is the in-memory collection in tests/support/anki_state.py, answering reads and, with
 `writes=True`, the writes apply sends, in the reply shapes recorded in tests/fixtures/anki/.
-
-Skipped until `setup_apply` exists. Un-skip a test, watch it fail, then implement. Hoist the
-in-body imports once it's green.
 """
 
 import copy
@@ -46,10 +43,6 @@ from tests.support.anki_state import (
     sent_writes,
     set_path,
     stock_collection,
-)
-
-RED_PHASE = pytest.mark.skip(
-    reason="ATDD red phase, story 2.7: un-skip with AnkiConnectStore.setup_apply()"
 )
 
 PREFIX = "LanguageLab"
@@ -143,7 +136,6 @@ def under_prefix(collection: Collection, prefix: str) -> dict[str, Any]:
     return copy.deepcopy({"decks": decks, "models": models, "presets": presets})
 
 
-@RED_PHASE
 @pytest.mark.p0
 def test_apply_refuses_a_stale_plan_hash_before_any_write() -> None:
     """AC-1: a plan hash the fresh diff no longer has is `plan_changed`, and nothing is written."""
@@ -248,7 +240,6 @@ APPLY_CASES: dict[str, tuple[Callable[[], Collection], set[tuple[str, str, str]]
 }
 
 
-@RED_PHASE
 @pytest.mark.p0
 @pytest.mark.parametrize(("build", "expected"), APPLY_CASES.values(), ids=APPLY_CASES.keys())
 def test_apply_runs_the_plan_and_verifies_it_with_a_fresh_diff(
@@ -278,7 +269,6 @@ class SpyGuard(PrefixGuard):
         await super().check(action, params, lookup)
 
 
-@RED_PHASE
 @pytest.mark.p0
 def test_apply_writes_only_through_the_prefix_guard() -> None:
     """AC-3: every write apply sends went through the guard, and Dev beside it is untouched."""
@@ -328,7 +318,6 @@ def _preset_create() -> tuple[Collection, dict[str, Any]]:
 PRESET_OWN_KEYS = ("id", "name", "mod", "usn", *BURY_FLAGS)
 
 
-@RED_PHASE
 @pytest.mark.p0
 @pytest.mark.parametrize("build", [_preset_repair, _preset_create], ids=["repair", "create"])
 def test_apply_sets_only_the_bury_flags_and_assigns_the_preset_to_managed_decks(
@@ -357,7 +346,6 @@ def test_apply_sets_only_the_bury_flags_and_assigns_the_preset_to_managed_decks(
     }
 
 
-@RED_PHASE
 @pytest.mark.p1
 def test_a_refused_preset_save_is_reported_by_verify_and_the_rest_still_applies() -> None:
     """AC-5: `saveDeckConfig` answering `false` (spike 2.2) leaves the preset as the one
@@ -380,3 +368,27 @@ def test_a_refused_preset_save_is_reported_by_verify_and_the_rest_still_applies(
     assert collection.models[VOCABULARY].templates["Produce"]["Front"] == produce.front
     assert "saveDeckConfig" in sent_writes(sent)
     assert dotted(collection.presets[PREFIX], "rev.bury") is True
+
+
+@pytest.mark.p1
+def test_a_refused_preset_move_skips_the_save_and_verify_reports_the_preset() -> None:
+    """AC-5: `setDeckConfigId` answering `false` leaves the decks on Default; the save, which the
+    guard would refuse, isn't sent, and verify reports the preset instead of the run failing.
+    """
+    collection = managed_collection(MANIFEST)
+    _no_preset(collection)
+    replies = collection_replies(collection, writes=True)
+    replies["setDeckConfigId"] = {"result": False, "error": None}
+    replay = AnkiConnectReplay(replies)
+    client = AnkiConnectClient(ANKI_URL, transport=replay.transport, guard=PrefixGuard(MANIFEST))
+    store = AnkiConnectStore(client, AnkiLock(), manifest=MANIFEST)
+
+    async def confirm_and_apply() -> Any:
+        preview = await store.setup_preview()
+        return await store.setup_apply(plan_hash(preview.items))
+
+    outcome = settle(confirm_and_apply())
+
+    assert as_tuples(outcome.items) == {("create", "preset", PREFIX)}
+    assert "setDeckConfigId" in sent_writes(replay.sent)
+    assert "saveDeckConfig" not in sent_writes(replay.sent)

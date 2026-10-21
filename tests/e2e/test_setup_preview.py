@@ -10,7 +10,8 @@ Grouped rows were decided with the user on 2026-10-21. Rows are read-only.
 An empty plan shows the info callout "Nothing to change. Everything LanguageLab manages is
 already set up." instead of the list. Unrecognized decks and note types under the Prefix are
 listed, read-only, under "Not managed by LanguageLab". The footer says to study
-"<Prefix>::Study", not the root deck. Apply setup is entry 7's, so no button exists yet.
+"<Prefix>::Study", not the root deck. Apply setup (story 2.7) sits in the readiness card, never
+in the change list, and doesn't show for an empty plan.
 
 The browser stubs readiness and the plan, so this checks rendering only. The plan logic is in
 tests/integration/test_anki_setup_preview.py and the route in tests/api/test_setup_plan.py.

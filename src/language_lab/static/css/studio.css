@@ -246,6 +246,20 @@ main h1 {
   color: var(--color-ink);
 }
 
+.button-primary {
+  background: var(--color-accent);
+  color: var(--color-on-accent);
+}
+
+/* Disabled: border fill, muted text, label unchanged; a muted reason sits to its left */
+.button-disabled,
+.button:disabled {
+  background: var(--color-border);
+  color: var(--color-ink-muted);
+  box-shadow: none;
+  cursor: not-allowed;
+}
+
 /* Alert dialog, unsaved-changes variant: no icon disc, no chips. A native modal <dialog>, so it
    sits in the top layer over its own backdrop at every width (the .scrim is phone-only). */
 .alert-dialog {
@@ -562,8 +576,136 @@ main h1 {
   font-size: var(--font-size-label);
 }
 
+/* Apply setup, at the end of the readiness card, with the disabled reason to its left */
+.setup-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: flex-end;
+  gap: var(--space-3) var(--space-6);
+}
+
+.setup-actions:empty {
+  display: none;
+}
+
+.setup-actions-reason {
+  color: var(--color-ink-muted);
+  font-size: var(--font-size-body-sm);
+}
+
+/* Progress card: white card, accent spinner arc, one line (DESIGN.md Status) */
+.progress-card {
+  display: flex;
+  align-items: center;
+  gap: var(--space-5);
+  margin: 0 0 var(--space-7);
+  padding: 20px;
+  border-radius: var(--radius-card);
+  background: var(--color-surface);
+  font-weight: 600;
+}
+
+.progress-card::before {
+  content: "";
+  flex: none;
+  width: 22px;
+  height: 22px;
+  border: 3px solid transparent;
+  border-top-color: var(--color-accent);
+  border-right-color: var(--color-accent);
+  border-radius: var(--radius-full);
+  animation: skeleton-spin 0.9s linear infinite;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .progress-card::before {
+    animation: none;
+  }
+}
+
+/* Verification banner, verified: role="status", accent disc with a white check */
+.verification-banner-verified {
+  display: flex;
+  align-items: center;
+  gap: var(--space-6);
+  margin: 0 0 var(--space-7);
+  padding: 18px 20px;
+  border-radius: var(--radius-card);
+  background: var(--color-accent-soft);
+  color: var(--color-on-accent-soft);
+}
+
+.verification-banner-disc {
+  display: flex;
+  flex: none;
+  align-items: center;
+  justify-content: center;
+  width: 44px;
+  height: 44px;
+  border-radius: var(--radius-full);
+  background: var(--color-accent);
+}
+
+.verification-banner-disc::before {
+  content: "";
+  width: 8px;
+  height: 15px;
+  margin-bottom: 4px;
+  border-right: 3px solid var(--color-on-accent);
+  border-bottom: 3px solid var(--color-on-accent);
+  transform: rotate(45deg);
+}
+
+.verification-banner-title {
+  font-weight: 700;
+}
+
+.verification-banner-detail {
+  font-size: var(--font-size-body-sm);
+}
+
+/* Verification banner, discrepancies: role="alert", change-row items, Run Setup again */
+.verification-banner-discrepancy {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-5);
+  margin: 0 0 var(--space-7);
+  padding: 20px;
+  border: 2px solid var(--color-feedback-poor-strong);
+  border-radius: var(--radius-card);
+  background: var(--color-surface);
+}
+
+.verification-banner-discrepancy .verification-banner-title {
+  color: var(--color-danger);
+}
+
+.verification-banner-discrepancy .verification-banner-detail,
+.verification-banner-found {
+  color: var(--color-ink-muted);
+}
+
+.verification-banner-found {
+  display: block;
+  font-size: var(--font-size-body-sm);
+  font-weight: 400;
+}
+
+.verification-banner-actions {
+  display: flex;
+  justify-content: flex-end;
+}
+
 .setup-version {
   color: var(--color-ink-muted);
+}
+
+@media (max-width: 599px) {
+  .setup-actions .button-primary,
+  .verification-banner-actions .button-primary {
+    width: 100%;
+  }
 }
 
 @media (min-width: 600px) {
