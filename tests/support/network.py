@@ -88,3 +88,15 @@ def record_requests(page: Page) -> list[str]:
 
     page.on("request", on_request)
     return urls
+
+
+def record_json_bodies(page: Page, path: str) -> list[Any]:
+    """Return a list that fills with the JSON body of every non-GET request to `path`."""
+    bodies: list[Any] = []
+
+    def on_request(request: Request) -> None:
+        if request.method != "GET" and request.url.endswith(path):
+            bodies.append(request.post_data_json)
+
+    page.on("request", on_request)
+    return bodies

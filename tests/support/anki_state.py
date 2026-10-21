@@ -6,8 +6,10 @@ through `collection_replies()` into an `AnkiConnectReplay`.
 
 The reply shapes are the recorded ones from tests/fixtures/anki/ (spike 2.2): a preset is the
 recorded `getDeckConfig` result with its id, name and bury flags replaced, and a full model is
-shaped like the recorded `createModel` result. Only reads are answered. A write action gets
-AnkiConnect's "unsupported action" error, and the replay's `.sent` shows that it was sent.
+shaped like the recorded `createModel` result. By default only reads are answered: a write
+action gets AnkiConnect's "unsupported action" error, and the replay's `.sent` shows that it was
+sent. With `writes=True` the collection also answers the writes Setup's apply sends
+(`WRITE_ACTIONS`) and changes itself the way AnkiConnect changes Anki (story 2.7).
 """
 
 import copy
@@ -45,6 +47,21 @@ READ_ACTIONS = frozenset(
 )
 
 
+# Every write the simulator answers with `collection_replies(..., writes=True)` (story 2.7)
+WRITE_ACTIONS = frozenset(
+    {
+        "createDeck",
+        "createModel",
+        "updateModelTemplates",
+        "updateModelStyling",
+        "modelTemplateAdd",
+        "cloneDeckConfigId",
+        "setDeckConfigId",
+        "saveDeckConfig",
+    }
+)
+
+
 @dataclass
 class Model:
     fields: list[str]
@@ -55,7 +72,8 @@ class Model:
 @dataclass
 class Collection:
     decks: dict[str, str] = field(default_factory=dict)  # deck name -> its preset's name
-    presets: dict[str, dict[str, Any]] = field(default_factory=dict)  # name -> deck config
+    # a key (the preset's name, unless two share one) -> deck config
+    presets: dict[str, dict[str, Any]] = field(default_factory=dict)
     models: dict[str, Model] = field(default_factory=dict)
 
 
@@ -187,17 +205,124 @@ def _answer(collection: Collection, action: str, params: dict[str, Any]) -> dict
     return dict(UNSUPPORTED)
 
 
-def collection_replies(collection: Collection) -> dict[str, StubReply]:
-    """Replies for `AnkiConnectReplay`: every read in `READ_ACTIONS`, `multi` included."""
+def _preset_key(collection: Collection, config_id: Any) -> str | None:
+    """The key of the preset whose config has `config_id`."""
+    for key, config in collection.presets.items():
+        if config["id"] == config_id:
+            return key
+    return None
+
+
+def _answer_write(
+    collection: Collection, action: str, params: dict[str, Any], *, refuse_save: bool
+) -> dict[str, Any]:
+    """A write as AnkiConnect v6 answers it (spike 2.2 reply shapes), applied to `collection`."""
+    models, decks, presets = collection.models, collection.decks, collection.presets
+    match action:
+        case "createDeck":
+            # Anki creates missing parents too, on the Default preset (config id 1)
+            parts = params["deck"].split("::")
+            for depth in range(1, len(parts) + 1):
+                decks.setdefault("::".join(parts[:depth]), DEFAULT_PRESET)
+            return _ok(next(_ids))
+        case "createModel":
+            name = params["modelName"]
+            if name in models:
+                return _error("Model name already exists")
+            models[name] = Model(
+                fields=list(params["inOrderFields"]),
+                templates={
+                    t["Name"]: {"Front": t["Front"], "Back": t["Back"]}
+                    for t in params["cardTemplates"]
+                },
+                css=params.get("css", ""),
+            )
+            return _ok(_full_model(name, models[name]))
+        case "updateModelTemplates" | "updateModelStyling":
+            target = params["model"]
+            model = models.get(target.get("name", ""))
+            if model is None:
+                return _error(f"model was not found: {target.get('name')}")
+            if action == "updateModelStyling":
+                model.css = target["css"]
+                return _ok(None)
+            # AnkiConnect updates the card templates that exist and ignores any other name
+            for card, sides in target.get("templates", {}).items():
+                if card in model.templates:
+                    model.templates[card].update(
+                        {side: sides[side] for side in ("Front", "Back") if side in sides}
+                    )
+            return _ok(None)
+        case "modelTemplateAdd":
+            model = models.get(params.get("modelName", ""))
+            template = params["template"]
+            if model is None:
+                return _error(f"model was not found: {params.get('modelName')}")
+            if template["Name"] in model.templates:
+                return _error("template name already exists")
+            model.templates[template["Name"]] = {
+                "Front": template["Front"],
+                "Back": template["Back"],
+            }
+            return _ok(None)
+        case "cloneDeckConfigId":
+            # Without `cloneFrom` Anki clones config id 1, its Default preset
+            clone_from = params.get("cloneFrom")
+            source = DEFAULT_PRESET if clone_from is None else _preset_key(collection, clone_from)
+            if source is None:
+                return _ok(False)
+            config = copy.deepcopy(presets[source])
+            config["id"] = next(_ids)
+            config["name"] = params["name"]
+            # Anki allows two presets with one name; the second gets its own key here
+            key = (
+                config["name"]
+                if config["name"] not in presets
+                else f"{config['name']}#{config['id']}"
+            )
+            presets[key] = config
+            return _ok(config["id"])
+        case "setDeckConfigId":
+            key = _preset_key(collection, params.get("configId"))
+            targets = params.get("decks", [])
+            if key is None or any(deck not in decks for deck in targets):
+                return _ok(False)
+            for deck in targets:
+                decks[deck] = key
+            return _ok(True)
+        case "saveDeckConfig":
+            config = params["config"]
+            key = _preset_key(collection, config.get("id"))
+            if refuse_save or key is None:
+                return _ok(False)  # as spike 2.2 recorded: `false`, error null, nothing saved
+            presets[key] = copy.deepcopy(config)
+            return _ok(True)
+    return dict(UNSUPPORTED)
+
+
+def collection_replies(
+    collection: Collection, *, writes: bool = False, refuse_save: bool = False
+) -> dict[str, StubReply]:
+    """Replies for `AnkiConnectReplay`: every read in `READ_ACTIONS`, `multi` included.
+
+    `writes=True` also answers `WRITE_ACTIONS`, changing `collection`. `refuse_save=True` makes
+    `saveDeckConfig` answer `false` and save nothing, as it did in spike 2.2 (Q5).
+    """
+
+    def answer(action: str, params: dict[str, Any]) -> dict[str, Any]:
+        if writes and action in WRITE_ACTIONS:
+            return _answer_write(collection, action, params, refuse_save=refuse_save)
+        return _answer(collection, action, params)
 
     def reply_to(action: str) -> Callable[[Any], Any]:
-        return lambda body: _answer(collection, action, body.get("params", {}))
+        return lambda body: answer(action, body.get("params", {}))
 
     def multi(body: Any) -> dict[str, Any]:
         inner = body.get("params", {}).get("actions", [])
-        return _ok([_answer(collection, a["action"], a.get("params", {})) for a in inner])
+        return _ok([answer(a["action"], a.get("params", {})) for a in inner])
 
-    replies: dict[str, StubReply] = {action: reply_to(action) for action in READ_ACTIONS}
+    actions = READ_ACTIONS | WRITE_ACTIONS if writes else READ_ACTIONS
+    replies: dict[str, StubReply] = {action: reply_to(action) for action in actions}
     replies["multi"] = multi
     return replies
 
@@ -222,3 +347,8 @@ def sent_queries(sent: list[Any]) -> list[str]:
         if body.get("action") == "multi":
             bodies += body.get("params", {}).get("actions", [])
     return [b["params"]["query"] for b in bodies if "query" in b.get("params", {})]
+
+
+def sent_writes(sent: list[Any]) -> list[str]:
+    """`sent_actions()` without the reads: every write the adapter sent, in order."""
+    return [action for action in sent_actions(sent) if action not in READ_ACTIONS]

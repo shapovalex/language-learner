@@ -1,0 +1,76 @@
+"""Story 2.7: a confirmed apply runs to completion server-side, even if the client disconnects
+(AD-3; EXPERIENCE.md Progress card: leaving the screen does not cancel the run).
+
+`SetupService.apply(plan_hash)` runs `AnkiStore.setup_apply` in a task the service keeps, and
+the request only awaits it. A disconnect cancels the request, not that task. Decided with the
+user (2026-10-21): `SetupService.apply_status()` reports the run as
+`{"state": "idle" | "running" | "finished", "result": ApplyResult | None}`, so a screen coming
+back can show it.
+
+The store is the fake from tests/fakes/ with `apply_gated=True`, so each `setup_apply` stays in
+flight until `finish_apply()` ends it. Nothing waits in real time.
+
+Skipped until the service and the fake can apply. Un-skip the test, watch it fail, then
+implement. Hoist the in-body imports once it's green.
+"""
+
+import asyncio
+from dataclasses import dataclass
+from typing import Any
+
+import pytest
+
+from language_lab.domain.setup import PlanAction, PlanItem, ResourceKind, SetupPreview, plan_hash
+from language_lab.features.setup.service import SetupService
+from tests.fakes.anki_store import FakeAnkiStore
+from tests.support.aio import settle
+from tests.support.clock import bounded, drain, until
+
+RED_PHASE = pytest.mark.skip(
+    reason="ATDD red phase, story 2.7: un-skip with SetupService.apply() and the fake's apply"
+)
+
+PREFIX = "LanguageLab"
+ITEMS = (
+    PlanItem(PlanAction.CREATE, ResourceKind.DECK, f"{PREFIX}::Study"),
+    PlanItem(PlanAction.REPAIR, ResourceKind.PRESET, PREFIX),
+)
+
+
+@dataclass(frozen=True)
+class Observed:
+    applies: int  # store applies that ran to their end
+    request_cancelled: bool
+    while_running: Any  # apply_status() mid-run
+    after: Any  # apply_status() once the store finished
+
+
+async def disconnect_mid_apply() -> Observed:
+    store = FakeAnkiStore(preview=SetupPreview(items=ITEMS), apply_gated=True)
+    service = SetupService(store, prefix=PREFIX, azure_configured=True, openrouter_configured=True)
+    request = asyncio.create_task(service.apply(plan_hash(ITEMS)))
+    await until(lambda: store.apply_calls == 1)
+    while_running = service.apply_status()
+
+    request.cancel()  # the client went away mid-apply
+    await drain()
+    store.finish_apply()
+    await until(lambda: store.applies == 1)
+    await drain()
+
+    return Observed(store.applies, request.cancelled(), while_running, service.apply_status())
+
+
+@RED_PHASE
+@pytest.mark.p0
+def test_apply_completes_server_side_when_the_client_disconnects() -> None:
+    """AC-6: a cancelled apply request leaves the run going; it finishes and its result is kept."""
+    observed = settle(bounded(disconnect_mid_apply()))
+
+    assert getattr(observed, "applies", None) == 1
+    assert observed.request_cancelled
+    assert observed.while_running == {"state": "running", "result": None}
+    assert observed.after == {
+        "state": "finished",
+        "result": {"verified": True, "planHash": plan_hash(()), "discrepancies": []},
+    }

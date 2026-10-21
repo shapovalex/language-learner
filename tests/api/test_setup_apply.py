@@ -1,0 +1,119 @@
+"""Story 2.7: POST /api/setup/apply and GET /api/setup/apply/status (FR-6, AD-3, AD-15).
+
+POST carries `{"planHash"}`, the hash of the plan the user confirmed. The server re-diffs. A
+hash the fresh plan no longer has is `409 plan_changed`, a code added with the user on
+2026-10-21 with the fixed message below. Otherwise the run goes to its end and the response is
+the verification `{"verified", "planHash", "discrepancies": [{"action", "kind", "name"}]}`,
+where `planHash` is what a fresh preview hashes to while Anki stays as verify found it.
+
+GET /api/setup/apply/status is `{"state": "idle" | "running" | "finished", "result"}`, so a
+screen coming back after leaving can show the run.
+
+The app takes the AnkiStore, so these tests pass the fake from tests/fakes/. After an apply,
+its preview becomes the verification it returned. The apply logic is in
+tests/integration/test_anki_setup_apply.py.
+
+Skipped until the routes exist. Un-skip a test, watch it fail, then implement.
+"""
+
+import pytest
+
+from language_lab.app import create_app
+from language_lab.domain.setup import PlanAction, PlanItem, ResourceKind, SetupPreview, plan_hash
+from tests.fakes.anki_store import FakeAnkiStore
+from tests.support.fixtures.settings import SettingsFactory
+from tests.support.hosts import app_client
+
+RED_PHASE = pytest.mark.skip(
+    reason="ATDD red phase, story 2.7: un-skip with POST /api/setup/apply and its status route"
+)
+
+APPLY = "/api/setup/apply"
+STATUS = "/api/setup/apply/status"
+PLAN = "/api/setup/plan"
+PREFIX = "LanguageLab"
+PLAN_CHANGED_MESSAGE = "Anki changed since the preview. Review the changes and apply again."
+
+ITEMS = (
+    PlanItem(PlanAction.CREATE, ResourceKind.DECK, f"{PREFIX}::Study"),
+    PlanItem(PlanAction.CREATE, ResourceKind.NOTE_TYPE, f"{PREFIX} Capture"),
+    PlanItem(PlanAction.REPAIR, ResourceKind.TEMPLATES, f"{PREFIX} English Vocabulary"),
+    PlanItem(PlanAction.REPAIR, ResourceKind.PRESET, PREFIX),
+)
+LEFT_OVER = (PlanItem(PlanAction.REPAIR, ResourceKind.PRESET, PREFIX),)
+
+
+@RED_PHASE
+@pytest.mark.p0
+@pytest.mark.parametrize(
+    ("verification", "expected"),
+    [
+        (SetupPreview(), {"verified": True, "planHash": plan_hash(()), "discrepancies": []}),
+        (
+            SetupPreview(items=LEFT_OVER),
+            {
+                "verified": False,
+                "planHash": plan_hash(LEFT_OVER),
+                "discrepancies": [{"action": "repair", "kind": "preset", "name": PREFIX}],
+            },
+        ),
+    ],
+    ids=["verified", "discrepancies"],
+)
+def test_apply_route_runs_the_confirmed_plan_and_returns_the_verification(
+    settings_factory: SettingsFactory, verification: SetupPreview, expected: dict
+) -> None:
+    """AC-7: the confirmed hash applies the plan; the body is the verification, and a second
+    preview shows what is left.
+    """
+    store = FakeAnkiStore(preview=SetupPreview(items=ITEMS), verified=verification)
+    settings = settings_factory(anki_prefix=PREFIX)
+    client = app_client(create_app(settings, anki_store=store), settings)
+
+    response = client.post(APPLY, json={"planHash": plan_hash(ITEMS)})
+
+    assert response.status_code == 200
+    assert response.json() == expected
+    assert store.applies == 1
+    assert client.get(PLAN).json()["planHash"] == expected["planHash"]
+
+
+@RED_PHASE
+@pytest.mark.p0
+def test_apply_route_refuses_a_stale_plan_with_409_plan_changed(
+    settings_factory: SettingsFactory,
+) -> None:
+    """AC-8: a hash the fresh plan doesn't have is the 409 `plan_changed` envelope; no apply."""
+    store = FakeAnkiStore(preview=SetupPreview(items=ITEMS))
+    settings = settings_factory(anki_prefix=PREFIX)
+    client = app_client(create_app(settings, anki_store=store), settings)
+
+    response = client.post(APPLY, json={"planHash": plan_hash(ITEMS[:-1])})
+
+    assert response.status_code == 409
+    error = response.json()["error"]
+    assert error["code"] == "plan_changed"
+    assert error["message"] == PLAN_CHANGED_MESSAGE
+    assert error["requestId"]
+    assert getattr(store, "applies", None) == 0
+    assert client.get(PLAN).json()["planHash"] == plan_hash(ITEMS)
+
+
+@RED_PHASE
+@pytest.mark.p1
+def test_apply_status_is_idle_before_a_run_and_finished_with_its_result_after(
+    settings_factory: SettingsFactory,
+) -> None:
+    """AC-9: the status route reports no run, then the finished run with the POST's result."""
+    store = FakeAnkiStore(preview=SetupPreview(items=ITEMS), verified=SetupPreview(items=LEFT_OVER))
+    settings = settings_factory(anki_prefix=PREFIX)
+    client = app_client(create_app(settings, anki_store=store), settings)
+
+    before = client.get(STATUS)
+
+    assert before.json() == {"state": "idle", "result": None}
+    assert before.status_code == 200
+    result = client.post(APPLY, json={"planHash": plan_hash(ITEMS)}).json()
+    after = client.get(STATUS)
+    assert after.status_code == 200
+    assert after.json() == {"state": "finished", "result": result}
