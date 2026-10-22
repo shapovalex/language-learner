@@ -22,6 +22,10 @@ the note's deck, as Anki does. It refuses a note whose first field is empty, and
 with AnkiConnect's error texts. `capture_note()` puts a Capture in the collection as Create
 Capture leaves it.
 
+Delete Capture (story 3.3): with `writes=True`, `deleteNotes` removes the notes and their cards
+and answers `null`, ignoring an id it doesn't have. The reply is hand-built from AnkiConnect's
+documented one until the acceptance run (epic 3, entry 4) checks it against the real Anki.
+
 Migrations (story 2.9): with `writes=True`, `modelFieldAdd` adds the field to the model, at
 `index` or at the end, and to each of its notes, empty.
 
@@ -87,8 +91,8 @@ WRITE_ACTIONS = frozenset(
 )
 
 
-# The note writes the simulator answers with `writes=True` (story 2.8): what features send
-NOTE_WRITE_ACTIONS = frozenset({"addNote", "updateNoteFields"})
+# The note writes the simulator answers with `writes=True` (stories 2.8, 3.3): what features send
+NOTE_WRITE_ACTIONS = frozenset({"addNote", "updateNoteFields", "deleteNotes"})
 
 
 # The writes of the opt-in repairs the simulator answers with `writes=True` (story 2.11)
@@ -343,6 +347,12 @@ def _answer_note_write(
             stored.fields.update(
                 {k: v for k, v in note.get("fields", {}).items() if k in stored.fields}
             )
+            return _ok(None)
+        case "deleteNotes":
+            for note_id in params.get("notes", []):
+                if collection.notes.pop(note_id, None) is not None:
+                    for card_id in _cards_of(collection, note_id):
+                        del collection.cards[card_id]
             return _ok(None)
     return dict(UNSUPPORTED)
 
