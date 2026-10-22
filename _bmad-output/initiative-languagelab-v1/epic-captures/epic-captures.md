@@ -33,10 +33,13 @@ Words met on the iPhone, iPad, or desktop land in Anki as suspended Capture note
 
 - parent — _bmad-output/initiative-languagelab-v1/spec-languagelab/spec-languagelab.md, CAP-3; Assumptions (Capture delete dialog)
 - prd — prd-languagelab/prd-languagelab.md, FR-9, FR-10, FR-13, AC4
-- architecture — architecture-languagelab/architecture-languagelab.md, AD-6 (Create Capture order), AD-8, AD-20
-- ux — ux-languagelab/mockups/S-Captures.dc.html, S-CapturesDesk.dc.html, S-Delete.dc.html
+- architecture — architecture-languagelab/architecture-languagelab.md, AD-4 (Prefix guard, exact-scope queries), AD-5, AD-6 (Create Capture order), AD-8, AD-9 (codec), AD-13, AD-19 (setup gate), AD-20
+- ux — ux-languagelab/EXPERIENCE.md (Captures copy, two-pane layout, alert dialog); ux-languagelab/mockups/S-Captures.dc.html, S-CapturesDesk.dc.html, S-Delete.dc.html
 
 ## Notes
 
 - Decision (2026-10-08): Captures is its own epic so it is usable early.
 - Waits on epic-anki-setup-sync because: it needs the Capture note type and deck in the manifest and AnkiStore with the setup gate.
+- Decision (2026-10-21): five entries, one lane in build order — the Create Capture tracer first (it carries the least certain part: CaptureId lookup without user text in queries, add-then-suspend), then list and detail, delete, acceptance, and refactor sweep; the user asked for fewer than five stories and chose to keep the sweep.
+- Decision (2026-10-21): the Capture compose box calls router.setDirty while unsaved text exists, with a Capture variant of the alert copy; the deferred R-03 iOS swipe-back check runs in this epic's acceptance (entry 4).
+- Decision (2026-10-21): CaptureId lookup queries the exact Capture note-type scope and filters notesInfo in Python; a retried delete of a missing Capture succeeds; suspend and deleteNotes fixtures are hand-built and checked against real responses at acceptance.
