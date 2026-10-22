@@ -2,8 +2,8 @@
 
 The tracer declared `reachable()` and `sync()`; story 2.6 adds `setup_preview()`, story 2.7
 `setup_apply()` and story 2.8 `setup_state()`; story 2.11 gives `setup_apply()` its `repairs`,
-story 3.1 adds `create_capture()`, story 3.2 `list_captures()` and `get_capture()`, and story 3.3
-`delete_capture()`.
+story 3.1 adds `create_capture()`, story 3.2 `list_captures()` and `get_capture()`, story 3.3
+`delete_capture()`, and story 4.1 `save_item()`.
 Later entries add methods to the port, the fake in tests/fakes/ and the AnkiConnect adapter
 together, and these tests keep them aligned.
 """
@@ -70,6 +70,7 @@ def test_anki_store_port_adds_the_setup_preview_read_and_the_fake_matches() -> N
         "list_captures",
         "get_capture",
         "delete_capture",
+        "save_item",
     }
     assert inspect.iscoroutinefunction(AnkiStore.setup_preview)
     assert inspect.get_annotations(AnkiStore.setup_preview, eval_str=True)["return"] is SetupPreview

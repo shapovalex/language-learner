@@ -37,6 +37,10 @@ from language_lab.adapters.anki.store import AnkiConnectStore
 from language_lab.domain.errors import AppError, ErrorCode, error_envelope
 from language_lab.features.captures.routes import captures_router
 from language_lab.features.captures.service import CaptureService
+from language_lab.features.drafts.routes import drafts_router
+from language_lab.features.drafts.service import DraftService
+from language_lab.features.items.routes import items_router
+from language_lab.features.items.service import ItemService
 from language_lab.features.setup.routes import setup_router
 from language_lab.features.setup.service import SetupService
 from language_lab.features.sync.scheduler import Clock, SyncScheduler
@@ -114,9 +118,10 @@ async def _on_http_error(request: Request, exc: Exception) -> Response:
 
 # Domain failures that mean a dependency is down or busy, or that the request's premise is
 # stale (a Setup plan Anki no longer has), names nothing (a Capture not in Anki), or is unmet
-# (a write while Setup isn't ready, AD-19; a field change whose Sync didn't end OK, AD-17), not
-# a fault in the server
+# (a write while Setup isn't ready, AD-19; a field change whose Sync didn't end OK, AD-17), or
+# a body FastAPI can't check itself (a Save's `item` JSON part), not a fault in the server
 _APP_ERROR_STATUS = {
+    ErrorCode.VALIDATION_FAILED: 422,
     ErrorCode.ANKI_UNAVAILABLE: 503,
     ErrorCode.ANKI_BUSY: 503,
     ErrorCode.PLAN_CHANGED: 409,
@@ -348,6 +353,8 @@ def create_app(
     )
     app.include_router(setup_router(setup))
     app.include_router(captures_router(CaptureService(anki_store)))
+    app.include_router(drafts_router(DraftService()))
+    app.include_router(items_router(ItemService(anki_store)))
 
     app.mount(f"/static/{version}", StaticFiles(directory=str(_STATIC)), name="static")
 

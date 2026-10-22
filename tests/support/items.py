@@ -59,8 +59,9 @@ FIELDS = {
 
 def content(wire: dict[str, Any]) -> Any:
     """`wire` validated as `ItemContent` (AD-11)."""
-    from language_lab.domain.items import ItemContent
     from pydantic import TypeAdapter
+
+    from language_lab.domain.items import ItemContent
 
     return TypeAdapter(ItemContent).validate_python(wire)
 

@@ -30,8 +30,6 @@ from tests.support.hosts import app_client, client_over
 from tests.support.items import SENTENCE, VOCABULARY, content
 from tests.support.live_server import closed_port
 
-pytestmark = pytest.mark.skip(reason="ATDD red phase: un-skip when story 4.1 adds features/items")
-
 
 def items_path(language: str) -> str:
     return f"/api/items/{language}"

@@ -17,6 +17,12 @@ CaptureId is matched in Python and never sent (AD-4). Anki ids stay here: a `Cap
 
 Delete Capture (story 3.3) finds the note the same way and deletes it through `client.invoke`,
 so the guard and the gate apply; a CaptureId no Capture holds writes nothing and succeeds.
+
+Save Item (story 4.1) finds the note by ItemId the same way, in the exact scope of the Item's note
+type, and then either updates its fields or adds it in the AD-6 keep order: the note into its
+Pronunciation deck, then cards 0-2 to their Study decks. Every write goes through
+`client.invoke`, so the guard and the gate apply. A failed card move leaves the cards in the
+Pronunciation deck for Setup to report; a retry finds the note and updates it (AD-20).
 """
 
 import asyncio
@@ -25,16 +31,18 @@ from datetime import UTC, datetime
 from typing import Any
 
 from language_lab.adapters.anki.client import AnkiConnectClient
-from language_lab.adapters.anki.codec import decode_field, encode_field
+from language_lab.adapters.anki.codec import decode_field, encode_field, join_alternatives
 from language_lab.adapters.anki.guard import is_int
 from language_lab.adapters.anki.lock import AnkiLock
-from language_lab.adapters.anki.manifest import Manifest
+from language_lab.adapters.anki.manifest import PRONOUNCE_ORD, STUDY_ORDS, Manifest
 from language_lab.adapters.anki.migrations import Migration, run_migrations
 from language_lab.adapters.anki.query import note_query
 from language_lab.adapters.anki.setup_apply import run_plan, run_repairs
 from language_lab.adapters.anki.setup_gate import SCHEMA_VERSION_FIELD, SetupGate, read_preview
 from language_lab.domain.captures import Capture
+from language_lab.domain.catalog import Language
 from language_lab.domain.errors import AppError, ErrorCode
+from language_lab.domain.items import AudioIntent, ItemContent, VocabularyContent
 from language_lab.domain.setup import PlanAction, SetupPreview, SetupState, checked_repairs
 from language_lab.domain.setup import plan_hash as _plan_hash
 from language_lab.domain.sync import SyncOutcome
@@ -52,6 +60,9 @@ _AUTH_REQUIRED_TYPE = "authenticationRequired"
 # The Capture note type's fields (manifest.py) and the stored CreatedAt format (AD-9)
 _TEXT, _CREATED_AT, _CAPTURE_ID = "Text", "CreatedAt", "CaptureId"
 _CREATED_AT_FORMAT = "%Y-%m-%dT%H:%M:%SZ"
+
+# The Item note types' fields Save writes besides the content (manifest.py)
+_AUDIO, _ITEM_ID = "Audio", "ItemId"
 
 
 def _field(info: dict[str, Any], name: str) -> str:
@@ -71,6 +82,31 @@ def _stored_capture(capture_id: str, info: dict[str, Any]) -> Capture:
     except ValueError:
         raise AppError(ErrorCode.ANKI_UNAVAILABLE) from None
     return Capture(capture_id, _field(info, _TEXT), created_at.replace(tzinfo=UTC))
+
+
+def _content_fields(content: ItemContent) -> dict[str, str]:
+    """The note fields `content` fills, as domain values (manifest.py names, AD-10)."""
+    fields = {
+        "Target": content.target,
+        "Russian": content.russian,
+        "RussianAlternatives": join_alternatives(content.russian_alternatives),
+        "Hint": content.hint,
+    }
+    if isinstance(content, VocabularyContent):
+        fields |= {
+            "PartOfSpeech": content.part_of_speech,
+            "Grammar": content.grammar,
+            "Example": content.example,
+            "ExampleRussian": content.example_russian,
+            "Mnemonic": content.mnemonic,
+        }
+    else:
+        fields["Note"] = content.note
+    return fields
+
+
+def _encoded(fields: dict[str, str]) -> dict[str, str]:
+    return {name: encode_field(value) for name, value in fields.items()}
 
 
 def _capture_model(manifest: Manifest) -> str:
@@ -243,11 +279,90 @@ class AnkiConnectStore:
             if note_ids:
                 await self._client.invoke("deleteNotes", notes=note_ids)
 
+    async def save_item(
+        self,
+        item_id: str,
+        language: Language,
+        content: ItemContent,
+        audio: AudioIntent = AudioIntent.KEEP,
+    ) -> None:
+        """Update the note whose decoded ItemId is `item_id` (matched in Python, AD-4), or add
+        it to its Pronunciation deck and move cards 0-2 to their Study decks (AD-6), under one
+        lock hold. Only `keep` is built. Raises
+        `AppError(SETUP_REQUIRED | ANKI_UNAVAILABLE | ANKI_BUSY)`.
+        """
+        if audio is not AudioIntent.KEEP:
+            raise NotImplementedError(f"audio={audio} is epic-reference-audio's")
+        manifest = self._require_manifest()
+        model = manifest.item_note_type(language, content.category)
+        fields = _content_fields(content)
+        async with self._lock.hold():
+            infos = await self._note_infos(manifest, model)
+            stored = next((i for i in infos if _field(i, _ITEM_ID).strip() == item_id), None)
+            if stored is not None:
+                note_id = stored.get("noteId")
+                if not is_int(note_id):
+                    raise AppError(ErrorCode.ANKI_UNAVAILABLE)
+                # keep: Audio isn't sent, and SchemaVersion is the gate's to check
+                await self._client.invoke(
+                    "updateNoteFields", note={"id": note_id, "fields": _encoded(fields)}
+                )
+                return
+            fields |= {
+                _AUDIO: "",
+                _ITEM_ID: item_id,
+                SCHEMA_VERSION_FIELD: str(manifest.schema_version),
+            }
+            note_id = await self._client.invoke(
+                "addNote",
+                note={
+                    "deckName": manifest.card_deck(model, PRONOUNCE_ORD),
+                    "modelName": model,
+                    "fields": _encoded(fields),
+                    "options": {"allowDuplicate": True},
+                },
+            )
+            if not is_int(note_id):
+                raise AppError(ErrorCode.ANKI_UNAVAILABLE)
+            for ord, card_id in (await self._cards_by_ord(note_id)).items():
+                if ord in STUDY_ORDS:
+                    await self._client.invoke(
+                        "changeDeck", cards=[card_id], deck=manifest.card_deck(model, ord)
+                    )
+
+    async def _cards_by_ord(self, note_id: int) -> dict[int, int]:
+        """Each card id of note `note_id` by its ord, from `notesInfo` and `cardsInfo`;
+        `ANKI_UNAVAILABLE` on a malformed reply.
+        """
+        infos = await self._client.invoke("notesInfo", notes=[note_id])
+        if not isinstance(infos, list) or len(infos) != 1 or not isinstance(infos[0], dict):
+            raise AppError(ErrorCode.ANKI_UNAVAILABLE)
+        cards = infos[0].get("cards")
+        if not isinstance(cards, list) or not cards:
+            raise AppError(ErrorCode.ANKI_UNAVAILABLE)
+        card_infos = await self._client.invoke("cardsInfo", cards=cards)
+        if not isinstance(card_infos, list):
+            raise AppError(ErrorCode.ANKI_UNAVAILABLE)
+        by_ord: dict[int, int] = {}
+        for info in card_infos:
+            card_id = info.get("cardId") if isinstance(info, dict) else None
+            ord = info.get("ord") if isinstance(info, dict) else None
+            if not is_int(card_id) or not is_int(ord):
+                raise AppError(ErrorCode.ANKI_UNAVAILABLE)
+            by_ord[ord] = card_id
+        # Every card answered, and every Study ord among them: else a card would stay unmoved
+        if len(by_ord) != len(cards) or not set(STUDY_ORDS) <= set(by_ord):
+            raise AppError(ErrorCode.ANKI_UNAVAILABLE)
+        return by_ord
+
     async def _capture_infos(self, manifest: Manifest) -> list[dict[str, Any]]:
-        """The `notesInfo` entries of the exact Capture scope's `findNotes`, skipping notes
+        return await self._note_infos(manifest, _capture_model(manifest))
+
+    async def _note_infos(self, manifest: Manifest, model: str) -> list[dict[str, Any]]:
+        """The `notesInfo` entries of the exact `model` scope's `findNotes`, skipping notes
         deleted in between; `ANKI_UNAVAILABLE` on a malformed reply.
         """
-        query = note_query(manifest, _capture_model(manifest))
+        query = note_query(manifest, model)
         ids = await self._client.invoke("findNotes", query=query)
         if not isinstance(ids, list):
             raise AppError(ErrorCode.ANKI_UNAVAILABLE)

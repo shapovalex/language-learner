@@ -54,10 +54,6 @@ from tests.support.items import (
     stored_fields,
 )
 
-pytestmark = pytest.mark.skip(
-    reason="ATDD red phase: un-skip when story 4.1 adds AnkiStore.save_item"
-)
-
 LANGUAGE_NAMES = {"en": "English", "fr": "French"}
 DECK_WORDS = {"vocabulary": "Vocabulary", "sentence": "Sentences"}
 

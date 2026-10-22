@@ -4,7 +4,8 @@
 // A screen's `mount` returns its unmount function (or `{unmount}`). One that also carries
 // `update(params)`, on that function or that object, stays mounted while the route moves
 // within it (`/captures` ↔ `/captures/<id>`), so its unsaved state survives and no unsaved
-// alert is asked (story 3.2).
+// alert is asked (story 3.2). A Draft is the exception: it lives only at its route
+// (`/captures/<id>/new`, AD-13), so any move off that path asks about it (story 4.1).
 // `confirmDestructive` is the delete confirmation (S-Delete, story 3.3): a sibling of the
 // unsaved alert that shares only its focus cycling, so Capture and Item delete both use it.
 
@@ -20,6 +21,7 @@ function decoded(segment) {
 const ROUTES = [
   [/^\/captures$/, "captures", () => ({})],
   [/^\/captures\/([^/]+)$/, "captures", (m) => ({ captureId: decoded(m[1]) })],
+  [/^\/captures\/([^/]+)\/new$/, "captures", (m) => ({ captureId: decoded(m[1]), draft: true })],
   [/^\/(en|fr)\/items$/, "items", (m) => ({ lang: m[1] })],
   [/^\/(en|fr)\/pronunciation$/, "pronunciation", (m) => ({ lang: m[1] })],
   [/^\/setup$/, "setup", () => ({})],
@@ -372,9 +374,22 @@ function staysOnScreen(path) {
   return updateScreen !== null && matchRoute(path)?.name === mountedName;
 }
 
+// Whether moving to `path` loses the dirty state: leaving the screen, or a Draft's route
+function losesDirty(path) {
+  if (!dirty) return false;
+  return dirty.kind === "draft" ? path !== currentPath : !staysOnScreen(path);
+}
+
+// Swap the current URL for `path` without a render, for a screen that shows `path`'s content
+// already (a Draft route with no Draft in memory shows its Capture)
+export function redirect(path) {
+  history.replaceState(null, "", path);
+  currentPath = location.pathname;
+}
+
 async function go(path, { flash, trigger } = {}) {
   if (path === location.pathname) return;
-  if (dirty && !staysOnScreen(path)) {
+  if (losesDirty(path)) {
     const seq = ++leaveSeq;
     // Only the latest leave asked while the alert was open goes ahead on Discard
     if (!(await ask(trigger)) || seq !== leaveSeq) return;
@@ -396,7 +411,7 @@ async function onPopState() {
     return;
   }
   cancelConfirm();
-  if (dirty && location.pathname !== currentPath && !staysOnScreen(location.pathname)) {
+  if (location.pathname !== currentPath && losesDirty(location.pathname)) {
     // Put the dirty screen's URL back (this drops the entry history just moved off), then ask
     history.pushState(null, "", currentPath);
     // The alert is already asking about another leave: this one is undone, that one stands

@@ -20,7 +20,8 @@ SCHEMA_VERSION = 1
 EXERCISE_BY_ORD: Mapping[int, Exercise] = MappingProxyType(
     {0: Exercise.UNDERSTAND, 1: Exercise.PRODUCE, 2: Exercise.WRITE, 3: Exercise.PRONOUNCE}
 )
-_STUDY_ORDS = (0, 1, 2)  # ord 3 (Pronounce) goes to the Pronunciation branch
+STUDY_ORDS = (0, 1, 2)
+PRONOUNCE_ORD = 3  # goes to the Pronunciation branch
 
 _LANGUAGE_NAMES: Mapping[Language, str] = {Language.EN: "English", Language.FR: "French"}
 # (note type word, deck word): the note type is singular, the deck plural (A3)
@@ -112,6 +113,12 @@ class Manifest:
     decks: tuple[str, ...]  # parents before children
     preset: Preset
 
+    def item_note_type(self, language: Language, category: Category) -> str:
+        """The name of the Item note type of `language` and `category`."""
+        return next(
+            nt.name for nt in self.note_types if nt.language is language and nt.category is category
+        )
+
     def card_deck(self, note_type_name: str, ord: int) -> str:
         """The deck a card of this note type and ord belongs in (FR-20)."""
         note_type = next((nt for nt in self.note_types if nt.name == note_type_name), None)
@@ -122,7 +129,7 @@ class Manifest:
         if note_type.language is None or note_type.category is None:
             return f"{self.prefix}::Captures"
         branch = _branch(note_type.language, note_type.category)
-        if ord in _STUDY_ORDS:
+        if ord in STUDY_ORDS:
             return f"{self.prefix}::Study::{branch}::{EXERCISE_BY_ORD[ord].title()}"
         return f"{self.prefix}::Pronunciation::{branch}"
 
@@ -156,7 +163,7 @@ def _decks(prefix: str) -> tuple[str, ...]:
         for category in Category:
             branch = _branch(language, category)
             decks += [f"{study}::{branch}", f"{pronunciation}::{branch}"]
-            decks += [f"{study}::{branch}::{EXERCISE_BY_ORD[o].title()}" for o in _STUDY_ORDS]
+            decks += [f"{study}::{branch}::{EXERCISE_BY_ORD[o].title()}" for o in STUDY_ORDS]
     return tuple(decks)
 
 
