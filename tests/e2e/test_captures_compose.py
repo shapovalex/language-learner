@@ -25,15 +25,12 @@ import pytest
 from playwright.sync_api import Page, Route, expect
 
 from tests.support import viewports
+from tests.support.captures_screen import API, CAPTURES_PATH, SAVE, compose_box, horizontal_overflow
 from tests.support.navigation import SETUP, main_nav, path_pattern
 from tests.support.network import HeldRoute, record_json_bodies, stub_api_error
 from tests.support.unsaved import unsaved_alert
 
-CAPTURES_PATH = "/captures"
-API = "/api/captures"
-LABEL = "New Capture"
 PLACEHOLDER = "Paste or type a word, phrase or sentence"
-SAVE = "Save Capture"
 TEXT = "I'd rather not jump to conclusions."
 UUID4 = re.compile(r"[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}")
 
@@ -48,10 +45,6 @@ UNAVAILABLE_MESSAGE = "Anki isn't reachable. Check that Anki is running."
 def open_captures(page: Page) -> None:
     page.set_viewport_size(viewports.DESKTOP)
     page.goto(CAPTURES_PATH)
-
-
-def compose_box(page: Page) -> Any:
-    return page.get_by_role("main").get_by_role("textbox", name=LABEL, exact=True)
 
 
 def save_button(page: Page) -> Any:
@@ -165,6 +158,8 @@ def test_a_successful_save_clears_the_unsaved_state(page: Page) -> None:
     compose_box(page).fill(TEXT)
     with page.expect_response(f"**{API}"):
         save_button(page).click()
+    # The screen clears its unsaved state after it reads the response, not when it arrives
+    expect(compose_box(page)).to_have_value("")
 
     main_nav(page).get_by_role("link", name=SETUP.area, exact=True).click()
 
@@ -203,9 +198,7 @@ def test_the_compose_box_fits_every_width(page: Page, viewport: Any) -> None:
     page.goto(CAPTURES_PATH)
     expect(compose_box(page)).to_be_visible()
 
-    overflow = page.evaluate(
-        "document.documentElement.scrollWidth - document.documentElement.clientWidth"
-    )
+    overflow = horizontal_overflow(page)
     assert overflow <= 0
     font_size = compose_box(page).evaluate("el => parseFloat(getComputedStyle(el).fontSize)")
     assert font_size >= 16

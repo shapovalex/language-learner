@@ -13,7 +13,15 @@
 // /api/captures/<captureId> (FR-13). After it the list shows without it at /captures; a failed
 // delete keeps the Capture with an inline alert in detail.
 
-import { createCapture, deleteCapture, getCapture, listCaptures } from "../api.js";
+import {
+  createCapture,
+  deleteCapture,
+  errorMessage,
+  getCapture,
+  isApiError,
+  listCaptures,
+} from "../api.js";
+import { element, skeleton } from "../dom.js";
 import { confirmDestructive, navigate, setDirty } from "../router.js";
 
 const LABEL = "New Capture";
@@ -21,7 +29,6 @@ const PLACEHOLDER = "Paste or type a word, phrase or sentence";
 const UNREACHABLE_TITLE = "Not saved — Anki isn't reachable";
 const UNREACHABLE_BODY =
   "Make sure Anki Desktop is open on the Mac mini, then try again. Your text is still here.";
-const NETWORK_FALLBACK = "LanguageLab could not reach the server.";
 const LOADING = "Loading Captures…";
 const EMPTY = "No Captures yet.";
 const NEWEST_FIRST = "Newest first";
@@ -78,29 +85,6 @@ export function detailTime(iso, now = new Date()) {
   return `Captured ${day ?? date} · ${time}`;
 }
 
-function element(tag, className, text) {
-  const node = document.createElement(tag);
-  if (className) node.className = className;
-  if (text !== undefined) node.textContent = text;
-  return node;
-}
-
-function errorMessage(error) {
-  // An ApiError carries the envelope's fixed message (AD-15)
-  return error?.name === "ApiError" ? error.message : NETWORK_FALLBACK;
-}
-
-function skeleton() {
-  const node = element("div", "skeleton");
-  node.setAttribute("role", "status");
-  const label = element("div", "skeleton-label", LOADING);
-  const bars = element("div", "skeleton-bars");
-  bars.setAttribute("aria-hidden", "true");
-  for (let i = 0; i < 3; i += 1) bars.append(element("span", "skeleton-bar"));
-  node.append(label, bars);
-  return node;
-}
-
 function loadError(error, onRetry) {
   const alert = element("div", "inline-alert-error captures-load-alert");
   alert.setAttribute("role", "alert");
@@ -111,23 +95,15 @@ function loadError(error, onRetry) {
   return alert;
 }
 
-function failureCopy(error) {
-  if (error?.name === "ApiError" && error.code === "anki_unavailable") {
-    return [UNREACHABLE_TITLE, UNREACHABLE_BODY];
-  }
-  return ["Not saved", errorMessage(error)];
-}
-
-function deleteFailureCopy(error) {
-  if (error?.name === "ApiError" && error.code === "anki_unavailable") {
-    return [NOT_DELETED_TITLE, NOT_DELETED_BODY];
-  }
-  return ["Not deleted", errorMessage(error)];
+// [title, body] of a failed Save or delete: `unreachable` when Anki is down, else `title` and
+// the envelope's message
+function failureCopy(error, unreachable, title) {
+  return isApiError(error, "anki_unavailable") ? unreachable : [title, errorMessage(error)];
 }
 
 // The failed delete's alert: no Try again, since Delete Capture is right there
 function deleteAlert(error) {
-  const [title, body] = deleteFailureCopy(error);
+  const [title, body] = failureCopy(error, [NOT_DELETED_TITLE, NOT_DELETED_BODY], "Not deleted");
   const alert = element("div", "inline-alert-error capture-delete-alert");
   alert.setAttribute("role", "alert");
   alert.append(
@@ -196,7 +172,7 @@ export function mount(root, params = {}) {
       return;
     }
     if (!list.captures) {
-      listBody.replaceChildren(skeleton());
+      listBody.replaceChildren(skeleton(LOADING));
       return;
     }
     if (!list.captures.length) {
@@ -354,7 +330,7 @@ export function mount(root, params = {}) {
     } catch (error) {
       if (!mounted || token !== open.token) return;
       open.capture = null;
-      if (error?.name === "ApiError" && error.code === "not_found") {
+      if (isApiError(error, "not_found")) {
         open.status = "missing";
       } else {
         open.status = "failed";
@@ -401,7 +377,11 @@ export function mount(root, params = {}) {
       renderButtons();
       return;
     }
-    const [title, body] = failureCopy(state.error);
+    const [title, body] = failureCopy(
+      state.error,
+      [UNREACHABLE_TITLE, UNREACHABLE_BODY],
+      "Not saved",
+    );
     const alert = element("div", "inline-alert-error compose-alert");
     alert.setAttribute("role", "alert");
     again = element("button", "button button-destructive", "Try again");

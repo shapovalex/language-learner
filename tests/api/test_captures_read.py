@@ -19,7 +19,7 @@ import pytest
 
 from language_lab.app import create_app
 from language_lab.domain.captures import Capture
-from tests.fakes.anki_store import FakeAnkiStore
+from tests.support.captures import store_with
 from tests.support.fixtures.logs import LogCapture
 from tests.support.fixtures.settings import SettingsFactory
 from tests.support.hosts import app_client, client_over
@@ -46,13 +46,6 @@ def body_of(capture: Capture) -> dict[str, str]:
         "text": capture.text,
         "createdAt": capture.created_at.strftime("%Y-%m-%dT%H:%M:%SZ"),
     }
-
-
-def store_with(*captures: Capture) -> FakeAnkiStore:
-    store = FakeAnkiStore()
-    for capture in captures:
-        store.captures[capture.capture_id] = capture
-    return store
 
 
 @pytest.mark.p0

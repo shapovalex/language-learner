@@ -28,30 +28,35 @@ from typing import Any
 from zoneinfo import ZoneInfo
 
 import pytest
-from playwright.sync_api import Locator, Page, Response, expect
+from playwright.sync_api import Locator, Page, expect
 
 from tests.support import viewports
+from tests.support.captures_screen import (
+    API,
+    CAPTURES_PATH,
+    NO_SELECTION,
+    NOT_IN_ANKI,
+    SAVE,
+    capture,
+    captures_list,
+    compose_box,
+    detail,
+    horizontal_overflow,
+    is_save,
+    main,
+    rows,
+)
 from tests.support.navigation import path_pattern
 from tests.support.network import HeldRoute, stub_api_error, stub_api_json
-
-CAPTURES_PATH = "/captures"
-API = "/api/captures"
-COMPOSE_LABEL = "New Capture"
-SAVE = "Save Capture"
+from tests.support.unsaved import unsaved_alert
 
 NEWEST_FIRST = "Newest first"
 LOADING = "Loading Captures…"
 EMPTY = "No Captures yet."
-NO_SELECTION = "Choose a Capture to see it here."
-NOT_IN_ANKI = "This Capture isn't in Anki."
 BACK = re.compile(r"^(‹\s*)?Captures$")
 
 TORONTO = "America/Toronto"
 NOW = datetime(2026, 10, 22, 21, 30, tzinfo=ZoneInfo(TORONTO))
-
-
-def capture(text: str, created_at: str) -> dict[str, str]:
-    return {"captureId": str(uuid.uuid4()), "text": text, "createdAt": created_at}
 
 
 # Newest first, as GET /api/captures answers. In Toronto time (UTC-4 in October 2025 and 2026):
@@ -72,32 +77,8 @@ def stub_detail(page: Page, body: dict[str, str]) -> None:
     stub_api_json(page, f"{API}/{body['captureId']}", body, method="GET")
 
 
-def main(page: Page) -> Locator:
-    return page.get_by_role("main")
-
-
-def compose_box(page: Page) -> Locator:
-    return main(page).get_by_role("textbox", name=COMPOSE_LABEL, exact=True)
-
-
-def captures_list(page: Page) -> Locator:
-    return main(page).get_by_role("list", name="Captures", exact=True)
-
-
-def rows(page: Page) -> Locator:
-    return captures_list(page).get_by_role("link")
-
-
-def detail(page: Page) -> Locator:
-    return main(page).get_by_role("article")
-
-
 def back_link(page: Page) -> Locator:
     return main(page).get_by_role("link", name=BACK)
-
-
-def is_save(response: Response) -> bool:
-    return response.request.method == "POST" and response.url.endswith(API)
 
 
 def bottom_of(locator: Locator) -> float:
@@ -283,18 +264,7 @@ def test_a_capture_that_isnt_in_anki_shows_a_message_and_the_back_link(page: Pag
 
 # Secondary cases (green phase)
 
-UNSAVED_ALERT = "Discard unsaved changes?"
 LONG_TEXT = "notwithstanding" * 30  # one word, far wider than any screen
-
-
-def unsaved_alert(page: Page) -> Locator:
-    return page.get_by_role("alertdialog", name=UNSAVED_ALERT, exact=True)
-
-
-def horizontal_overflow(page: Page) -> float:
-    return page.evaluate(
-        "document.documentElement.scrollWidth - document.documentElement.clientWidth"
-    )
 
 
 @pytest.mark.p1

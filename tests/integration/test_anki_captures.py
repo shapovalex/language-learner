@@ -27,66 +27,36 @@ from typing import Any
 
 import pytest
 
-from language_lab.adapters.anki.client import AnkiConnectClient
 from language_lab.adapters.anki.codec import encode_field
-from language_lab.adapters.anki.guard import PrefixGuard
-from language_lab.adapters.anki.lock import AnkiLock
-from language_lab.adapters.anki.manifest import SCHEMA_VERSION, build_manifest
-from language_lab.adapters.anki.query import note_query
-from language_lab.adapters.anki.setup_gate import SetupGate
-from language_lab.adapters.anki.store import AnkiConnectStore
-from language_lab.domain.errors import AppError
-from language_lab.domain.setup import SetupState
+from language_lab.adapters.anki.manifest import SCHEMA_VERSION
 from tests.support.aio import settle
-from tests.support.anki_connect import ANKI_URL, AnkiConnectReplay, refused
+from tests.support.anki_connect import AnkiConnectReplay, refused
 from tests.support.anki_state import (
     Collection,
-    apply_manifest,
     capture_note,
-    collection_replies,
     managed_collection,
     sent_queries,
     sent_writes,
 )
-
-PREFIX = "LanguageLab"
-DEV = "LanguageLabDev"
-MANIFEST = build_manifest(PREFIX)
-DEV_MANIFEST = build_manifest(DEV)
+from tests.support.captures import (
+    CAPTURE_QUERY,
+    GATED_STATES,
+    MANIFEST,
+    PREFIX,
+    TEXT,
+    code_of,
+    dev_capture_with_the_id,
+    other_captures,
+    wired,
+)
 
 CAPTURE = f"{PREFIX} Capture"
 CAPTURES_DECK = f"{PREFIX}::Captures"
-CAPTURE_QUERY = note_query(MANIFEST, CAPTURE)
 
-# Characters the codec escapes, and a newline it turns into <br> (AD-9)
-TEXT = "I'd rather <not> jump & leap\nto conclusions."
 CREATED_AT = datetime(2026, 10, 22, 21, 14, 5, tzinfo=UTC)
 CREATED_AT_FIELD = "2026-10-22T21:14:05Z"
 EARLIER_FIELD = "2026-10-01T08:02:00Z"
 EARLIER = datetime(2026, 10, 1, 8, 2, tzinfo=UTC)
-
-GATED_STATES = ("needs_setup", "needs_migration", "newer_schema")
-
-
-def wired(
-    collection: Collection,
-    *,
-    state: str = "ready",
-    replies: dict[str, Any] | None = None,
-    failure: Any = None,
-) -> tuple[Any, Any]:
-    """The real client and store over `collection`, sharing a `SetupGate` set to `state`.
-    `replies` replaces some of the collection's replies; `failure` fails every request.
-    Returns (store, replay).
-    """
-    gate = SetupGate(MANIFEST)
-    gate.set(SetupState(state))
-    answers = collection_replies(collection, writes=True) | (replies or {})
-    replay = AnkiConnectReplay(answers, failure=failure)
-    client = AnkiConnectClient(
-        ANKI_URL, transport=replay.transport, guard=PrefixGuard(MANIFEST), gate=gate
-    )
-    return AnkiConnectStore(client, AnkiLock(), manifest=MANIFEST, gate=gate), replay
 
 
 def create(store: Any, capture_id: str, text: str = TEXT, created_at: datetime = CREATED_AT) -> Any:
@@ -96,10 +66,6 @@ def create(store: Any, capture_id: str, text: str = TEXT, created_at: datetime =
 
 def captures_in(collection: Collection) -> dict[int, Any]:
     return {i: note for i, note in collection.notes.items() if note.model == CAPTURE}
-
-
-def code_of(outcome: Any) -> str | None:
-    return str(outcome.code) if isinstance(outcome, AppError) else None
 
 
 def sent_note(replay: AnkiConnectReplay) -> dict[str, Any]:
@@ -152,14 +118,11 @@ def test_a_new_capture_is_added_then_its_card_suspended(arrange: Any) -> None:
 
 
 def _other_captures(collection: Collection) -> None:
-    for _ in range(3):
-        capture_note(collection, MANIFEST, str(uuid.uuid4()), "other", EARLIER_FIELD)
+    other_captures(collection, EARLIER_FIELD)
 
 
 def _dev_capture_with_the_id(collection: Collection, capture_id: str) -> None:
-    """A `LanguageLabDev` Capture carrying the same CaptureId: another Prefix, never a match."""
-    apply_manifest(collection, DEV_MANIFEST)
-    capture_note(collection, DEV_MANIFEST, capture_id, "dev", EARLIER_FIELD)
+    dev_capture_with_the_id(collection, capture_id, EARLIER_FIELD)
 
 
 @pytest.mark.p0

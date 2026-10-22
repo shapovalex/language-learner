@@ -12,12 +12,16 @@
 
 import {
   applySetup,
+  errorMessage,
   fullSyncUploaded,
   getApplyStatus,
   getHealth,
   getPlan,
   getReadiness,
+  isApiError,
+  NETWORK_FALLBACK,
 } from "../api.js";
+import { element, skeleton } from "../dom.js";
 
 const SVG_NS = "http://www.w3.org/2000/svg";
 
@@ -105,13 +109,6 @@ function repairKeys(discrepancies) {
 const REPAIRS_HEADING = "Optional repairs";
 const REPAIRS_HINT = "Nothing here changes unless you check it.";
 
-function element(tag, className, text) {
-  const node = document.createElement(tag);
-  if (className) node.className = className;
-  if (text !== undefined) node.textContent = text;
-  return node;
-}
-
 // Check or cross, drawn so it adds nothing to the tile's accessible text
 function icon(ok) {
   const svg = document.createElementNS(SVG_NS, "svg");
@@ -125,18 +122,6 @@ function icon(ok) {
     svg.append(path);
   }
   return svg;
-}
-
-function skeleton() {
-  const node = element("div", "skeleton");
-  node.setAttribute("role", "status");
-  // Not a <p>: until readiness settles, the version line is the screen's only paragraph
-  const label = element("div", "skeleton-label", "Checking Anki and your keys…");
-  const bars = element("div", "skeleton-bars");
-  bars.setAttribute("aria-hidden", "true");
-  for (let i = 0; i < 3; i += 1) bars.append(element("span", "skeleton-bar"));
-  node.append(label, bars);
-  return node;
 }
 
 function subtitle(prefix) {
@@ -393,15 +378,6 @@ function discrepancyBanner(discrepancies, onRunAgain) {
   return banner;
 }
 
-function errorMessage(error) {
-  // An ApiError carries the envelope's fixed message (AD-15)
-  return error?.name === "ApiError" ? error.message : "LanguageLab could not reach the server.";
-}
-
-function isApiError(error, code) {
-  return error?.name === "ApiError" && error.code === code;
-}
-
 function inlineError(message) {
   const node = element("p", "inline-alert-error", message);
   node.setAttribute("role", "alert");
@@ -413,7 +389,9 @@ export function mount(root) {
   let pollTimer = null;
   const heading = element("h1", "", "Setup");
   const readiness = element("div", "setup-readiness");
-  readiness.append(skeleton());
+  // The skeleton's label is a <div>, not a <p>: until readiness settles, the version line is
+  // the screen's only paragraph
+  readiness.append(skeleton("Checking Anki and your keys…"));
   // Empty until the plan arrives: nothing before the version line may be a <p> until then
   const plan = element("div", "setup-plan");
   const status = element("p", "setup-version");
@@ -670,7 +648,7 @@ export function mount(root) {
       if (mounted) status.textContent = `LanguageLab v${version}`;
     },
     () => {
-      if (mounted) status.textContent = "LanguageLab could not reach the server.";
+      if (mounted) status.textContent = NETWORK_FALLBACK;
     },
   );
 

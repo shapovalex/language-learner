@@ -23,18 +23,27 @@ import uuid
 from typing import Any
 
 import pytest
-from playwright.sync_api import Locator, Page, Request, Response, expect
+from playwright.sync_api import Locator, Page, Request, expect
 
 from tests.support import viewports
+from tests.support.captures_screen import (
+    API,
+    CAPTURES_PATH,
+    NO_SELECTION,
+    NOT_IN_ANKI,
+    SAVE,
+    capture,
+    compose_box,
+    detail,
+    horizontal_overflow,
+    is_save,
+    main,
+    rows,
+)
 from tests.support.keys import shift_tab, tab
 from tests.support.navigation import path_pattern
 from tests.support.network import HeldRoute, stub_api_error, stub_api_json
-
-CAPTURES_PATH = "/captures"
-API = "/api/captures"
-COMPOSE_LABEL = "New Capture"
-SAVE = "Save Capture"
-NO_SELECTION = "Choose a Capture to see it here."
+from tests.support.unsaved import unsaved_alert
 
 DELETE_CAPTURE = "Delete Capture"
 DIALOG_TITLE = "Delete this Capture?"
@@ -43,10 +52,6 @@ CONFIRM = "Delete permanently"
 CANCEL = "Cancel"
 NOT_DELETED = "Not deleted — Anki isn't reachable"
 NOT_DELETED_BODY = "Make sure Anki Desktop is open on the Mac mini, then try again."
-
-
-def capture(text: str, created_at: str) -> dict[str, str]:
-    return {"captureId": str(uuid.uuid4()), "text": text, "createdAt": created_at}
 
 
 TARGET = capture("I'd rather not jump to conclusions.", "2026-10-22T21:14:00Z")
@@ -61,22 +66,6 @@ def open_stubbed_capture(page: Page, viewport: dict[str, int]) -> None:
     stub_api_json(page, API, {"captures": [TARGET, OTHER]}, method="GET")
     stub_api_json(page, f"{API}/{TARGET['captureId']}", TARGET, method="GET")
     page.goto(f"{CAPTURES_PATH}/{TARGET['captureId']}")
-
-
-def main(page: Page) -> Locator:
-    return page.get_by_role("main")
-
-
-def compose_box(page: Page) -> Locator:
-    return main(page).get_by_role("textbox", name=COMPOSE_LABEL, exact=True)
-
-
-def rows(page: Page) -> Locator:
-    return main(page).get_by_role("list", name="Captures", exact=True).get_by_role("link")
-
-
-def detail(page: Page) -> Locator:
-    return main(page).get_by_role("article")
 
 
 def delete_button(page: Page) -> Locator:
@@ -105,10 +94,6 @@ def record_deletes(page: Page) -> list[str]:
 
     page.on("request", on_request)
     return urls
-
-
-def is_save(response: Response) -> bool:
-    return response.request.method == "POST" and response.url.endswith(API)
 
 
 def save_and_open(page: Page, text: str) -> None:
@@ -270,19 +255,6 @@ def test_a_failed_delete_keeps_the_capture_and_shows_the_error(page: Page) -> No
 
 
 # Secondary cases (green phase)
-
-UNSAVED_ALERT = "Discard unsaved changes?"
-NOT_IN_ANKI = "This Capture isn't in Anki."
-
-
-def unsaved_alert(page: Page) -> Locator:
-    return page.get_by_role("alertdialog", name=UNSAVED_ALERT, exact=True)
-
-
-def horizontal_overflow(page: Page) -> float:
-    return page.evaluate(
-        "document.documentElement.scrollWidth - document.documentElement.clientWidth"
-    )
 
 
 @pytest.mark.p1

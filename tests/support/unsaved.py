@@ -72,7 +72,8 @@ def confirm_leave_result(page: Page) -> object:
 
 
 def unsaved_alert(page: Page) -> Locator:
-    return page.get_by_role("alertdialog")
+    """The unsaved-changes alert by its title, so the delete confirmation never matches."""
+    return page.get_by_role("alertdialog", name=ALERT_TITLE, exact=True)
 
 
 def discard_button(page: Page) -> Locator:
