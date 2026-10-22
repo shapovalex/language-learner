@@ -1,8 +1,8 @@
 # LanguageLab
 
 A local web app for building and reviewing Anki language cards. It is a FastAPI server that
-serves a plain HTML/CSS/JS front end and keeps no database of its own: it will store everything
-in Anki via AnkiConnect. This release does not talk to Anki yet.
+serves a plain HTML/CSS/JS front end and keeps no database of its own: it stores everything
+in Anki via AnkiConnect.
 
 The server binds to `127.0.0.1` only. To use it from other devices (iPhone, iPad, another
 computer), put it behind [Tailscale Serve](https://tailscale.com/kb/1312/serve), which gives it
@@ -46,6 +46,7 @@ Everything else is in [`docs/`](docs/README.md):
 - [Configuration](docs/configuration.md): where the `.env` lives, its permissions, every key.
 - [Remote access](docs/remote-access.md): the one-time Tailscale Serve command.
 - [Anki](docs/anki.md): the AnkiConnect warning, which deck to study, backups.
+- [Setup](docs/setup.md): running Setup, upgrades and migrations, the full-sync upload.
 - [Development](docs/development.md): dev mode, tests and lint.
 
 ## License

@@ -20,3 +20,6 @@
 - source_plan: `_bmad-output/initiative-languagelab-v1/epic-anki-setup-sync/story-opt-in-repairs-for-leftovers-plan.md`
   summary: Bound the cost of the opt-in repair reads (one `cardsInfo` of every managed card) on each Setup preview and each checkbox toggle for large collections.
   evidence: `read_leftovers` in adapters/anki/setup_gate.py sends `cardsInfo` for every manifest note type's card under the Anki lock on every preview and server re-plan; AnkiConnect renders each card's question and answer, so the read grows with the collection and could approach the 15 s lock wait. Measure on the Mac Mini at device acceptance (entry 13).
+- source_plan: `_bmad-output/initiative-languagelab-v1/epic-anki-setup-sync/story-upgrade-migration-and-full-sync-docs-plan.md`
+  summary: Persist the full-sync-required flag so the "Full sync required" tile survives a LanguageLab restart.
+  evidence: `SyncService._full_sync_required` is in memory only (`src/language_lab/features/sync/service.py:37`), set only by `SetupService._apply`; a restart after a field-changing migration but before the upload drops the reminder. docs/setup.md now warns about this.
