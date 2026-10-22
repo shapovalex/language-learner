@@ -9,7 +9,7 @@ hand-built.
 - **Release under test:** `v0.5.0`, the first release with entries 1 to 3 of the epic
 - **Prefix under test:** `LanguageLabDev`, set as an environment override. Never `LanguageLab`.
 - **Mode:** release (no `LANGUAGE_LAB_DEV`)
-- **Run on:** _not yet_
+- **Run on:** 2026-10-22
 - **Devices:** Mac Mini (host, with Anki Desktop, AnkiConnect and Tailscale Serve), iPhone
   Safari, iPad Safari, desktop browser on another computer
 
@@ -67,7 +67,7 @@ Leave the app running; parts C to H use it.
 | C3 | `ac findNotes "$Q"` | One more id than B4. |
 | C4 | `ac findCards "$Q"`, then with the largest card id: `ac cardsInfo '{"cards":[<card id>]}' \| tr ',' '\n' \| grep -E '"(deckName\|queue)"'` | `"deckName": "LanguageLabDev::Captures"` and `"queue": -1` (suspended). |
 | C5 | In Anki Desktop, Browse, search `"note:LanguageLabDev Capture"`. | The note is there with a suspended card (yellow row) in `LanguageLabDev::Captures`. Its fields: Text `acceptance one`, CreatedAt like `2026-10-22T19:14:05Z` (UTC), CaptureId a lowercase UUID, SchemaVersion `1`. |
-| C6 | `curl -s $APP/api/captures` | `{"captures":[{"captureId":"…","text":"acceptance one","createdAt":"…Z"},…]}`. Set `ID=<that captureId>`. |
+| C6 | `curl -s $APP/api/captures`, then, in the same terminal you use for C7 to C9: `ID=$(curl -s $APP/api/captures \| grep -o '"captureId":"[^"]*"' \| head -1 \| cut -d'"' -f4); echo "[$ID]"` | `{"captures":[{"captureId":"…","text":"acceptance one","createdAt":"…Z"},…]}`, then the newest Capture's id in brackets: 36 lowercase characters like `[1b4e28ba-2fa1-4d2e-883f-0016d3cca427]`, nothing else inside. |
 | C7 | Replay the save: `curl -s -i -X POST $APP/api/captures -H "Origin: $APP" -H 'Content-Type: application/json' -d "{\"captureId\":\"$ID\",\"text\":\"acceptance one\"}"` | `HTTP/1.1 201` and the same `captureId`, `text` and `createdAt` as C6. |
 | C8 | The same with `"text":"something else"`. | `201` with the stored `"text":"acceptance one"` and the C6 `createdAt`: the first save stands. |
 | C9 | `ac findNotes "$Q"` | The same ids as C3: the replays added no note. |
@@ -87,7 +87,7 @@ Leave the app running; parts C to H use it.
 
 | Step | Do | Expect |
 | --- | --- | --- |
-| E1 | `curl -s $APP/api/captures` and `ac findNotes "$Q"` | Set `ID2=<captureId of acceptance two>`. Note the note ids. |
+| E1 | `curl -s $APP/api/captures`, then `ID2=$(curl -s $APP/api/captures \| grep -o '"captureId":"[^"]*"' \| head -1 \| cut -d'"' -f4); echo "[$ID2]"`, and `ac findNotes "$Q"` | `acceptance two` is the newest Capture, so `ID2` is its id, in brackets as in C6. Note the note ids. |
 | E2 | On the iPhone, open `acceptance two` and tap "Delete Capture". | A dialog "Delete this Capture?", "This removes the Capture from Anki. Items you made from it stay.", with "Delete permanently" and "Cancel". |
 | E3 | Tap "Cancel". | The dialog closes and `acceptance two` is still shown. |
 | E4 | Tap "Delete Capture", then "Delete permanently". | You land on the list without `acceptance two`; `acceptance one` is still there. |
@@ -117,6 +117,8 @@ on the Captures screen and never asks, so G1 arrives from another screen first.
 | G5 | Swipe back from the left edge again. | The alert again. Tap "Discard": the English Items screen, with English marked. |
 | G6 | Go to Captures again, then swipe back with the box empty. | No alert; you leave at once. |
 
+This part closes the R-03 entry deferred from story 1.10 in `deferred-work.md` ("Check the unsaved-changes alert on iOS Safari swipe-back…"). Its outcome is in [Results](#results), rows G1–G6.
+
 If Safari reloads the page in G4 (a blank flash, the box empty), record it as a fail with what you
 saw: iOS gives no warning before a reload, so the text is lost.
 
@@ -140,7 +142,7 @@ Everything this run made is in the dev Prefix; leave it or delete it as you like
 
 ## CI evidence
 
-These tests back each Done-when on every CI run, against the fake Anki and the recorded fixtures:
+These tests back each Done-when on every CI run, against the fake Anki and the recorded fixtures. The fake's `suspend` and `deleteNotes` replies are still hand-built from AnkiConnect's docs (finding 2):
 
 | Done-when | Entry | Test |
 | --- | --- | --- |
@@ -160,51 +162,55 @@ gave `166 passed`.
 
 | Step | Result | Notes |
 | --- | --- | --- |
-| A1 release `v0.5.0` | not run | |
-| A2 no `LANGUAGE_LAB_DEV` | not run | |
-| A3 Tailscale Serve to 8787 | not run | |
-| B1 starts, tailnet line, Sync ok | not run | |
-| B2 health `0.5.0` | not run | |
-| B3 Prefix set up | not run | |
-| B4 Capture notes before | not run | |
-| C1 Captures screen on iPhone | not run | |
-| C2 save from iPhone | not run | |
-| C3 one more note | not run | |
-| C4 card suspended in `LanguageLabDev::Captures` | not run | |
-| C5 note and fields in Anki Desktop | not run | |
-| C6 `GET /api/captures` | not run | |
-| C7 replay answers the stored Capture | not run | |
-| C8 replay with other text keeps the first | not run | |
-| C9 no second note | not run | |
-| C10 log lines without text | not run | |
-| D1 iPhone list newest first | not run | |
-| D2 iPhone detail and back link | not run | |
-| D3 iPad two panes and portrait | not run | |
-| D4 desktop two panes | not run | |
-| D5 local times | not run | |
-| E1 ids before delete | not run | |
-| E2 confirmation dialog | not run | |
-| E3 Cancel keeps it | not run | |
-| E4 Delete permanently | not run | |
-| E5 exactly one note gone | not run | |
-| E6 retried delete `204` | not run | |
-| F1 error with text kept | not run | |
-| F2 `503 anki_unavailable` logged | not run | |
-| F3 Try again saves | not run | |
-| F4 exactly one note | not run | |
-| G1–G6 iPhone | not run | |
-| G1–G6 iPad | not run | |
-| H1 fixture Capture | not run | |
-| H2 unsuspend | not run | |
-| H3 `suspend` reply | not run | |
-| H4 `suspend` reply, already suspended | not run | |
-| H5 `deleteNotes` reply | not run | |
-| H6 `deleteNotes` reply, note gone | not run | |
-| H7 gone from the list | not run | |
+| A1 release `v0.5.0` | pass | Reported by the user as a group ("everything looks good"), no output pasted. |
+| A2 no `LANGUAGE_LAB_DEV` | pass | Reported by the user as a group ("everything looks good"), no output pasted. |
+| A3 Tailscale Serve to 8787 | pass | Reported by the user as a group ("everything looks good"), no output pasted. |
+| B1 starts, tailnet line, Sync ok | pass | Reported by the user as a group ("everything looks good"), no output pasted. |
+| B2 health `0.5.0` | pass | Reported by the user as a group ("everything looks good"), no output pasted. |
+| B3 Prefix set up | pass | Reported by the user as a group ("everything looks good"), no output pasted. |
+| B4 Capture notes before | pass | Reported by the user as a group ("everything looks good"), no output pasted. |
+| C1 Captures screen on iPhone | pass | Reported by the user as a group ("everything looks good"), no output pasted. |
+| C2 save from iPhone | pass | Reported by the user as a group ("everything looks good"), no output pasted. |
+| C3 one more note | pass | Reported by the user as a group ("everything looks good"), no output pasted. |
+| C4 card suspended in `LanguageLabDev::Captures` | pass | Reported by the user as a group ("everything looks good"), no output pasted. |
+| C5 note and fields in Anki Desktop | pass | Reported by the user as a group ("everything looks good"), no output pasted. |
+| C6 `GET /api/captures` | pass | The user set `ID` with the one-line command C6 now gives (finding 1), then reported the run passing as a group ("everything looks good"), no output pasted. |
+| C7 replay answers the stored Capture | pass | First try `422 validation_failed`: `$ID` not set to the CaptureId (finding 1). After setting it as C6 now says, reported passing ("everything looks good"), no output pasted. |
+| C8 replay with other text keeps the first | pass | Reported by the user as a group ("everything looks good"), no output pasted. |
+| C9 no second note | pass | Reported by the user as a group ("everything looks good"), no output pasted. |
+| C10 log lines without text | pass | Reported by the user as a group ("everything looks good"), no output pasted. |
+| D1 iPhone list newest first | pass | Reported by the user as a group ("everything looks good"), no output pasted. |
+| D2 iPhone detail and back link | pass | Reported by the user as a group ("everything looks good"), no output pasted. |
+| D3 iPad two panes and portrait | pass | Reported by the user as a group ("everything looks good"), no output pasted. |
+| D4 desktop two panes | pass | Reported by the user as a group ("everything looks good"), no output pasted. |
+| D5 local times | pass | Reported by the user as a group ("everything looks good"), no output pasted. |
+| E1 ids before delete | pass | Run with the earlier wording ("Set `ID2=<captureId of acceptance two>`"), before finding 1 rewrote it; reported passing as a group ("everything looks good"), no output pasted. |
+| E2 confirmation dialog | pass | Reported by the user as a group ("everything looks good"), no output pasted. |
+| E3 Cancel keeps it | pass | Reported by the user as a group ("everything looks good"), no output pasted. |
+| E4 Delete permanently | pass | Reported by the user as a group ("everything looks good"), no output pasted. |
+| E5 exactly one note gone | pass | Reported by the user as a group ("everything looks good"), no output pasted. |
+| E6 retried delete `204` | pass | Reported by the user as a group ("everything looks good"), no output pasted. |
+| F1 error with text kept | pass | Reported by the user as a group ("everything looks good"), no output pasted. |
+| F2 `503 anki_unavailable` logged | pass | Reported by the user as a group ("everything looks good"), no output pasted. |
+| F3 Try again saves | pass | Reported by the user as a group ("everything looks good"), no output pasted. |
+| F4 exactly one note | pass | Reported by the user as a group ("everything looks good"), no output pasted. |
+| G1–G6 iPhone | pass | Reported by the user as a group ("everything looks good"), no output pasted. |
+| G1–G6 iPad | pass | Reported by the user as a group ("everything looks good"), no output pasted. |
+| H1 fixture Capture | pass | Reported by the user as a group ("everything looks good"), no output pasted. |
+| H2 unsuspend | pass | Reported by the user as a group ("everything looks good"), no output pasted. |
+| H3 `suspend` reply | pass | Run and reported passing ("everything looks good"), but the reply was not pasted, so it was not compared with the fake's reply (finding 2). |
+| H4 `suspend` reply, already suspended | pass | Run and reported passing ("everything looks good"), but the reply was not pasted, so it was not compared with the fake's reply (finding 2). |
+| H5 `deleteNotes` reply | pass | Run and reported passing ("everything looks good"), but the reply was not pasted, so it was not compared with the fake's reply (finding 2). |
+| H6 `deleteNotes` reply, note gone | pass | Run and reported passing ("everything looks good"), but the reply was not pasted, so it was not compared with the fake's reply (finding 2). |
+| H7 gone from the list | pass | Reported by the user as a group ("everything looks good"), no output pasted. |
 
 A step marked "not run" has no recorded result. It is not a pass.
+
+**R-03 outcome (2026-10-22):** G1–G6 reported passing on iPhone and iPad, which closes the R-03 entry in `deferred-work.md` deferred from story 1.10.
 
 ## Findings
 
 | # | Step | What happened | Disposition |
 | --- | --- | --- | --- |
+| 1 | C7 | The replay answered `422 validation_failed`. C6 only said "Set `ID=<that captureId>`", so `$ID` was not a canonical CaptureId in the terminal running C7 (likely unset or copied with extra characters). The `422` itself is correct: the API refuses a malformed CaptureId. | Runbook gap, fixed in this story: C6 and E1 now set the id with one command and echo it in brackets for checking. |
+| 2 | H3–H6 | The steps ran (H7 passed), but no `suspend` or `deleteNotes` reply was pasted, so the hand-built replies in the tests stay unchecked against real Anki. Both results are ignored by the adapter, so only an error reply would matter. | The user chose to finish without them. Appended to `deferred-work.md`: "Record the real AnkiConnect `suspend` … and `deleteNotes` … replies as `tests/fixtures/anki/` exchanges". |
