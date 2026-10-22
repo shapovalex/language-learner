@@ -18,19 +18,10 @@ from typing import Any
 
 import pytest
 
-from language_lab.adapters.anki.client import AnkiConnectClient
 from language_lab.adapters.anki.codec import encode_field
-from language_lab.adapters.anki.guard import PrefixGuard
-from language_lab.adapters.anki.lock import AnkiLock
-from language_lab.adapters.anki.manifest import build_manifest
-from language_lab.adapters.anki.query import note_query
-from language_lab.adapters.anki.setup_gate import SetupGate
-from language_lab.adapters.anki.store import AnkiConnectStore
 from language_lab.domain.captures import Capture
-from language_lab.domain.errors import AppError
-from language_lab.domain.setup import SetupState
 from tests.support.aio import settle
-from tests.support.anki_connect import ANKI_URL, AnkiConnectReplay, refused
+from tests.support.anki_connect import refused
 from tests.support.anki_state import (
     Collection,
     apply_manifest,
@@ -41,52 +32,25 @@ from tests.support.anki_state import (
     sent_actions,
     sent_queries,
 )
+from tests.support.captures import (
+    CAPTURE_QUERY,
+    DEV_MANIFEST,
+    MANIFEST,
+    TEXT,
+    VOCABULARY,
+    code_of,
+    dev_capture_with_the_id,
+    other_captures,
+    sent_bodies,
+    wired,
+)
 
-PREFIX = "LanguageLab"
-DEV = "LanguageLabDev"
-MANIFEST = build_manifest(PREFIX)
-DEV_MANIFEST = build_manifest(DEV)
-
-CAPTURE_QUERY = note_query(MANIFEST, f"{PREFIX} Capture")
-VOCABULARY = f"{PREFIX} English Vocabulary"
-
-# Characters the codec escapes, and a newline it turns into <br> (AD-9)
-TEXT = "I'd rather <not> jump & leap\nto conclusions."
 OCT_22 = datetime(2026, 10, 22, 21, 14, 5, tzinfo=UTC)
 OCT_22_FIELD = "2026-10-22T21:14:05Z"
 OCT_01 = datetime(2026, 10, 1, 8, 2, tzinfo=UTC)
 OCT_01_FIELD = "2026-10-01T08:02:00Z"
 LAST_YEAR = datetime(2025, 12, 31, 23, 59, 59, tzinfo=UTC)
 LAST_YEAR_FIELD = "2025-12-31T23:59:59Z"
-
-
-def wired(
-    collection: Collection,
-    *,
-    state: str = "ready",
-    replies: dict[str, Any] | None = None,
-    failure: Any = None,
-) -> tuple[Any, AnkiConnectReplay]:
-    """The real client and store over `collection`, gate `state` (`ready` by default).
-    `replies` replaces some of the collection's replies; `failure` fails every request.
-    Returns (store, replay).
-    """
-    gate = SetupGate(MANIFEST)
-    gate.set(SetupState(state))
-    answers = collection_replies(collection, writes=True) | (replies or {})
-    replay = AnkiConnectReplay(answers, failure=failure)
-    client = AnkiConnectClient(
-        ANKI_URL, transport=replay.transport, guard=PrefixGuard(MANIFEST), gate=gate
-    )
-    return AnkiConnectStore(client, AnkiLock(), manifest=MANIFEST, gate=gate), replay
-
-
-def code_of(outcome: Any) -> str | None:
-    return str(outcome.code) if isinstance(outcome, AppError) else None
-
-
-def sent_bodies(replay: AnkiConnectReplay) -> str:
-    return repr([r.body for r in replay.sent])
 
 
 @pytest.mark.p0
@@ -164,14 +128,11 @@ def _no_captures(collection: Collection, capture_id: str) -> None:
 
 
 def _other_captures(collection: Collection, capture_id: str) -> None:
-    for _ in range(3):
-        capture_note(collection, MANIFEST, str(uuid.uuid4()), "other", OCT_22_FIELD)
+    other_captures(collection, OCT_22_FIELD)
 
 
 def _dev_capture_with_the_id(collection: Collection, capture_id: str) -> None:
-    """A `LanguageLabDev` Capture carrying the same CaptureId: another Prefix, never a match."""
-    apply_manifest(collection, DEV_MANIFEST)
-    capture_note(collection, DEV_MANIFEST, capture_id, "dev", OCT_22_FIELD)
+    dev_capture_with_the_id(collection, capture_id, OCT_22_FIELD)
 
 
 @pytest.mark.p0

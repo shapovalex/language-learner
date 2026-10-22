@@ -12,6 +12,18 @@ export class ApiError extends Error {
   }
 }
 
+// What the screens show when a request never reached the server (no envelope)
+export const NETWORK_FALLBACK = "LanguageLab could not reach the server.";
+
+export function isApiError(error, code) {
+  return error?.name === "ApiError" && error.code === code;
+}
+
+// An ApiError carries the envelope's fixed message (AD-15)
+export function errorMessage(error) {
+  return error?.name === "ApiError" ? error.message : NETWORK_FALLBACK;
+}
+
 async function toApiError(response) {
   let body = null;
   try {

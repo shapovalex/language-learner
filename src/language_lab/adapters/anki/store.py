@@ -20,12 +20,13 @@ so the guard and the gate apply; a CaptureId no Capture holds writes nothing and
 """
 
 import asyncio
-from collections.abc import Collection
+from collections.abc import Collection, Iterator
 from datetime import UTC, datetime
 from typing import Any
 
 from language_lab.adapters.anki.client import AnkiConnectClient
 from language_lab.adapters.anki.codec import decode_field, encode_field
+from language_lab.adapters.anki.guard import is_int
 from language_lab.adapters.anki.lock import AnkiLock
 from language_lab.adapters.anki.manifest import Manifest
 from language_lab.adapters.anki.migrations import Migration, run_migrations
@@ -70,6 +71,16 @@ def _stored_capture(capture_id: str, info: dict[str, Any]) -> Capture:
     except ValueError:
         raise AppError(ErrorCode.ANKI_UNAVAILABLE) from None
     return Capture(capture_id, _field(info, _TEXT), created_at.replace(tzinfo=UTC))
+
+
+def _capture_model(manifest: Manifest) -> str:
+    """The Prefix's Capture note type (manifest.py)."""
+    return f"{manifest.prefix} Capture"
+
+
+def _matching(infos: list[dict[str, Any]], capture_id: str) -> Iterator[dict[str, Any]]:
+    """The `notesInfo` entries whose decoded CaptureId is `capture_id` (AD-4)."""
+    return (info for info in infos if _field(info, _CAPTURE_ID).strip() == capture_id)
 
 
 def _failure_outcome(poll: dict[str, Any]) -> SyncOutcome:
@@ -161,10 +172,10 @@ class AnkiConnectStore:
         Raises `AppError(SETUP_REQUIRED | ANKI_UNAVAILABLE | ANKI_BUSY)`.
         """
         manifest = self._require_manifest()
-        model = f"{manifest.prefix} Capture"
+        model = _capture_model(manifest)
         created_at = created_at.astimezone(UTC).replace(microsecond=0)
         async with self._lock.hold():
-            stored = await self._find_capture(note_query(manifest, model), capture_id)
+            stored = await self._find_capture(manifest, capture_id)
             if stored is not None:
                 return stored
             fields = {
@@ -182,7 +193,7 @@ class AnkiConnectStore:
                     "options": {"allowDuplicate": True},
                 },
             )
-            if not isinstance(note_id, int) or isinstance(note_id, bool):
+            if not is_int(note_id):
                 raise AppError(ErrorCode.ANKI_UNAVAILABLE)
             infos = await self._client.invoke("notesInfo", notes=[note_id])
             if not isinstance(infos, list) or len(infos) != 1 or not isinstance(infos[0], dict):
@@ -199,7 +210,7 @@ class AnkiConnectStore:
         """
         manifest = self._require_manifest()
         async with self._lock.hold():
-            infos = await self._capture_infos(note_query(manifest, f"{manifest.prefix} Capture"))
+            infos = await self._capture_infos(manifest)
         captures = [_stored_capture(_field(info, _CAPTURE_ID).strip(), info) for info in infos]
         captures.sort(key=lambda c: (c.created_at, c.capture_id), reverse=True)
         return captures
@@ -210,8 +221,7 @@ class AnkiConnectStore:
         """
         manifest = self._require_manifest()
         async with self._lock.hold():
-            query = note_query(manifest, f"{manifest.prefix} Capture")
-            stored = await self._find_capture(query, capture_id)
+            stored = await self._find_capture(manifest, capture_id)
         if stored is None:
             raise AppError(ErrorCode.NOT_FOUND)
         return stored
@@ -223,22 +233,21 @@ class AnkiConnectStore:
         """
         manifest = self._require_manifest()
         async with self._lock.hold():
-            infos = await self._capture_infos(note_query(manifest, f"{manifest.prefix} Capture"))
+            infos = await self._capture_infos(manifest)
             note_ids: list[int] = []
-            for info in infos:
-                if _field(info, _CAPTURE_ID).strip() != capture_id:
-                    continue
+            for info in _matching(infos, capture_id):
                 note_id = info.get("noteId")
-                if not isinstance(note_id, int) or isinstance(note_id, bool):
+                if not is_int(note_id):
                     raise AppError(ErrorCode.ANKI_UNAVAILABLE)
                 note_ids.append(note_id)
             if note_ids:
                 await self._client.invoke("deleteNotes", notes=note_ids)
 
-    async def _capture_infos(self, query: str) -> list[dict[str, Any]]:
+    async def _capture_infos(self, manifest: Manifest) -> list[dict[str, Any]]:
         """The `notesInfo` entries of the exact Capture scope's `findNotes`, skipping notes
         deleted in between; `ANKI_UNAVAILABLE` on a malformed reply.
         """
+        query = note_query(manifest, _capture_model(manifest))
         ids = await self._client.invoke("findNotes", query=query)
         if not isinstance(ids, list):
             raise AppError(ErrorCode.ANKI_UNAVAILABLE)
@@ -256,14 +265,12 @@ class AnkiConnectStore:
             entries.append(info)
         return entries
 
-    async def _find_capture(self, query: str, capture_id: str) -> Capture | None:
+    async def _find_capture(self, manifest: Manifest, capture_id: str) -> Capture | None:
         """The stored Capture whose decoded CaptureId is `capture_id`, from the exact Capture
         scope's `findNotes` and `notesInfo`; None when there is none.
         """
-        for info in await self._capture_infos(query):
-            if _field(info, _CAPTURE_ID).strip() == capture_id:
-                return _stored_capture(capture_id, info)
-        return None
+        info = next(_matching(await self._capture_infos(manifest), capture_id), None)
+        return None if info is None else _stored_capture(capture_id, info)
 
     def _set_gate(self, preview: SetupPreview) -> None:
         if self._gate is not None:

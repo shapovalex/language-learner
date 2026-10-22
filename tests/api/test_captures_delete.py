@@ -17,7 +17,7 @@ import pytest
 from language_lab.app import create_app
 from language_lab.domain.captures import Capture
 from language_lab.domain.errors import AppError, ErrorCode
-from tests.fakes.anki_store import FakeAnkiStore
+from tests.support.captures import store_with
 from tests.support.fixtures.settings import SettingsFactory
 from tests.support.hosts import app_client, client_over
 from tests.support.live_server import closed_port
@@ -32,13 +32,6 @@ TARGET = Capture(
 OTHER = Capture(
     str(uuid.uuid4()), "Il fait un temps de chien.", datetime(2026, 10, 22, 8, 2, tzinfo=UTC)
 )
-
-
-def store_with(*captures: Capture) -> FakeAnkiStore:
-    store = FakeAnkiStore()
-    for capture in captures:
-        store.captures[capture.capture_id] = capture
-    return store
 
 
 @pytest.mark.p0
