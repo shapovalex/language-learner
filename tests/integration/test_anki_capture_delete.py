@@ -14,7 +14,7 @@ The write goes through `client.invoke`, so the AD-4 Prefix guard and the AD-19 s
 apply: a gated Anki is `setup_required` and the note stays.
 
 Anki is the in-memory collection in tests/support/anki_state.py. Its `deleteNotes` reply is
-hand-built until the acceptance run (entry 4) checks it against the real Anki.
+hand-built; the acceptance run (story 3.4) did not record it, so checking it is in deferred-work.md.
 """
 
 import uuid

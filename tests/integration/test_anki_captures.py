@@ -17,7 +17,8 @@ apply: a gated Anki is `setup_required` before any write is sent. A failing Anki
 
 Anki is the in-memory collection in tests/support/anki_state.py: `addNote` gives the note its
 card, and refuses a duplicate first field unless `allowDuplicate` is set. The real Anki's
-`suspend` and `deleteNotes` replies are hand-built until the acceptance run (entry 4).
+`suspend` and `deleteNotes` replies are hand-built; the acceptance run (story 3.4)
+did not record them, so checking them is in deferred-work.md.
 """
 
 import uuid

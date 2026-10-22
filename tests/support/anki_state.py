@@ -24,7 +24,7 @@ Capture leaves it.
 
 Delete Capture (story 3.3): with `writes=True`, `deleteNotes` removes the notes and their cards
 and answers `null`, ignoring an id it doesn't have. The reply is hand-built from AnkiConnect's
-documented one until the acceptance run (epic 3, entry 4) checks it against the real Anki.
+documented one; story 3.4's acceptance run did not record it (see deferred-work.md).
 
 Migrations (story 2.9): with `writes=True`, `modelFieldAdd` adds the field to the model, at
 `index` or at the end, and to each of its notes, empty.
