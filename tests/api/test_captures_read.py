@@ -17,15 +17,13 @@ from datetime import UTC, datetime
 
 import pytest
 
+from language_lab.app import create_app
 from language_lab.domain.captures import Capture
 from tests.fakes.anki_store import FakeAnkiStore
 from tests.support.fixtures.logs import LogCapture
 from tests.support.fixtures.settings import SettingsFactory
-from tests.support.hosts import client_over
-
-pytestmark = pytest.mark.skip(
-    reason="ATDD red phase: GET /api/captures and /api/captures/{captureId} are story 3.2's"
-)
+from tests.support.hosts import app_client, client_over
+from tests.support.live_server import closed_port
 
 CAPTURES = "/api/captures"
 # The one-Capture route's template, whatever its parameter is called
@@ -100,3 +98,56 @@ def test_an_unknown_capture_id_is_404_not_found(
     (line,) = log_capture.request_lines
     assert (line["status"], CAPTURE_ROUTE.fullmatch(line["route"] or "") is not None) == (404, True)
     assert response.json()["error"]["code"] == "not_found"
+
+
+# Secondary cases (green phase)
+
+
+@pytest.mark.p1
+@pytest.mark.parametrize("path", [CAPTURES, f"{CAPTURES}/{NEWEST.capture_id}"], ids=["list", "one"])
+def test_an_unreachable_anki_is_503_on_both_reads(
+    settings_factory: SettingsFactory, path: str
+) -> None:
+    """AC-5 / AC-6: with Anki unreachable both reads are 503 `anki_unavailable`."""
+    store = store_with(NEWEST)
+    store.available = False
+    client = client_over(settings_factory, store)
+
+    response = client.get(path)
+
+    assert response.status_code == 503
+    assert response.json()["error"]["code"] == "anki_unavailable"
+
+
+@pytest.mark.p1
+def test_a_malformed_capture_id_never_reaches_the_store(
+    settings_factory: SettingsFactory,
+) -> None:
+    """AC-7: `capture-1` is 404 `not_found` before the store is asked (an unreachable store
+    would answer 503).
+    """
+    store = store_with(NEWEST)
+    store.available = False
+    client = client_over(settings_factory, store)
+
+    response = client.get(f"{CAPTURES}/capture-1")
+
+    assert response.status_code == 404
+    assert response.json()["error"]["code"] == "not_found"
+
+
+@pytest.mark.p1
+@pytest.mark.parametrize("path", [CAPTURES, f"{CAPTURES}/{NEWEST.capture_id}"], ids=["list", "one"])
+def test_the_app_built_without_an_injected_store_has_both_read_routes(
+    settings_factory: SettingsFactory, path: str
+) -> None:
+    """AC-5 / AC-6: `create_app(settings)` wires both GET routes over the AnkiConnect store:
+    with no Anki listening, each reaches the store and is 503 `anki_unavailable`.
+    """
+    settings = settings_factory(env={"ANKI_CONNECT_URL": f"http://127.0.0.1:{closed_port()}"})
+    client = app_client(create_app(settings), settings)
+
+    response = client.get(path)
+
+    assert response.status_code == 503
+    assert response.json()["error"]["code"] == "anki_unavailable"

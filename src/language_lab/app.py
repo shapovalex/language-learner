@@ -113,14 +113,16 @@ async def _on_http_error(request: Request, exc: Exception) -> Response:
 
 
 # Domain failures that mean a dependency is down or busy, or that the request's premise is
-# stale (a Setup plan Anki no longer has) or unmet (a write while Setup isn't ready, AD-19; a
-# field change whose Sync didn't end OK, AD-17), not a fault in the server
+# stale (a Setup plan Anki no longer has), names nothing (a Capture not in Anki), or is unmet
+# (a write while Setup isn't ready, AD-19; a field change whose Sync didn't end OK, AD-17), not
+# a fault in the server
 _APP_ERROR_STATUS = {
     ErrorCode.ANKI_UNAVAILABLE: 503,
     ErrorCode.ANKI_BUSY: 503,
     ErrorCode.PLAN_CHANGED: 409,
     ErrorCode.SETUP_REQUIRED: 409,
     ErrorCode.SYNC_REQUIRED: 409,
+    ErrorCode.NOT_FOUND: 404,
 }
 
 

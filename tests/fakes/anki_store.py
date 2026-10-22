@@ -30,6 +30,10 @@ class FakeAnkiStore:
     `create_capture()` is create-or-noop by CaptureId over `captures` (AD-20): a known CaptureId
     returns the stored Capture unchanged. It raises `anki_busy` or `anki_unavailable` as the
     other methods do.
+
+    `list_captures()` returns `captures` newest first by `created_at` (ties by CaptureId), as the
+    adapter sorts. `get_capture()` returns the stored one or raises `not_found`. Both raise
+    `anki_busy` or `anki_unavailable` as the other methods do.
     """
 
     def __init__(
@@ -112,6 +116,25 @@ class FakeAnkiStore:
         if not self.available:
             raise AppError(ErrorCode.ANKI_UNAVAILABLE)
         return self.captures.setdefault(capture_id, Capture(capture_id, text, created_at))
+
+    async def list_captures(self) -> list[Capture]:
+        if self.busy:
+            raise AppError(ErrorCode.ANKI_BUSY)
+        if not self.available:
+            raise AppError(ErrorCode.ANKI_UNAVAILABLE)
+        return sorted(
+            self.captures.values(), key=lambda c: (c.created_at, c.capture_id), reverse=True
+        )
+
+    async def get_capture(self, capture_id: str) -> Capture:
+        if self.busy:
+            raise AppError(ErrorCode.ANKI_BUSY)
+        if not self.available:
+            raise AppError(ErrorCode.ANKI_UNAVAILABLE)
+        capture = self.captures.get(capture_id)
+        if capture is None:
+            raise AppError(ErrorCode.NOT_FOUND)
+        return capture
 
     async def sync(self) -> SyncOutcome:
         self.sync_calls += 1

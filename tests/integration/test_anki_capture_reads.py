@@ -30,7 +30,7 @@ from language_lab.domain.captures import Capture
 from language_lab.domain.errors import AppError
 from language_lab.domain.setup import SetupState
 from tests.support.aio import settle
-from tests.support.anki_connect import ANKI_URL, AnkiConnectReplay
+from tests.support.anki_connect import ANKI_URL, AnkiConnectReplay, refused
 from tests.support.anki_state import (
     Collection,
     apply_manifest,
@@ -38,11 +38,8 @@ from tests.support.anki_state import (
     collection_replies,
     managed_collection,
     managed_note,
+    sent_actions,
     sent_queries,
-)
-
-pytestmark = pytest.mark.skip(
-    reason="ATDD red phase: AnkiStore.list_captures and get_capture are not built until story 3.2"
 )
 
 PREFIX = "LanguageLab"
@@ -63,11 +60,21 @@ LAST_YEAR = datetime(2025, 12, 31, 23, 59, 59, tzinfo=UTC)
 LAST_YEAR_FIELD = "2025-12-31T23:59:59Z"
 
 
-def wired(collection: Collection) -> tuple[Any, AnkiConnectReplay]:
-    """The real client and store over `collection`, gate `ready`. Returns (store, replay)."""
+def wired(
+    collection: Collection,
+    *,
+    state: str = "ready",
+    replies: dict[str, Any] | None = None,
+    failure: Any = None,
+) -> tuple[Any, AnkiConnectReplay]:
+    """The real client and store over `collection`, gate `state` (`ready` by default).
+    `replies` replaces some of the collection's replies; `failure` fails every request.
+    Returns (store, replay).
+    """
     gate = SetupGate(MANIFEST)
-    gate.set(SetupState.READY)
-    replay = AnkiConnectReplay(collection_replies(collection, writes=True))
+    gate.set(SetupState(state))
+    answers = collection_replies(collection, writes=True) | (replies or {})
+    replay = AnkiConnectReplay(answers, failure=failure)
     client = AnkiConnectClient(
         ANKI_URL, transport=replay.transport, guard=PrefixGuard(MANIFEST), gate=gate
     )
@@ -183,3 +190,93 @@ def test_get_capture_of_an_unknown_capture_id_is_not_found(arrange: Any) -> None
     outcome = settle(store.get_capture(capture_id))
 
     assert code_of(outcome) == "not_found"
+
+
+# Secondary cases (green phase)
+
+
+@pytest.mark.p1
+def test_an_empty_capture_scope_lists_nothing_and_sends_no_notes_info() -> None:
+    """AC-1: with no Captures, list_captures is `[]` and no `notesInfo` is sent."""
+    collection = managed_collection(MANIFEST)
+    store, replay = wired(collection)
+
+    outcome = settle(store.list_captures())
+
+    assert outcome == []
+    assert "notesInfo" not in sent_actions(replay.sent)
+
+
+@pytest.mark.p1
+def test_a_note_deleted_since_find_notes_is_skipped() -> None:
+    """AC-1: a `{}` notesInfo entry (a note deleted since `findNotes`) is skipped."""
+    collection = managed_collection(MANIFEST)
+    kept, gone = str(uuid.uuid4()), str(uuid.uuid4())
+    capture_note(collection, MANIFEST, kept, "kept", OCT_22_FIELD)
+    gone_id = capture_note(collection, MANIFEST, gone, "gone", OCT_01_FIELD)
+    answers = collection_replies(collection, writes=True)
+
+    def notes_info(body: Any) -> Any:
+        reply = answers["notesInfo"]
+        result = reply(body) if callable(reply) else reply
+        notes = body["params"]["notes"]
+        infos = zip(notes, result["result"], strict=True)
+        result["result"] = [{} if n == gone_id else info for n, info in infos]
+        return result
+
+    store, _ = wired(collection, replies={"notesInfo": notes_info})
+
+    outcome = settle(store.list_captures())
+
+    assert outcome == [Capture(kept, "kept", OCT_22)]
+
+
+@pytest.mark.p1
+def test_a_malformed_created_at_is_anki_unavailable() -> None:
+    """AC-1: a CreatedAt that isn't `YYYY-MM-DDTHH:MM:SSZ` is `anki_unavailable`."""
+    collection = managed_collection(MANIFEST)
+    capture_note(collection, MANIFEST, str(uuid.uuid4()), "bad", "yesterday")
+    store, _ = wired(collection)
+
+    outcome = settle(store.list_captures())
+
+    assert code_of(outcome) == "anki_unavailable"
+
+
+@pytest.mark.p1
+def test_anki_down_is_anki_unavailable_for_both_reads() -> None:
+    """AC-1 / AC-3: an unreachable Anki is `anki_unavailable`."""
+    store, _ = wired(managed_collection(MANIFEST), failure=refused)
+
+    outcomes = [settle(store.list_captures()), settle(store.get_capture(str(uuid.uuid4())))]
+
+    assert [code_of(o) for o in outcomes] == ["anki_unavailable", "anki_unavailable"]
+
+
+@pytest.mark.p1
+def test_a_gated_anki_still_lists_and_reads_captures() -> None:
+    """AC-1 / AC-3: the reads aren't gated (AD-19), so `needs_setup` still lists and reads."""
+    collection = managed_collection(MANIFEST)
+    capture_id = str(uuid.uuid4())
+    capture_note(collection, MANIFEST, capture_id, "kept", OCT_22_FIELD)
+    store, _ = wired(collection, state="needs_setup")
+
+    listed = settle(store.list_captures())
+    got = settle(store.get_capture(capture_id))
+
+    assert listed == [Capture(capture_id, "kept", OCT_22)]
+    assert got == Capture(capture_id, "kept", OCT_22)
+
+
+@pytest.mark.p1
+def test_equal_created_at_values_keep_a_stable_order() -> None:
+    """AC-2: Captures with the same CreatedAt come back in one order, CaptureId descending."""
+    collection = managed_collection(MANIFEST)
+    ids = [str(uuid.uuid4()) for _ in range(3)]
+    for capture_id in ids:
+        capture_note(collection, MANIFEST, capture_id, "same time", OCT_22_FIELD)
+    store, _ = wired(collection)
+
+    outcome = settle(store.list_captures())
+
+    assert [c.capture_id for c in outcome] == sorted(ids, reverse=True)
