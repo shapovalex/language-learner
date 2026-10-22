@@ -398,6 +398,10 @@ function errorMessage(error) {
   return error?.name === "ApiError" ? error.message : "LanguageLab could not reach the server.";
 }
 
+function isApiError(error, code) {
+  return error?.name === "ApiError" && error.code === code;
+}
+
 function inlineError(message) {
   const node = element("p", "inline-alert-error", message);
   node.setAttribute("role", "alert");
@@ -455,6 +459,14 @@ export function mount(root) {
     state.checked = offered.filter((key) => state.checked.includes(key));
   }
 
+  // A plan read failed: its error replaces the change list
+  function planFailed(error) {
+    if (!mounted) return;
+    state.replanning = false;
+    state.planError = error;
+    renderPlan();
+  }
+
   function toggle(key, on) {
     const others = state.checked.filter((k) => k !== key);
     state.checked = on ? [...others, key] : others;
@@ -467,12 +479,7 @@ export function mount(root) {
         takePlan(body);
         if (state.view === "list") renderPlan();
       },
-      (error) => {
-        if (!mounted) return;
-        state.replanning = false;
-        state.planError = error;
-        renderPlan();
-      },
+      planFailed,
     );
   }
 
@@ -545,11 +552,7 @@ export function mount(root) {
           show("list", { notice });
         }
       },
-      (error) => {
-        if (!mounted) return;
-        state.planError = error;
-        renderPlan();
-      },
+      planFailed,
     );
   }
 
@@ -580,9 +583,9 @@ export function mount(root) {
       },
       (error) => {
         if (!mounted) return;
-        if (error?.name === "ApiError" && error.code === "plan_changed") {
+        if (isApiError(error, "plan_changed")) {
           reread(null, error.message); // keeps the checks the fresh plan still offers
-        } else if (error?.name === "ApiError" && error.code === "setup_required") {
+        } else if (isApiError(error, "setup_required")) {
           reread(null); // the fresh plan's state (newer_schema) brings up its own alert
         } else {
           show("list", { notice: errorMessage(error) });
@@ -658,11 +661,7 @@ export function mount(root) {
       takePlan(body);
       place();
     },
-    (error) => {
-      if (!mounted) return;
-      state.planError = error;
-      renderPlan();
-    },
+    planFailed,
   );
 
   // Last: a late /api/health must not write after unmount (tests/e2e/test_navigation.py)

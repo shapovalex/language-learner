@@ -23,19 +23,24 @@ import pytest
 from playwright.sync_api import Page, Route, expect
 
 from tests.support.network import stub_api_json
+from tests.support.setup_screen import (
+    APPLY,
+    APPLY_LABEL,
+    IDLE,
+    PLAN_HASH,
+    PREFIX,
+    READINESS,
+    STATUS,
+    readiness,
+)
 
-READINESS = "/api/setup/readiness"
 PLAN = re.compile(r".*/api/setup/plan(\?.*)?$")
-STATUS = "/api/setup/apply/status"
-APPLY = "/api/setup/apply"
-PREFIX = "LanguageLabDev"  # not the default, so a hard-coded "LanguageLab" can't pass
 VOCABULARY = f"{PREFIX} English Vocabulary"
 CAPTURE = f"{PREFIX} Capture"
 
 REPAIRS_HEADING = "Optional repairs"
 REPAIRS_HINT = "Nothing here changes unless you check it."
 UNMANAGED_HEADING = "Not managed by LanguageLab"
-APPLY_LABEL = "Apply setup"
 
 MEDIA = f"{PREFIX}_00000000-0000-4000-8000-000000000001_0123456789ab.mp3"
 REPAIRS = [
@@ -60,12 +65,11 @@ REPAIRS = [
         "deck": f"{PREFIX}::Captures",
     },
 ]
-UNCHECKED_HASH = "0" * 64
 
 
 def checked_hash(checked: list[str]) -> str:
     """A stand-in plan hash per selection: the screen must post the one the server answered."""
-    return UNCHECKED_HASH if not checked else str(len(checked)) * 64
+    return PLAN_HASH if not checked else str(len(checked)) * 64
 
 
 def plan_for(url: str) -> dict[str, Any]:
@@ -88,19 +92,9 @@ def open_setup(page: Page) -> tuple[Any, list[str]]:
         plan_urls.append(route.request.url)
         route.fulfill(content_type="application/json", body=json.dumps(plan_for(route.request.url)))
 
-    stub_api_json(
-        page,
-        READINESS,
-        {
-            "prefix": PREFIX,
-            "checks": [
-                {"id": check, "ok": True}
-                for check in ("ankiConnect", "azure", "openrouter", "fullSync")
-            ],
-        },
-    )
+    stub_api_json(page, READINESS, readiness(full_sync_ok=True))
     page.route(PLAN, answer_plan)
-    stub_api_json(page, STATUS, {"state": "idle", "result": None})
+    stub_api_json(page, STATUS, IDLE)
     page.goto("/setup")
     return page.get_by_role("main"), plan_urls
 

@@ -20,8 +20,7 @@ read-only.
 Anki is the in-memory collection in tests/support/anki_state.py, with its cards and media.
 """
 
-import uuid
-from collections.abc import Awaitable, Iterable
+from collections.abc import Iterable
 from typing import Any
 
 import pytest
@@ -36,7 +35,7 @@ from language_lab.domain.errors import AppError, ErrorCode
 from language_lab.domain.setup import PlanAction, PlanItem, ResourceKind, SetupState, plan_hash
 from language_lab.features.setup.service import SetupService
 from tests.fakes.sync_requester import FakeSyncRequester
-from tests.support.aio import settle
+from tests.support.aio import run, settle
 from tests.support.anki_connect import ANKI_URL, AnkiConnectReplay
 from tests.support.anki_state import (
     Collection,
@@ -45,6 +44,7 @@ from tests.support.anki_state import (
     collection_replies,
     managed_collection,
     managed_note,
+    media_name,
     sent_writes,
 )
 from tests.support.clock import bounded
@@ -64,11 +64,6 @@ MISPLACED_CARD = "misplacedCard"
 UNSUSPENDED_CARD = "unsuspendedCard"
 
 
-def media_name(prefix: str = PREFIX) -> str:
-    """A managed media name (AD-7): `<Prefix>_<ItemId>_<sha256[:12]>.mp3`."""
-    return f"{prefix}_{uuid.uuid4()}_{uuid.uuid4().hex[:12]}.mp3"
-
-
 def key(kind: str, name: object) -> str:
     return f"{kind}:{name}"
 
@@ -85,14 +80,6 @@ def wired(collection: Collection) -> tuple[Any, AnkiConnectReplay]:
         ANKI_URL, transport=replay.transport, guard=PrefixGuard(MANIFEST), gate=gate
     )
     return AnkiConnectStore(client, AnkiLock(), manifest=MANIFEST, gate=gate), replay
-
-
-def run[T](awaitable: Awaitable[T]) -> T:
-    """Run a scenario on its own loop, bounded in real time; re-raise what it raised."""
-    outcome = settle(bounded(awaitable))
-    if isinstance(outcome, Exception):
-        raise outcome
-    return outcome
 
 
 def vocabulary_note(collection: Collection, audio: str = "") -> int:
@@ -118,8 +105,8 @@ class Leftovers:
 
     def __init__(self) -> None:
         self.collection = c = managed_collection(MANIFEST)
-        self.used_media = media_name()
-        self.orphan_media = media_name()
+        self.used_media = media_name(PREFIX)
+        self.orphan_media = media_name(PREFIX)
         c.media |= {self.used_media, self.orphan_media}
         note = vocabulary_note(c, audio=f"[sound:{self.used_media}]")
         self.placed = well_placed_cards(c, note)
@@ -141,7 +128,12 @@ def test_orphan_media_previews_as_an_opt_in_repair_row() -> None:
     is offered as an `orphanMedia` row; a referenced one and another Prefix's are not.
     """
     collection = managed_collection(MANIFEST)
-    orphan, wrapped, plain, dev = media_name(), media_name(), media_name(), media_name(DEV)
+    orphan, wrapped, plain, dev = (
+        media_name(PREFIX),
+        media_name(PREFIX),
+        media_name(PREFIX),
+        media_name(DEV),
+    )
     collection.media |= {orphan, wrapped, plain, dev, "_cards.css", "LanguageLab_notes.mp3"}
     vocabulary_note(collection, audio=f"<div>[sound:{wrapped}]</div>")  # editor markup
     vocabulary_note(collection, audio=f"[sound:{plain}]")
@@ -319,7 +311,7 @@ def wired_over(replies: dict[str, Any]) -> tuple[Any, AnkiConnectReplay]:
 def test_an_audio_field_with_two_sound_tags_references_both() -> None:
     """AC-1: every `[sound:]` tag of an `Audio` field counts, not only the first."""
     collection = managed_collection(MANIFEST)
-    first, second, orphan = media_name(), media_name(), media_name()
+    first, second, orphan = media_name(PREFIX), media_name(PREFIX), media_name(PREFIX)
     collection.media |= {first, second, orphan}
     vocabulary_note(collection, audio=f"[sound:{first}]<br>[sound:{second}]")
     store, _ = wired(collection)
@@ -335,7 +327,7 @@ def test_a_media_name_in_another_case_is_not_offered() -> None:
     lowercase) isn't offered, since the guard couldn't delete it.
     """
     collection = managed_collection(MANIFEST)
-    orphan = media_name()
+    orphan = media_name(PREFIX)
     item_id, digest = orphan.removeprefix(f"{PREFIX}_").removesuffix(".mp3").split("_")
     upper_digest = f"{PREFIX}_{item_id}_{digest.upper()}.mp3"  # the pattern matches; AD-7 doesn't
     lower_prefix = f"{PREFIX.lower()}_{item_id}_{digest}.mp3"  # not even the pattern does

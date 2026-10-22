@@ -22,13 +22,12 @@ from typing import Any
 import pytest
 from fastapi.testclient import TestClient
 
-from language_lab.app import create_app
 from language_lab.domain.setup import PlanAction, PlanItem, ResourceKind, SetupPreview, SetupState
 from language_lab.domain.setup import plan_hash as _plan_hash
 from language_lab.domain.sync import SyncOutcome
 from tests.fakes.anki_store import FakeAnkiStore
 from tests.support.fixtures.settings import SettingsFactory
-from tests.support.hosts import app_client
+from tests.support.hosts import client_over
 
 PLAN = "/api/setup/plan"
 APPLY = "/api/setup/apply"
@@ -44,15 +43,14 @@ NO_FIELD_CHANGE = (
 )
 
 
-def client_over(
+def client_and_store(
     settings_factory: SettingsFactory, items: tuple[PlanItem, ...], **fake: Any
 ) -> tuple[TestClient, FakeAnkiStore]:
     """The app over a fake whose preview is `items` and whose apply verifies clean."""
     store = FakeAnkiStore(
         preview=SetupPreview(items=items, state=SetupState.NEEDS_MIGRATION), **fake
     )
-    settings = settings_factory(anki_prefix=PREFIX)
-    return app_client(create_app(settings, anki_store=store), settings), store
+    return client_over(settings_factory, store, anki_prefix=PREFIX), store
 
 
 def apply_plan(client: TestClient, items: tuple[PlanItem, ...]) -> Any:
@@ -75,7 +73,7 @@ def test_each_plan_row_says_whether_it_requires_a_full_sync(
         PlanItem(PlanAction.MIGRATE, ResourceKind.NOTES, VOCABULARY),
         *NO_FIELD_CHANGE,
     )
-    client, _ = client_over(settings_factory, items)
+    client, _ = client_and_store(settings_factory, items)
 
     rows = client.get(PLAN).json()["items"]
 
@@ -90,7 +88,7 @@ def test_only_a_field_changing_plan_syncs_before_it_applies(
     settings_factory: SettingsFactory, items: tuple[PlanItem, ...], syncs: int
 ) -> None:
     """AC-10: a plan without a field-changing step applies without a Sync."""
-    client, store = client_over(settings_factory, items)
+    client, store = client_and_store(settings_factory, items)
 
     apply_plan(client, items)
 
@@ -104,7 +102,7 @@ def test_a_sync_that_fails_before_a_field_change_refuses_the_apply(
     settings_factory: SettingsFactory, outcome: SyncOutcome
 ) -> None:
     """AC-11: 409 `sync_required`, and the plan isn't applied."""
-    client, store = client_over(settings_factory, FIELD_CHANGE, outcome=outcome)
+    client, store = client_and_store(settings_factory, FIELD_CHANGE, outcome=outcome)
 
     response = apply_plan(client, FIELD_CHANGE)
 
@@ -116,7 +114,7 @@ def test_a_sync_that_fails_before_a_field_change_refuses_the_apply(
 @pytest.mark.p0
 def test_the_apply_result_says_a_full_sync_is_required(settings_factory: SettingsFactory) -> None:
     """AC-12: after a field-changing plan, `fullSyncRequired` tells the screen to say upload."""
-    client, _ = client_over(settings_factory, FIELD_CHANGE)
+    client, _ = client_and_store(settings_factory, FIELD_CHANGE)
 
     response = apply_plan(client, FIELD_CHANGE)
 
@@ -129,7 +127,7 @@ def test_readiness_reports_full_sync_required_after_a_field_changing_apply(
     settings_factory: SettingsFactory,
 ) -> None:
     """AC-13: the fullSync check passes before and fails after the apply."""
-    client, _ = client_over(settings_factory, FIELD_CHANGE)
+    client, _ = client_and_store(settings_factory, FIELD_CHANGE)
 
     before = full_sync_ok(client)
     apply_plan(client, FIELD_CHANGE)
@@ -143,7 +141,7 @@ def test_the_user_clears_full_sync_required_once_uploaded(
     settings_factory: SettingsFactory,
 ) -> None:
     """AC-15: POST /api/setup/full-sync/uploaded is 204, and the check passes again."""
-    client, _ = client_over(settings_factory, FIELD_CHANGE)
+    client, _ = client_and_store(settings_factory, FIELD_CHANGE)
     apply_plan(client, FIELD_CHANGE)
 
     response = client.post(UPLOADED)
@@ -163,8 +161,7 @@ def test_dev_mode_applies_a_field_change_without_a_sync(
     dev_prefix = "LanguageLabDev"
     items = (PlanItem(PlanAction.MIGRATE, ResourceKind.NOTE_TYPE, f"{dev_prefix} Capture"),)
     store = FakeAnkiStore(preview=SetupPreview(items=items, state=SetupState.NEEDS_MIGRATION))
-    settings = settings_factory(dev=True, anki_prefix=dev_prefix)
-    client = app_client(create_app(settings, anki_store=store), settings)
+    client = client_over(settings_factory, store, dev=True, anki_prefix=dev_prefix)
 
     response = apply_plan(client, items)
 
@@ -179,7 +176,7 @@ def test_anki_unavailable_during_the_sync_refuses_the_apply(
     settings_factory: SettingsFactory,
 ) -> None:
     """AC-11: a Sync that can't reach Anki refuses the field change the same way."""
-    client, store = client_over(settings_factory, FIELD_CHANGE)
+    client, store = client_and_store(settings_factory, FIELD_CHANGE)
     store.outcome = SyncOutcome.ANKI_UNAVAILABLE
 
     response = apply_plan(client, FIELD_CHANGE)
@@ -197,7 +194,9 @@ def test_a_stale_hash_is_refused_as_plan_changed_without_a_sync(
     """AC-11: a hash the field-changing preview no longer has gets `plan_changed`, not a Sync
     and `sync_required`.
     """
-    client, store = client_over(settings_factory, FIELD_CHANGE, outcome=SyncOutcome.AUTH_REQUIRED)
+    client, store = client_and_store(
+        settings_factory, FIELD_CHANGE, outcome=SyncOutcome.AUTH_REQUIRED
+    )
 
     response = client.post(APPLY, json={"planHash": "0" * 64})
 

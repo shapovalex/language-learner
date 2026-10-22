@@ -71,10 +71,7 @@ class AnkiConnectClient:
         body: dict[str, Any] = {"action": action, "version": API_VERSION}
         if params:
             body["params"] = params
-        reply = await self._post(self._url, body)
-        if reply.get("error") is not None:
-            raise AppError(ErrorCode.ANKI_UNAVAILABLE)
-        return reply.get("result")
+        return await self._post(self._url, body)
 
     async def invoke_v1(self, method: str, **params: Any) -> Any:
         """POST one API v1 (JSON-RPC 2.0) call and return its `result`.
@@ -83,21 +80,19 @@ class AnkiConnectClient:
         isn't a JSON object, or a JSON-RPC `error`. No upstream text is carried (AD-15).
         """
         body = {"jsonrpc": "2.0", "id": next(self._v1_ids), "method": method, "params": params}
-        reply = await self._post(self._v1_url, body)
-        if reply.get("error") is not None:
-            raise AppError(ErrorCode.ANKI_UNAVAILABLE)
-        return reply.get("result")
+        return await self._post(self._v1_url, body)
 
-    async def _post(self, url: str, body: dict[str, Any]) -> dict[str, Any]:
+    async def _post(self, url: str, body: dict[str, Any]) -> Any:
+        """POST `body` and return the reply's `result` once it has no `error` (v6 and v1 alike)."""
         try:
             response = await self._http.post(url, json=body)
             response.raise_for_status()
             reply = response.json()
         except httpx.HTTPError, ValueError:
             raise AppError(ErrorCode.ANKI_UNAVAILABLE) from None
-        if not isinstance(reply, dict):
+        if not isinstance(reply, dict) or reply.get("error") is not None:
             raise AppError(ErrorCode.ANKI_UNAVAILABLE)
-        return reply
+        return reply.get("result")
 
     async def aclose(self) -> None:
         await self._http.aclose()

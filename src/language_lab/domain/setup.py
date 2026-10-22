@@ -9,14 +9,15 @@ shown read-only and stay outside the plan and its hash.
 Opt-in repairs (entry 11): leftovers under the Prefix (orphan media, a managed card in the
 wrong deck, an unsuspended Capture card) are offered in `SetupPreview.repairs`, one row per
 resource, unchecked. They stay out of `items` and the SetupState; only the rows the user
-checks (by `key`) join the items in the hash: `plan_hash((*items, *checked))`.
+checks (by `key`, `checked_repairs(preview, keys)`) join the items in the hash:
+`plan_hash((*items, *checked))`.
 
 `SetupState` says whether feature writes may go to Anki: only when it is `ready` (AD-19).
 """
 
 import hashlib
 import json
-from collections.abc import Iterable, Mapping
+from collections.abc import Collection, Iterable, Mapping
 from dataclasses import dataclass, field
 from enum import StrEnum
 
@@ -81,6 +82,12 @@ class SetupPreview:
     unmanaged: tuple[Unmanaged, ...] = ()
     repairs: tuple[PlanItem, ...] = ()  # every opt-in repair row offered, unchecked
     state: SetupState = SetupState.READY  # what an empty preview is
+
+
+def checked_repairs(preview: SetupPreview, keys: Collection[str]) -> tuple[PlanItem, ...]:
+    """The offered repair rows whose key is in `keys`; a key no longer offered drops out."""
+    wanted = set(keys)
+    return tuple(r for r in preview.repairs if r.key in wanted)
 
 
 def plan_hash(items: Iterable[PlanItem]) -> str:

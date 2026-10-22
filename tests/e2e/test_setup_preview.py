@@ -17,19 +17,21 @@ The browser stubs readiness and the plan, so this checks rendering only. The pla
 tests/integration/test_anki_setup_preview.py and the route in tests/api/test_setup_plan.py.
 """
 
-from typing import Any
-
 import pytest
-from playwright.sync_api import Locator, Page, expect
+from playwright.sync_api import Page, expect
 
 from tests.support.network import stub_api_error, stub_api_json
+from tests.support.setup_screen import (
+    CHANGES_HEADING,
+    PLAN,
+    PREFIX,
+    READINESS,
+    item,
+    open_setup,
+    plan,
+    readiness,
+)
 
-READINESS = "/api/setup/readiness"
-PLAN = "/api/setup/plan"
-PREFIX = "LanguageLabDev"  # not the default, so a hard-coded "LanguageLab" can't pass
-PLAN_HASH = "0" * 64
-
-CHANGES_HEADING = "What will change in Anki"
 CHANGES_NOTE = "Nothing changes until you apply."
 NOTHING_TO_CHANGE = "Nothing to change."
 NOTHING_TO_CHANGE_DETAIL = "Everything LanguageLab manages is already set up."
@@ -48,25 +50,6 @@ NOTE_TYPES = [
 ]
 
 
-def readiness(ok: bool = True) -> dict[str, Any]:
-    return {
-        "prefix": PREFIX,
-        "checks": [
-            {"id": "ankiConnect", "ok": ok},
-            {"id": "azure", "ok": True},
-            {"id": "openrouter", "ok": True},
-        ],
-    }
-
-
-def item(action: str, kind: str, name: str) -> dict[str, str]:
-    return {"action": action, "kind": kind, "name": name}
-
-
-def plan(items: list[dict[str, str]], unmanaged: list[dict[str, str]] | None = None) -> dict:
-    return {"prefix": PREFIX, "planHash": PLAN_HASH, "items": items, "unmanaged": unmanaged or []}
-
-
 def empty_prefix_plan() -> dict:
     """An empty Prefix: 28 decks, 5 note types, their templates and CSS, and the preset.
 
@@ -77,13 +60,6 @@ def empty_prefix_plan() -> dict:
     templates = [item("create", "templates", name) for name in NOTE_TYPES]
     # Shuffled kinds: the screen orders the rows itself
     return plan([*templates, item("create", "preset", PREFIX), *note_types, *decks])
-
-
-def open_setup(page: Page, plan_body: dict) -> Locator:
-    stub_api_json(page, READINESS, readiness())
-    stub_api_json(page, PLAN, plan_body)
-    page.goto("/setup")
-    return page.get_by_role("main")
 
 
 @pytest.mark.p0
@@ -126,7 +102,7 @@ def test_setup_lists_unrecognized_content_as_not_managed(page: Page) -> None:
         {"kind": "noteType", "name": f"{PREFIX} Spanish Vocabulary"},
     ]
     repair = [item("repair", "templates", f"{PREFIX} English Vocabulary")]
-    main = open_setup(page, plan(repair, unmanaged))
+    main = open_setup(page, plan(repair, unmanaged=unmanaged))
 
     rows = main.get_by_role("list", name=NOT_MANAGED_HEADING).get_by_role("listitem")
 

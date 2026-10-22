@@ -19,36 +19,30 @@ import pytest
 from playwright.sync_api import Page, Route, expect
 
 from tests.support.network import stub_api_error, stub_api_json
+from tests.support.setup_screen import (
+    APPLY,
+    APPLY_LABEL,
+    CHANGES_HEADING,
+    FIX_REASON,
+    IDLE,
+    PLAN,
+    PLAN_HASH,
+    PREFIX,
+    READINESS,
+    STATUS,
+    open_setup,
+    readiness,
+)
 
-READINESS = "/api/setup/readiness"
-PLAN = "/api/setup/plan"
-STATUS = "/api/setup/apply/status"
 UPLOADED = "/api/setup/full-sync/uploaded"
-APPLY = "/api/setup/apply"
-PREFIX = "LanguageLabDev"  # not the default, so a hard-coded "LanguageLab" can't pass
 VOCABULARY = f"{PREFIX} English Vocabulary"
 
 FULL_SYNC_TITLE = "Full sync required"
 FULL_SYNC_FIX = "Open Anki Desktop, sync, and choose Upload to AnkiWeb."
 UPLOADED_LABEL = "I've uploaded"
 NEEDS_FULL_SYNC = "Needs a full sync afterwards."
-APPLY_LABEL = "Apply setup"
-CHANGES_HEADING = "What will change in Anki"
-FIX_REASON = "Fix the failing check to continue."
 SYNC_REQUIRED_MESSAGE = "Anki couldn't sync with AnkiWeb. Sync in Anki Desktop, then apply again."
 NOTES_FOUND = "Expected every note at LanguageLab's schema version; found older ones."
-
-
-def readiness(*, full_sync_ok: bool) -> dict[str, Any]:
-    return {
-        "prefix": PREFIX,
-        "checks": [
-            {"id": "ankiConnect", "ok": True},
-            {"id": "azure", "ok": True},
-            {"id": "openrouter", "ok": True},
-            {"id": "fullSync", "ok": full_sync_ok},
-        ],
-    }
 
 
 ITEMS = [
@@ -60,19 +54,11 @@ ITEMS = [
 def migration_plan() -> dict[str, Any]:
     return {
         "prefix": PREFIX,
-        "planHash": "0" * 64,
+        "planHash": PLAN_HASH,
         "state": "needs_migration",
         "items": ITEMS,
         "unmanaged": [],
     }
-
-
-def open_setup(page: Page, *, full_sync_ok: bool) -> Any:
-    stub_api_json(page, READINESS, readiness(full_sync_ok=full_sync_ok))
-    stub_api_json(page, PLAN, migration_plan())
-    stub_api_json(page, STATUS, {"state": "idle", "result": None})
-    page.goto("/setup")
-    return page.get_by_role("main")
 
 
 @pytest.mark.p0
@@ -81,7 +67,7 @@ def test_the_full_sync_required_tile_shows_only_while_its_check_fails(
     page: Page, full_sync_ok: bool
 ) -> None:
     """AC-16: the warning tile and its copy while `fullSync` fails, and Apply stays enabled."""
-    main = open_setup(page, full_sync_ok=full_sync_ok)
+    main = open_setup(page, migration_plan(), full_sync_ok=full_sync_ok)
 
     expect(main.get_by_text(FULL_SYNC_TITLE, exact=True)).to_have_count(0 if full_sync_ok else 1)
     expect(main.get_by_text(FULL_SYNC_FIX)).to_have_count(0 if full_sync_ok else 1)
@@ -105,7 +91,7 @@ def test_ive_uploaded_clears_the_full_sync_required_tile(page: Page) -> None:
     page.route(f"**{READINESS}", answer_readiness)
     page.route(f"**{UPLOADED}", answer_uploaded)
     stub_api_json(page, PLAN, migration_plan())
-    stub_api_json(page, STATUS, {"state": "idle", "result": None})
+    stub_api_json(page, STATUS, IDLE)
     page.goto("/setup")
     main = page.get_by_role("main")
 
@@ -118,7 +104,7 @@ def test_ive_uploaded_clears_the_full_sync_required_tile(page: Page) -> None:
 @pytest.mark.p1
 def test_the_change_list_shows_notes_rows_and_marks_a_full_sync(page: Page) -> None:
     """AC-18: a "Notes" row for the notes to migrate; the field change says it needs a full sync."""
-    main = open_setup(page, full_sync_ok=True)
+    main = open_setup(page, migration_plan(), full_sync_ok=True)
     rows = main.get_by_role("list", name=CHANGES_HEADING).get_by_role("listitem")
 
     notes_row = rows.filter(has_text="Notes")
@@ -152,7 +138,7 @@ def apply_then_readiness(page: Page, discrepancies: list[dict[str, Any]]) -> Any
     page.route(f"**{READINESS}", answer_readiness)
     page.route(f"**{APPLY}", answer_apply)
     stub_api_json(page, PLAN, migration_plan())
-    stub_api_json(page, STATUS, {"state": "idle", "result": None})
+    stub_api_json(page, STATUS, IDLE)
     page.goto("/setup")
     main = page.get_by_role("main")
     main.get_by_role("button", name=APPLY_LABEL).click()
@@ -184,7 +170,7 @@ def test_a_notes_discrepancy_says_what_verify_expected_and_found(page: Page) -> 
 def test_a_refused_field_change_shows_the_sync_required_message(page: Page) -> None:
     """AC-11: 409 `sync_required` shows its message above the change list."""
     stub_api_error(page, APPLY, status=409, code="sync_required", message=SYNC_REQUIRED_MESSAGE)
-    main = open_setup(page, full_sync_ok=True)
+    main = open_setup(page, migration_plan(), full_sync_ok=True)
 
     main.get_by_role("button", name=APPLY_LABEL).click()
 

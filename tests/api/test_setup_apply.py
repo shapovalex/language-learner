@@ -17,11 +17,10 @@ tests/integration/test_anki_setup_apply.py.
 
 import pytest
 
-from language_lab.app import create_app
 from language_lab.domain.setup import PlanAction, PlanItem, ResourceKind, SetupPreview, plan_hash
 from tests.fakes.anki_store import FakeAnkiStore
 from tests.support.fixtures.settings import SettingsFactory
-from tests.support.hosts import app_client
+from tests.support.hosts import client_over
 
 APPLY = "/api/setup/apply"
 STATUS = "/api/setup/apply/status"
@@ -77,8 +76,7 @@ def test_apply_route_runs_the_confirmed_plan_and_returns_the_verification(
     preview shows what is left.
     """
     store = FakeAnkiStore(preview=SetupPreview(items=ITEMS), verified=verification)
-    settings = settings_factory(anki_prefix=PREFIX)
-    client = app_client(create_app(settings, anki_store=store), settings)
+    client = client_over(settings_factory, store, anki_prefix=PREFIX)
 
     response = client.post(APPLY, json={"planHash": plan_hash(ITEMS)})
 
@@ -94,8 +92,7 @@ def test_apply_route_refuses_a_stale_plan_with_409_plan_changed(
 ) -> None:
     """AC-8: a hash the fresh plan doesn't have is the 409 `plan_changed` envelope; no apply."""
     store = FakeAnkiStore(preview=SetupPreview(items=ITEMS))
-    settings = settings_factory(anki_prefix=PREFIX)
-    client = app_client(create_app(settings, anki_store=store), settings)
+    client = client_over(settings_factory, store, anki_prefix=PREFIX)
 
     response = client.post(APPLY, json={"planHash": plan_hash(ITEMS[:-1])})
 
@@ -114,8 +111,7 @@ def test_apply_status_is_idle_before_a_run_and_finished_with_its_result_after(
 ) -> None:
     """AC-9: the status route reports no run, then the finished run with the POST's result."""
     store = FakeAnkiStore(preview=SetupPreview(items=ITEMS), verified=SetupPreview(items=LEFT_OVER))
-    settings = settings_factory(anki_prefix=PREFIX)
-    client = app_client(create_app(settings, anki_store=store), settings)
+    client = client_over(settings_factory, store, anki_prefix=PREFIX)
 
     before = client.get(STATUS)
 
@@ -138,8 +134,7 @@ def test_apply_route_answers_503_when_anki_is_busy_or_down(
 ) -> None:
     """AC-7: `anki_busy` / `anki_unavailable` from the apply are the 503 envelope; no apply."""
     store = FakeAnkiStore(preview=SetupPreview(items=ITEMS), **store_options)
-    settings = settings_factory(anki_prefix=PREFIX)
-    client = app_client(create_app(settings, anki_store=store), settings)
+    client = client_over(settings_factory, store, anki_prefix=PREFIX)
 
     response = client.post(APPLY, json={"planHash": plan_hash(ITEMS)})
 
@@ -156,8 +151,7 @@ def test_apply_route_without_a_plan_hash_is_422_validation_failed(
 ) -> None:
     """AC-7: a body without a string `planHash` is the 422 `validation_failed` envelope."""
     store = FakeAnkiStore(preview=SetupPreview(items=ITEMS))
-    settings = settings_factory(anki_prefix=PREFIX)
-    client = app_client(create_app(settings, anki_store=store), settings)
+    client = client_over(settings_factory, store, anki_prefix=PREFIX)
 
     response = client.post(APPLY, json=body)
 

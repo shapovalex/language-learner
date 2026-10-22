@@ -17,31 +17,22 @@ import pytest
 from playwright.sync_api import Page, Route, expect
 
 from tests.support.network import stub_api_error, stub_api_json
-
-READINESS = "/api/setup/readiness"
-PLAN = "/api/setup/plan"
-STATUS = "/api/setup/apply/status"
-APPLY = "/api/setup/apply"
-PREFIX = "LanguageLabDev"  # not the default, so a hard-coded "LanguageLab" can't pass
+from tests.support.setup_screen import (
+    APPLY,
+    APPLY_LABEL,
+    CHANGES_HEADING,
+    FIX_REASON,
+    IDLE,
+    PLAN,
+    PLAN_HASH,
+    PREFIX,
+    READINESS,
+    STATUS,
+    open_setup,
+    readiness,
+)
 
 NEWER_SCHEMA = "Anki was set up by a newer LanguageLab. Install the latest release."
-APPLY_LABEL = "Apply setup"
-CHANGES_HEADING = "What will change in Anki"
-
-
-FIX_REASON = "Fix the failing check to continue."
-PLAN_HASH = "0" * 64
-
-
-def readiness(*, anki_ok: bool = True) -> dict[str, Any]:
-    return {
-        "prefix": PREFIX,
-        "checks": [
-            {"id": "ankiConnect", "ok": anki_ok},
-            {"id": "azure", "ok": True},
-            {"id": "openrouter", "ok": True},
-        ],
-    }
 
 
 # A newer release's fields read as a Migrate row: the plan has items, so Apply would show
@@ -61,21 +52,7 @@ def newer_schema_plan() -> dict[str, Any]:
 @pytest.mark.p0
 def test_newer_schema_shows_the_blocking_alert_in_place_of_the_change_list(page: Page) -> None:
     """AC-12: the alert replaces the change list, and Apply setup is hidden."""
-    stub_api_json(page, READINESS, readiness())
-    stub_api_json(
-        page,
-        PLAN,
-        {
-            "prefix": PREFIX,
-            "planHash": "0" * 64,
-            "state": "newer_schema",
-            "items": ITEMS,
-            "unmanaged": [],
-        },
-    )
-    stub_api_json(page, STATUS, {"state": "idle", "result": None})
-    page.goto("/setup")
-    main = page.get_by_role("main")
+    main = open_setup(page, newer_schema_plan())
 
     expect(main.get_by_role("alert").filter(has_text=NEWER_SCHEMA)).to_be_visible()
     expect(main.get_by_role("button", name=APPLY_LABEL)).to_have_count(0)
@@ -85,11 +62,7 @@ def test_newer_schema_shows_the_blocking_alert_in_place_of_the_change_list(page:
 @pytest.mark.p1
 def test_newer_schema_with_a_failing_check_still_hides_apply_and_its_reason(page: Page) -> None:
     """AC-12: a failing readiness check doesn't bring back Apply or "Fix the failing check"."""
-    stub_api_json(page, READINESS, readiness(anki_ok=False))
-    stub_api_json(page, PLAN, newer_schema_plan())
-    stub_api_json(page, STATUS, {"state": "idle", "result": None})
-    page.goto("/setup")
-    main = page.get_by_role("main")
+    main = open_setup(page, newer_schema_plan(), anki_connect=False)
 
     expect(main.get_by_role("alert").filter(has_text=NEWER_SCHEMA)).to_be_visible()
     expect(main.get_by_text("AnkiConnect not reachable")).to_be_visible()
@@ -101,11 +74,7 @@ def test_newer_schema_with_a_failing_check_still_hides_apply_and_its_reason(page
 def test_newer_schema_shows_the_alert_over_a_finished_apply(page: Page) -> None:
     """AC-12: coming back with a finished apply of the same hash still shows the alert."""
     result = {"verified": False, "planHash": PLAN_HASH, "discrepancies": ITEMS}
-    stub_api_json(page, READINESS, readiness())
-    stub_api_json(page, PLAN, newer_schema_plan())
-    stub_api_json(page, STATUS, {"state": "finished", "result": result})
-    page.goto("/setup")
-    main = page.get_by_role("main")
+    main = open_setup(page, newer_schema_plan(), status={"state": "finished", "result": result})
 
     expect(main.get_by_role("alert").filter(has_text=NEWER_SCHEMA)).to_be_visible()
     expect(main.get_by_role("button", name="Run Setup again")).to_have_count(0)
@@ -126,7 +95,7 @@ def test_apply_refused_as_setup_required_rereads_the_plan_and_shows_the_alert(
 
     stub_api_json(page, READINESS, readiness())
     page.route(f"**{PLAN}", answer_plan)
-    stub_api_json(page, STATUS, {"state": "idle", "result": None})
+    stub_api_json(page, STATUS, IDLE)
     stub_api_error(page, APPLY, status=409, code="setup_required")
     page.goto("/setup")
     main = page.get_by_role("main")

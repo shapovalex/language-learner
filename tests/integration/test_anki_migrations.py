@@ -28,7 +28,6 @@ recorded v1 exchanges.
 """
 
 import dataclasses
-from collections.abc import Awaitable
 from typing import Any
 
 import pytest
@@ -43,7 +42,7 @@ from language_lab.adapters.anki.store import AnkiConnectStore
 from language_lab.domain.setup import PlanAction, PlanItem, ResourceKind, SetupState, plan_hash
 from language_lab.features.setup.service import SetupService
 from language_lab.features.sync.service import SyncService
-from tests.support.aio import settle
+from tests.support.aio import run
 from tests.support.anki_connect import ANKI_URL, AnkiConnectReplay, StubReply, recorded_v1_sync
 from tests.support.anki_state import (
     READ_ACTIONS,
@@ -55,7 +54,6 @@ from tests.support.anki_state import (
     sent_actions,
     sent_writes,
 )
-from tests.support.clock import bounded
 
 PREFIX = "LanguageLab"
 DEV = "LanguageLabDev"
@@ -115,14 +113,6 @@ def wired(
         client, AnkiLock(), manifest=manifest, gate=gate, migrations=migrations, poll_interval_s=0
     )
     return store, replay
-
-
-def run[T](awaitable: Awaitable[T]) -> T:
-    """Run a scenario on its own loop, bounded in real time; re-raise what it raised."""
-    outcome = settle(bounded(awaitable))
-    if isinstance(outcome, Exception):
-        raise outcome
-    return outcome
 
 
 async def preview_then_apply(store: Any) -> Any:

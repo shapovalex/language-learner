@@ -22,12 +22,11 @@ from typing import Any
 import pytest
 from fastapi.testclient import TestClient
 
-from language_lab.app import create_app
 from language_lab.domain.setup import PlanAction, PlanItem, ResourceKind, SetupPreview
 from language_lab.domain.setup import plan_hash as _plan_hash
 from tests.fakes.anki_store import FakeAnkiStore
 from tests.support.fixtures.settings import SettingsFactory
-from tests.support.hosts import app_client
+from tests.support.hosts import client_over
 
 PLAN = "/api/setup/plan"
 APPLY = "/api/setup/apply"
@@ -51,11 +50,10 @@ def row_key(item: PlanItem) -> str:
     return f"{item.kind}:{item.name}"
 
 
-def client_over(settings_factory: SettingsFactory) -> tuple[TestClient, FakeAnkiStore]:
+def client_and_store(settings_factory: SettingsFactory) -> tuple[TestClient, FakeAnkiStore]:
     """The app over a fake whose preview has one required item and one repair of each kind."""
     store = FakeAnkiStore(preview=SetupPreview(items=REQUIRED, repairs=repair_rows()))
-    settings = settings_factory(anki_prefix=PREFIX)
-    return app_client(create_app(settings, anki_store=store), settings), store
+    return client_over(settings_factory, store, anki_prefix=PREFIX), store
 
 
 @pytest.mark.p0
@@ -63,7 +61,7 @@ def test_the_plan_lists_each_opt_in_repair_unchecked(settings_factory: SettingsF
     """AC-4: `repairs` lists every offered row with its key, unchecked, and the plan hash is
     the required items' alone.
     """
-    client, _ = client_over(settings_factory)
+    client, _ = client_and_store(settings_factory)
 
     body = client.get(PLAN).json()
 
@@ -81,7 +79,7 @@ def test_checking_a_repair_enters_it_in_the_plan_hash(settings_factory: Settings
     """AC-7: `?repair=<key>` answers with that row checked and the hash over the required
     items plus that row, which differs from the unchecked plan's.
     """
-    client, _ = client_over(settings_factory)
+    client, _ = client_and_store(settings_factory)
     media = repair_rows()[0]
 
     body = client.get(PLAN, params={"repair": [row_key(media), "orphanMedia:gone.mp3"]}).json()
@@ -96,7 +94,7 @@ def test_apply_hands_the_checked_repairs_to_the_store(settings_factory: Settings
     """AC-13: POST /api/setup/apply with `repairs` applies the plan its hash names: required
     items plus the checked row; without `repairs` that hash is stale.
     """
-    client, store = client_over(settings_factory)
+    client, store = client_and_store(settings_factory)
     card = repair_rows()[1]
     checked_hash = _plan_hash((*REQUIRED, card))
 
@@ -116,8 +114,7 @@ def test_a_plan_without_leftovers_has_no_repairs_and_an_unchanged_hash(
     what they were before story 2.11, whatever `repair` keys the request names.
     """
     store = FakeAnkiStore(preview=SetupPreview(items=REQUIRED))
-    settings = settings_factory(anki_prefix=PREFIX)
-    client = app_client(create_app(settings, anki_store=store), settings)
+    client = client_over(settings_factory, store, anki_prefix=PREFIX)
 
     body = client.get(PLAN, params={"repair": [f"orphanMedia:{MEDIA}"]}).json()
 
@@ -129,7 +126,7 @@ def test_a_plan_without_leftovers_has_no_repairs_and_an_unchanged_hash(
 @pytest.mark.p1
 def test_a_repeated_repair_key_counts_once(settings_factory: SettingsFactory) -> None:
     """AC-7: a key named twice checks its row once, in the plan and in the apply."""
-    client, store = client_over(settings_factory)
+    client, store = client_and_store(settings_factory)
     media = repair_rows()[0]
 
     body = client.get(PLAN, params={"repair": [row_key(media), row_key(media)]}).json()
@@ -154,8 +151,7 @@ def test_a_card_rows_detail_is_on_the_wire(settings_factory: SettingsFactory) ->
     }
     card = PlanItem(PlanAction.REPAIR, ResourceKind.MISPLACED_CARD, MISPLACED, detail)
     store = FakeAnkiStore(preview=SetupPreview(repairs=(card,)))
-    settings = settings_factory(anki_prefix=PREFIX)
-    client = app_client(create_app(settings, anki_store=store), settings)
+    client = client_over(settings_factory, store, anki_prefix=PREFIX)
 
     body = client.get(PLAN).json()
 

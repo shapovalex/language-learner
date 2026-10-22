@@ -31,7 +31,7 @@ from collections.abc import Iterable, Mapping
 from typing import Any
 
 from language_lab.adapters.anki.codec import decode_field
-from language_lab.adapters.anki.guard import READS, Lookup, inner_actions
+from language_lab.adapters.anki.guard import READS, Lookup, inner_actions, is_int
 from language_lab.adapters.anki.manifest import Manifest
 from language_lab.adapters.anki.query import note_query
 from language_lab.adapters.anki.setup_diff import AnkiState, CardState, ModelState, diff
@@ -153,6 +153,12 @@ class NoteReads:
     audio: frozenset[str]  # every media name the notes' `Audio` fields reference
 
 
+def _manifest_types(manifest: Manifest, models: Iterable[str]) -> list[str]:
+    """The manifest note types in `models`, in manifest order."""
+    present = set(models)
+    return [nt.name for nt in manifest.note_types if nt.name in present]
+
+
 async def read_note_versions(
     lookup: Lookup, manifest: Manifest, models: Iterable[str]
 ) -> NoteReads:
@@ -160,8 +166,7 @@ async def read_note_versions(
     integer) of each of its notes, and the media names their `Audio` references: one `multi`
     of `findNotes`, then one `notesInfo`.
     """
-    present = set(models)
-    types = [nt.name for nt in manifest.note_types if nt.name in present]
+    types = _manifest_types(manifest, models)
     if not types:
         return NoteReads({}, frozenset())
     found = await multi(lookup, [("findNotes", {"query": note_query(manifest, t)}) for t in types])
@@ -185,10 +190,6 @@ async def read_note_versions(
     return NoteReads({t: tuple(notes) for t, notes in versions.items() if notes}, frozenset(audio))
 
 
-def _is_int(value: Any) -> bool:
-    return isinstance(value, int) and not isinstance(value, bool)
-
-
 def _card_state(info: Any) -> CardState | None:
     """One `cardsInfo` entry; None for `{}` (a card deleted since `findCards`)."""
     if info == {}:
@@ -198,7 +199,7 @@ def _card_state(info: Any) -> CardState | None:
     card_id, model, ord_, deck, queue = (
         info.get(k) for k in ("cardId", "modelName", "ord", "deckName", "queue")
     )
-    if not (_is_int(card_id) and _is_int(ord_) and _is_int(queue)):
+    if not (is_int(card_id) and is_int(ord_) and is_int(queue)):
         raise AppError(ErrorCode.ANKI_UNAVAILABLE)
     if not isinstance(model, str) or not isinstance(deck, str):
         raise AppError(ErrorCode.ANKI_UNAVAILABLE)
@@ -211,14 +212,13 @@ async def read_leftovers(
     """The cards of each manifest note type in `models` and the media named `<Prefix>_*`: one
     `multi` of `findCards` and `getMediaFilesNames`, then one `cardsInfo` when there are cards.
     """
-    present = set(models)
-    types = [nt.name for nt in manifest.note_types if nt.name in present]
+    types = _manifest_types(manifest, models)
     reads: list[Read] = [("findCards", {"query": note_query(manifest, t)}) for t in types]
     reads.append(("getMediaFilesNames", {"pattern": f"{manifest.prefix}_*"}))
     *found, media = await multi(lookup, reads)
     ids: list[int] = []
     for result in found:
-        if not isinstance(result, list) or not all(_is_int(i) for i in result):
+        if not isinstance(result, list) or not all(is_int(i) for i in result):
             raise AppError(ErrorCode.ANKI_UNAVAILABLE)
         ids += result  # a card belongs to one note type
     cards: list[CardState] = []
