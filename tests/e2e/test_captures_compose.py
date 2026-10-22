@@ -158,6 +158,8 @@ def test_a_successful_save_clears_the_unsaved_state(page: Page) -> None:
     compose_box(page).fill(TEXT)
     with page.expect_response(f"**{API}"):
         save_button(page).click()
+    # The screen clears its unsaved state after it reads the response, not when it arrives
+    expect(compose_box(page)).to_have_value("")
 
     main_nav(page).get_by_role("link", name=SETUP.area, exact=True).click()
 
