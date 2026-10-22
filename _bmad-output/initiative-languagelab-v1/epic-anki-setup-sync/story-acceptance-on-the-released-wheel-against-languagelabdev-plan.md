@@ -3,7 +3,7 @@ title: 'Acceptance on the released wheel against LanguageLabDev'
 type: 'chore'
 ticket: '13'
 created: '2026-10-21'
-status: 'built'
+status: 'done'
 baseline_revision: '4d30c2b67a83f3ec4c3b152dd0c45a8b867140e3'
 route: 'full'
 route_source: 'auto'
@@ -58,9 +58,9 @@ context: []
 
 **Execution:**
 - [x] `_bmad-output/test-artifacts/acceptance/setup-sync-acceptance-2-13.md` -- write the runbook: release, empty-Prefix check, start command, readiness (pass and each fail: Anki quit; `AZURE_SPEECH_KEY=` and `OPENROUTER_API_KEY=` overrides), preview with AnkiConnect snapshots before and after, apply, verify, second run, bury flags in Anki Desktop, deck-option rerun, Sync timeline, AnkiConnect down, preview timing; then the CI evidence table, a results table, and a findings list -- ticket verify
-- [ ] HITL: the user cuts `v0.4.0`, runs the runbook on the Mac Mini, and reports each result and the relevant terminal lines
-- [ ] Findings -- fix each (docs, `src/`, tests) or append it to `deferred-work.md`
-- [ ] `_bmad-output/test-artifacts/acceptance/setup-sync-acceptance-2-13.md` -- fill in results and the disposition of each finding
+- [x] HITL: the user cuts `v0.4.0`, runs the runbook on the Mac Mini, and reports each result and the relevant terminal lines
+- [x] Findings -- fix each (docs, `src/`, tests) or append it to `deferred-work.md`
+- [x] `_bmad-output/test-artifacts/acceptance/setup-sync-acceptance-2-13.md` -- fill in results and the disposition of each finding
 
 **Acceptance Criteria:**
 - Given the filled-in runbook, when a reader checks it against the ticket's verify, then Done-when 1, 2, 5 and the deck-option half of 3 each have a recorded Mac Mini result, and the migration half of 3 and Done-when 4 each cite a named, passing CI test.
@@ -70,6 +70,7 @@ context: []
 ## Implementation Notes
 
 - Runbook written; every Mac Mini step is `not run` until the user reports. Pre-run finding 1 (stale "not used yet" sentence in `docs/configuration.md`) fixed; finding 2 (empty Prefix cannot exercise `read_leftovers` growth) keeps the deferred-work entry open. Cited CI tests: 67 passed; `make lint` and `make test` (650 passed) green.
+- 2026-10-21: the user cut `v0.4.0` and ran the runbook on the Mac Mini, in the spike 2.2 probe profile. Recorded with output: A2, A3, A5, B0–B2, C2–C5, D3, D4. The first startup Sync was `auth_required` (profile not logged in to AnkiWeb); the runbook now says to log in first (finding 3), and after logging in it was `ok`. The user reported every other step as passing in one line and chose to record them as passes on their word, without output; the runbook marks those rows so. No product defect found.
 
 ## Plan Change Log
 

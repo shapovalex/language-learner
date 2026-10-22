@@ -8,7 +8,7 @@ deck-option half of 3. The migration half of 3 and Done-when 4 are proved in CI;
 - **Release under test:** `v0.4.0`, the first release with entries 1 to 12 of the epic
 - **Prefix under test:** `LanguageLabDev`, set as an environment override. Never `LanguageLab`.
 - **Mode:** release (no `LANGUAGE_LAB_DEV`): dev mode never Syncs
-- **Run on:** _(date of the run)_
+- **Run on:** 2026-10-21
 - **Machine:** Mac Mini (host, with Anki Desktop, AnkiConnect, and an AnkiWeb login)
 
 This repository is public. Do not write your real tailnet name, machine name, login, AnkiWeb
@@ -27,7 +27,7 @@ On the development machine:
 | --- | --- | --- |
 | A1 | From a clean checkout of `main` with entries 1 to 12 merged: `scripts/cut_release.sh 0.4.0`. | It ends with `Released v0.4.0. Wheel:` and the URL `https://github.com/shapovalex/language-learner/releases/download/v0.4.0/language_lab-0.4.0-py3-none-any.whl`. The docs' `uvx` lines now name `v0.4.0`. |
 
-On the Mac Mini, with Anki Desktop open and AnkiConnect installed. In the terminal you will use
+On the Mac Mini, with Anki Desktop open, AnkiConnect installed, and the open profile logged in to AnkiWeb (click Sync in Anki Desktop; if it asks you to sign in, do so). In the terminal you will use
 for the whole run, set:
 
 ```sh
@@ -158,42 +158,42 @@ gave `67 passed`.
 
 | Step | Result | Notes |
 | --- | --- | --- |
-| A1 release `v0.4.0` | not run | Awaiting the user's run on the Mac Mini. |
-| A2 no `LANGUAGE_LAB_DEV` | not run | Awaiting the user's run on the Mac Mini. |
-| A3 no `LanguageLabDev` deck or note type | not run | Awaiting the user's run on the Mac Mini. |
-| A4 no `LanguageLabDev` preset | not run | Awaiting the user's run on the Mac Mini. |
-| A5 no `LanguageLabDev_*` media | not run | Awaiting the user's run on the Mac Mini. |
-| B0 three keys set in `.env` | not run | Awaiting the user's run on the Mac Mini. |
-| B1 starts, startup Sync | not run | Awaiting the user's run on the Mac Mini. |
-| B2 health `0.4.0` | not run | Awaiting the user's run on the Mac Mini. |
-| C1 three tiles pass, Prefix in subtitle | not run | Awaiting the user's run on the Mac Mini. |
-| C2 readiness JSON, `fullSync` ok | not run | Awaiting the user's run on the Mac Mini. |
-| C3 AnkiConnect fails alone | not run | Awaiting the user's run on the Mac Mini. |
-| C4 Azure fails alone | not run | Awaiting the user's run on the Mac Mini. |
-| C5 OpenRouter fails alone | not run | Awaiting the user's run on the Mac Mini. |
-| C6 all pass again | not run | Awaiting the user's run on the Mac Mini. |
-| D1 snapshot before | not run | Awaiting the user's run on the Mac Mini. |
-| D2 preview rows | not run | Awaiting the user's run on the Mac Mini. |
-| D3 preview time, empty Prefix | not run | Awaiting the user's run on the Mac Mini. |
-| D4 Anki unchanged by preview | not run | Awaiting the user's run on the Mac Mini. |
-| D5 confirmed apply, verified | not run | Awaiting the user's run on the Mac Mini. |
-| D6 28 decks, 5 note types | not run | Awaiting the user's run on the Mac Mini. |
-| D7 second run: nothing to change | not run | Awaiting the user's run on the Mac Mini. |
-| D8 preview time, after Setup | not run | Awaiting the user's run on the Mac Mini. |
-| D9 bury flags off in Anki Desktop | not run | Awaiting the user's run on the Mac Mini. |
-| D10 bury flags off via AnkiConnect | not run | Awaiting the user's run on the Mac Mini. |
-| E1 user limits not a difference | not run | Awaiting the user's run on the Mac Mini. |
-| E2 bury flag on shows a repair | not run | Awaiting the user's run on the Mac Mini. |
-| E3 repair applied and verified | not run | Awaiting the user's run on the Mac Mini. |
-| E4 bury off, user limits kept | not run | Awaiting the user's run on the Mac Mini. |
-| E5 nothing to change | not run | Awaiting the user's run on the Mac Mini. |
-| F1 Sync at startup | not run | Awaiting the user's run on the Mac Mini. |
-| F2 Sync every five minutes | not run | Awaiting the user's run on the Mac Mini. |
-| F3 Sync at shutdown | not run | Awaiting the user's run on the Mac Mini. |
-| G1 starts with Anki quit, failure logged | not run | Awaiting the user's run on the Mac Mini. |
-| G2 app keeps answering | not run | Awaiting the user's run on the Mac Mini. |
-| G3 interval failure logged | not run | Awaiting the user's run on the Mac Mini. |
-| G4 shutdown within 30 s | not run | Awaiting the user's run on the Mac Mini. |
+| A1 release `v0.4.0` | pass | The wheel at the `v0.4.0` release URL ran and `/api/health` reported `0.4.0` (B2). Anki was open on the spike 2.2 probe profile (`deckNames`: `Default`, `LLProbe`, `LLProbe::Study`) |
+| A2 no `LANGUAGE_LAB_DEV` | pass | `exit=1`. |
+| A3 no `LanguageLabDev` deck or note type | pass | `0` both times. |
+| A4 no `LanguageLabDev` preset | pass | Reported by the user as a group ("other tests also look ok"), no output pasted. |
+| A5 no `LanguageLabDev_*` media | pass | `{"result": [], "error": null}`. |
+| B0 three keys set in `.env` | pass | `3`. |
+| B1 starts, startup Sync | pass | First start: `Sync with AnkiWeb failed: auth_required`, the profile wasn't logged in to AnkiWeb, and the app kept running (finding 3). After signing in and restarting: `Sync with AnkiWeb: ok` |
+| B2 health `0.4.0` | pass | `{"version":"0.4.0"}` |
+| C1 three tiles pass, Prefix in subtitle | pass | Reported by the user as a group ("other tests also look ok"), no output pasted. |
+| C2 readiness JSON, `fullSync` ok | pass | `{"prefix":"LanguageLabDev","checks":[{"id":"ankiConnect","ok":true},{"id":"azure","ok":true},{"id":"openrouter","ok":true},{"id":"fullSync","ok":true}]}` |
+| C3 AnkiConnect fails alone | pass | Readiness: `ankiConnect` false, `azure`, `openrouter`, `fullSync` true |
+| C4 Azure fails alone | pass | Readiness: `azure` false, `ankiConnect`, `openrouter`, `fullSync` true |
+| C5 OpenRouter fails alone | pass | Readiness: `openrouter` false, `ankiConnect`, `azure`, `fullSync` true |
+| C6 all pass again | pass | Reported by the user as a group ("other tests also look ok"), no output pasted. |
+| D1 snapshot before | pass | Reported by the user as a group ("other tests also look ok"), no output pasted. |
+| D2 preview rows | pass | Reported by the user as a group ("other tests also look ok"), no output pasted. |
+| D3 preview time, empty Prefix | pass | 0.300 s, 0.350 s, 0.383 s |
+| D4 Anki unchanged by preview | pass | `unchanged` |
+| D5 confirmed apply, verified | pass | Reported by the user as a group ("other tests also look ok"), no output pasted. |
+| D6 28 decks, 5 note types | pass | Reported by the user as a group ("other tests also look ok"), no output pasted. |
+| D7 second run: nothing to change | pass | Reported by the user as a group ("other tests also look ok"), no output pasted. |
+| D8 preview time, after Setup | pass | Reported by the user as a group ("other tests also look ok"), no output pasted. |
+| D9 bury flags off in Anki Desktop | pass | Reported by the user as a group ("other tests also look ok"), no output pasted. |
+| D10 bury flags off via AnkiConnect | pass | Reported by the user as a group ("other tests also look ok"), no output pasted. |
+| E1 user limits not a difference | pass | Reported by the user as a group ("other tests also look ok"), no output pasted. |
+| E2 bury flag on shows a repair | pass | Reported by the user as a group ("other tests also look ok"), no output pasted. |
+| E3 repair applied and verified | pass | Reported by the user as a group ("other tests also look ok"), no output pasted. |
+| E4 bury off, user limits kept | pass | Reported by the user as a group ("other tests also look ok"), no output pasted. |
+| E5 nothing to change | pass | Reported by the user as a group ("other tests also look ok"), no output pasted. |
+| F1 Sync at startup | pass | Reported by the user as a group ("other tests also look ok"), no output pasted. |
+| F2 Sync every five minutes | pass | Reported by the user as a group ("other tests also look ok"), no output pasted. |
+| F3 Sync at shutdown | pass | Reported by the user as a group ("other tests also look ok"), no output pasted. |
+| G1 starts with Anki quit, failure logged | pass | Reported by the user as a group ("other tests also look ok"), no output pasted. |
+| G2 app keeps answering | pass | Reported by the user as a group ("other tests also look ok"), no output pasted. |
+| G3 interval failure logged | pass | Reported by the user as a group ("other tests also look ok"), no output pasted. |
+| G4 shutdown within 30 s | pass | Reported by the user as a group ("other tests also look ok"), no output pasted. |
 
 A step marked "not run" has no recorded result. It is not a pass.
 
@@ -203,3 +203,4 @@ A step marked "not run" has no recorded result. It is not a pass.
 | --- | --- | --- | --- |
 | 1 | B (reading the docs before the run) | `docs/configuration.md` ended with "The AnkiConnect endpoint, the Azure values and the OpenRouter values are not used yet", but Setup uses the AnkiConnect endpoint and the readiness checks read the Azure and OpenRouter values. | Fixed in this story, commit `6294e6f9bd3bb2774bed19094c176d6fb053ab7c`: the sentence now says what each is used for. Docs only, so it reaches the release page with the next tag and needs no wheel. |
 | 2 | D3, D8 | With an empty Prefix the preview's `cardsInfo` read of managed cards (`read_leftovers`, deferred-work entry from story 2.11) has no managed cards to read, so D3 and D8 time the preview on the real collection but not that read's growth with many LanguageLab cards. | The D3 and D8 times are recorded here. Appended to `deferred-work.md`: the entry with `source_plan` this story's plan, "Measure the Setup preview's `read_leftovers` cost on the Mac Mini at the first run with real LanguageLab cards (epic-capture-to-item)". |
+| 3 | B1 | The startup Sync ended `auth_required`. The open profile (the spike 2.2 probe profile, decks `LLProbe…`) isn't logged in to AnkiWeb, and the runbook never says to log in. | Runbook precondition, not a product defect: log in to AnkiWeb in Anki Desktop (Sync, then sign in) before B1. The same gap applies to any profile without an AnkiWeb login. |
