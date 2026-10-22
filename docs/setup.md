@@ -25,7 +25,7 @@ media, misplaced or unsuspended cards) are never applied unless you check them.
 Stop LanguageLab (Ctrl+C) and start the new release with its own command, for this release:
 
 ```sh
-uvx --from https://github.com/shapovalex/language-learner/releases/download/v0.4.0/language_lab-0.4.0-py3-none-any.whl language-lab
+uvx --from https://github.com/shapovalex/language-learner/releases/download/v0.5.0/language_lab-0.5.0-py3-none-any.whl language-lab
 ```
 
 A migration never runs at startup, only inside a plan you confirm. If the release changes
