@@ -41,5 +41,8 @@ The user turns a Capture into finished Anki Items in one pass — AC5, AC6, AC7 
 
 - Decision (2026-10-08): Item read and a view-only Item detail screen live here so "Open existing" is verifiable in this epic.
 - Decision (2026-10-08): Save is built per AD-6 with `audio=keep`; epic-reference-audio adds `replace` and `remove`.
+- Decision (2026-10-22): The user asked for a small breakdown, ideally fewer than five stories. The card templates are folded into the acceptance story (entry 4), and a Refactor sweep is kept as entry 5.
+- Decision (2026-10-22): The tracer (entry 1) saves a hand-filled Item from a blank Draft through every layer except OpenRouter. Generation (entry 2) comes next because it is the least certain part. Entry 3 waits on entry 2 because both change the Draft editor screens.
+- Decision (2026-10-22): The blank Draft path ("Write it myself" in the Make an Item pane) stays as a real path beside Generate Draft (AD-8), even though the UX opens the editor only from Generate Draft.
 - Waits on epic-captures because: it starts Items from the Capture detail screen.
 - Waits on epic-anki-setup-sync because: it needs the Vocabulary and Sentence note types, deck tree, ord-to-deck mapping, and codec.
