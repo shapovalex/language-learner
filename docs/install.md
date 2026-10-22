@@ -8,8 +8,8 @@ release and runs it.
 
 - [uv](https://docs.astral.sh/uv/) 0.12 or newer. uv installs Python 3.14 for you if needed.
 - [Anki](https://apps.ankiweb.net/) with the [AnkiConnect](https://ankiweb.net/shared/info/2055492159)
-  add-on, on the same machine. This release starts without it; the features that store data in
-  Anki need it when they arrive. Read [Anki](anki.md) before you install the add-on.
+  add-on, on the same machine. The app starts without it, but [Setup](setup.md) and every
+  feature that stores data in Anki need it. Read [Anki](anki.md) before you install the add-on.
 - Optional, for use from other devices: [Tailscale](https://tailscale.com/download), logged in on
   the host machine and on every device you want to use. See [Remote access](remote-access.md).
 - Optional, for the features that will use them: an Azure Speech key and region, and an

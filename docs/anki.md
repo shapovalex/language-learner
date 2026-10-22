@@ -1,11 +1,8 @@
 # Anki
 
-LanguageLab keeps no database of its own. It will store everything in Anki, through the
+LanguageLab keeps no database of its own. It stores everything in Anki, through the
 [AnkiConnect](https://ankiweb.net/shared/info/2055492159) add-on on the same machine.
-
-This release does not talk to Anki yet. Setup (which creates the decks and note types),
-migrations, and the decks themselves arrive with later releases. The conventions on this page
-apply from then; the AnkiConnect warning applies as soon as you install the add-on.
+[Setup](setup.md) creates the decks and note types and runs migrations.
 
 ## AnkiConnect has no key
 
@@ -51,21 +48,10 @@ you run either one, so a mistake can be undone.
 In Anki Desktop: File > Create Backup. To keep a copy outside Anki, use File > Export, choose
 "Anki Collection Package (.colpkg)", and include media.
 
-This release has no migration yet: Setup runs one only when a later release changes the fields
-of LanguageLab's note types.
+Setup runs a migration only when a new release changes LanguageLab's note types, and only once
+you confirm it (see [Setup: Upgrade to a new release](setup.md#upgrade-to-a-new-release)).
 
 ## Full sync after a migration
 
-A migration that changes a note type's fields needs a one-way full sync with AnkiWeb. Before
-it applies such a plan, Setup syncs first; if that Sync doesn't end OK, Setup refuses to apply
-("Anki couldn't sync with AnkiWeb"), so the upload can't overwrite changes Anki hasn't pulled
-yet. Sync in Anki Desktop, then apply again.
-
-After the migration, Setup shows a "Full sync required" tile:
-
-1. Open Anki Desktop and sync.
-2. When Anki asks, choose Upload to AnkiWeb.
-3. Back in LanguageLab's Setup, click "I've uploaded".
-
-LanguageLab can't see whether the upload happened, so the tile stays until you click the
-button. Other Anki clients (AnkiMobile) then download the collection on their next sync.
+A migration that changes a note type's fields needs a one-way Upload to AnkiWeb from Anki
+Desktop. See [Setup: Upload to AnkiWeb after a full sync](setup.md#upload-to-ankiweb-after-a-full-sync).

@@ -29,10 +29,6 @@ from tests.unit.test_docs_consistency import (
 
 pytestmark = pytest.mark.p2
 
-RED_PHASE = pytest.mark.skip(
-    reason="ATDD red phase, story 2.12: un-skip with docs/setup.md and its index rows"
-)
-
 SETUP_DOCS = REPO_ROOT / "docs" / "setup.md"
 SETUP_SCREEN = REPO_ROOT / "src" / "language_lab" / "static" / "screens" / "setup.js"
 
@@ -65,7 +61,6 @@ TOPICS = [
 ]
 
 
-@RED_PHASE
 class TestRunSetup:
     def test_section_quotes_the_preview_and_the_apply_button(self) -> None:
         """AC-1. The change list's heading and note, Apply setup, and the backup first."""
@@ -79,7 +74,6 @@ class TestRunSetup:
         assert missing(RUN_SETUP, phrases) == []
 
 
-@RED_PHASE
 class TestUpgrade:
     def test_section_runs_the_new_wheel_and_confirms_the_migration(self) -> None:
         """AC-2. Upgrading is the current release's uvx command, then Migrate rows and Apply."""
@@ -90,7 +84,6 @@ class TestUpgrade:
     # Green phase: the section also says a migration never runs at startup (entry 9), backup link.
 
 
-@RED_PHASE
 class TestNeverDowngrade:
     def test_section_quotes_the_newer_schema_alert(self) -> None:
         """AC-3. An older wheel after a migration shows this alert and hides Apply setup."""
@@ -99,7 +92,6 @@ class TestNeverDowngrade:
         assert missing(NEVER_DOWNGRADE, (alert,)) == []
 
 
-@RED_PHASE
 class TestUploadToAnkiWeb:
     def test_section_gives_the_one_way_upload_step_in_the_screens_words(self) -> None:
         """AC-4. The tile's title and fix, its button, and the refusal when the first Sync fails."""
@@ -120,7 +112,6 @@ class TestUploadToAnkiWeb:
         assert missing(UPLOAD, phrases) == []
 
 
-@RED_PHASE
 class TestIndex:
     @pytest.mark.parametrize(
         "heading", [pytest.param(heading, id=topic) for topic, heading in TOPICS]
@@ -132,7 +123,6 @@ class TestIndex:
         assert link in _relative_links(_text(INDEX))
 
 
-@RED_PHASE
 class TestAnkiPage:
     @pytest.mark.parametrize(
         "stale",
