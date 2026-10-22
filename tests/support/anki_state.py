@@ -22,6 +22,11 @@ the note's deck, as Anki does. It refuses a note whose first field is empty, and
 with AnkiConnect's error texts. `capture_note()` puts a Capture in the collection as Create
 Capture leaves it.
 
+Save Item (story 4.1): `item_note()` puts an Item in the collection as Save leaves it, its four
+cards in their Study and Pronunciation decks. The real Anki's `changeDeck` and
+`updateNoteFields` replies are hand-built from AnkiConnect's documented ones; story 4.4's
+acceptance run checks them.
+
 Delete Capture (story 3.3): with `writes=True`, `deleteNotes` removes the notes and their cards
 and answers `null`, ignoring an id it doesn't have. The reply is hand-built from AnkiConnect's
 documented one; story 3.4's acceptance run did not record it (see deferred-work.md).
@@ -241,6 +246,28 @@ def capture_note(
     }
     note_id = add_note(collection, note_type, fields)
     add_card(collection, note_id, 0, f"{manifest.prefix}::Captures", suspended=suspended)
+    return note_id
+
+
+def item_note(
+    collection: Collection,
+    manifest: Manifest,
+    note_type: str,
+    item_id: str,
+    fields: dict[str, str],
+) -> int:
+    """Put an Item note of the manifest's `note_type` in `collection`, as Save leaves it:
+    `fields` stored exactly (markup included), every other field empty, `item_id`, the
+    manifest's SchemaVersion, and four cards, each in the deck its ord belongs in; return its id.
+    """
+    declared = next(nt for nt in manifest.note_types if nt.name == note_type)
+    stored = {f.name: "" for f in declared.fields}
+    stored.update(fields)
+    stored["ItemId"] = item_id
+    stored["SchemaVersion"] = str(manifest.schema_version)
+    note_id = add_note(collection, note_type, stored)
+    for template in declared.templates:
+        add_card(collection, note_id, template.ord, manifest.card_deck(note_type, template.ord))
     return note_id
 
 
