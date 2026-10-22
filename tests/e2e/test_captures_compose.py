@@ -14,7 +14,7 @@
   `anki_unavailable` with Try again. Nothing reports the Capture as saved.
 
 Success runs against the live server, whose AnkiStore is the fake. Failure and in-flight states
-are stubbed at the network.
+are stubbed at the network, POST only, so the screen's list (story 3.2) still loads.
 """
 
 import json
@@ -103,7 +103,7 @@ def test_a_retry_keeps_the_capture_id_and_the_next_composition_gets_a_new_one(
     answers = ["fail"]
 
     def first_fails(route: Route) -> None:
-        if answers and answers.pop() == "fail":
+        if route.request.method == "POST" and answers and answers.pop() == "fail":
             envelope = {"error": {"code": "anki_unavailable", "message": UNAVAILABLE_MESSAGE}}
             route.fulfill(status=503, content_type="application/json", body=json.dumps(envelope))
         else:
@@ -128,7 +128,7 @@ def test_a_retry_keeps_the_capture_id_and_the_next_composition_gets_a_new_one(
 @pytest.mark.p0
 def test_save_is_disabled_while_a_save_is_in_flight(page: Page) -> None:
     """AC-12: while a Save is in flight, Save Capture is disabled, so it is sent once."""
-    held = HeldRoute(page, API)
+    held = HeldRoute(page, API, method="POST")
     bodies = record_json_bodies(page, API)
     open_captures(page)
     compose_box(page).fill(TEXT)
@@ -177,7 +177,9 @@ def test_anki_unreachable_keeps_the_text_and_shows_the_error_with_try_again(page
     """AC-15: a Save failing with `anki_unavailable` keeps the text and shows the inline alert
     "Not saved — Anki isn't reachable" with its body and Try again; nothing reports it saved.
     """
-    stub_api_error(page, API, status=503, code="anki_unavailable", message=UNAVAILABLE_MESSAGE)
+    stub_api_error(
+        page, API, status=503, code="anki_unavailable", message=UNAVAILABLE_MESSAGE, method="POST"
+    )
     open_captures(page)
     compose_box(page).fill(TEXT)
 
