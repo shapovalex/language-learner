@@ -10,6 +10,10 @@ checked (entry 11) run last, under the same lock hold.
 
 Create Capture (story 3.1) writes through `client.invoke`, so the Prefix guard and the setup gate
 both apply to it (AD-4, AD-19).
+
+List Captures and Get Capture (story 3.2) are reads through `client.invoke`, under one lock hold
+each, and not gated (AD-19). Their only query is the exact Capture note type scope; the
+CaptureId is matched in Python and never sent (AD-4). Anki ids stay here: a `Capture` has none.
 """
 
 import asyncio
@@ -186,23 +190,55 @@ class AnkiConnectStore:
             await self._client.invoke("suspend", cards=cards)
         return Capture(capture_id, text, created_at)
 
-    async def _find_capture(self, query: str, capture_id: str) -> Capture | None:
-        """The stored Capture whose decoded CaptureId is `capture_id`, from the exact Capture
-        scope's `findNotes` and `notesInfo`; None when there is none.
+    async def list_captures(self) -> list[Capture]:
+        """Every Capture of the Prefix, decoded through the codec, newest first by CreatedAt
+        (ties by CaptureId), under one lock hold. Raises `AppError(ANKI_UNAVAILABLE | ANKI_BUSY)`.
+        """
+        manifest = self._require_manifest()
+        async with self._lock.hold():
+            infos = await self._capture_infos(note_query(manifest, f"{manifest.prefix} Capture"))
+        captures = [_stored_capture(_field(info, _CAPTURE_ID).strip(), info) for info in infos]
+        captures.sort(key=lambda c: (c.created_at, c.capture_id), reverse=True)
+        return captures
+
+    async def get_capture(self, capture_id: str) -> Capture:
+        """The Capture whose CaptureId is `capture_id`, matched in Python (AD-4), under one lock
+        hold. Raises `AppError(NOT_FOUND | ANKI_UNAVAILABLE | ANKI_BUSY)`.
+        """
+        manifest = self._require_manifest()
+        async with self._lock.hold():
+            query = note_query(manifest, f"{manifest.prefix} Capture")
+            stored = await self._find_capture(query, capture_id)
+        if stored is None:
+            raise AppError(ErrorCode.NOT_FOUND)
+        return stored
+
+    async def _capture_infos(self, query: str) -> list[dict[str, Any]]:
+        """The `notesInfo` entries of the exact Capture scope's `findNotes`, skipping notes
+        deleted in between; `ANKI_UNAVAILABLE` on a malformed reply.
         """
         ids = await self._client.invoke("findNotes", query=query)
         if not isinstance(ids, list):
             raise AppError(ErrorCode.ANKI_UNAVAILABLE)
         if not ids:
-            return None
+            return []
         infos = await self._client.invoke("notesInfo", notes=ids)
         if not isinstance(infos, list) or len(infos) != len(ids):
             raise AppError(ErrorCode.ANKI_UNAVAILABLE)
+        entries: list[dict[str, Any]] = []
         for info in infos:
             if info == {}:  # a note deleted since `findNotes`
                 continue
             if not isinstance(info, dict):
                 raise AppError(ErrorCode.ANKI_UNAVAILABLE)
+            entries.append(info)
+        return entries
+
+    async def _find_capture(self, query: str, capture_id: str) -> Capture | None:
+        """The stored Capture whose decoded CaptureId is `capture_id`, from the exact Capture
+        scope's `findNotes` and `notesInfo`; None when there is none.
+        """
+        for info in await self._capture_infos(query):
             if _field(info, _CAPTURE_ID).strip() == capture_id:
                 return _stored_capture(capture_id, info)
         return None

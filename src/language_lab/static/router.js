@@ -1,9 +1,23 @@
 // Client-side routing for the shell (AD-13): History API, the Main nav and Menu sheet,
 // the per-Language Items / Pronunciation nav, mounting one screen module at a time, the
 // unsaved-changes guard on every way off a dirty screen, and the one-shot flash (story 1.7).
+// A screen's `mount` returns its unmount function (or `{unmount}`). One that also carries
+// `update(params)`, on that function or that object, stays mounted while the route moves
+// within it (`/captures` ↔ `/captures/<id>`), so its unsaved state survives and no unsaved
+// alert is asked (story 3.2).
+
+// A path segment, percent-decoded; kept as it is when it isn't valid percent-encoding
+function decoded(segment) {
+  try {
+    return decodeURIComponent(segment);
+  } catch {
+    return segment;
+  }
+}
 
 const ROUTES = [
   [/^\/captures$/, "captures", () => ({})],
+  [/^\/captures\/([^/]+)$/, "captures", (m) => ({ captureId: decoded(m[1]) })],
   [/^\/(en|fr)\/items$/, "items", (m) => ({ lang: m[1] })],
   [/^\/(en|fr)\/pronunciation$/, "pronunciation", (m) => ({ lang: m[1] })],
   [/^\/setup$/, "setup", () => ({})],
@@ -17,6 +31,8 @@ let main;
 let screenRoot;
 let languageNav = null;
 let unmountScreen = null;
+let mountedName = null; // the mounted screen's route name
+let updateScreen = null; // its `update(params)`, when it keeps its mount within its routes
 let renderToken = 0;
 
 let menuButton;
@@ -120,17 +136,25 @@ async function render() {
   }
   const token = ++renderToken;
   currentPath = location.pathname;
-  // Every completed navigation leaves the dirty state behind with the screen that set it
-  setDirty(null);
   const flash = pendingFlash;
   pendingFlash = null;
   flashBanner?.remove();
   flashBanner = null;
+  if (route.name === mountedName && updateScreen) {
+    // Within the mounted screen: it stays, and so does its dirty state
+    updateScreen(route.params);
+    if (flash) showFlash(flash);
+    return;
+  }
+  // Every completed navigation leaves the dirty state behind with the screen that set it
+  setDirty(null);
 
   if (unmountScreen) {
     unmountScreen();
     unmountScreen = null;
   }
+  mountedName = null;
+  updateScreen = null;
   markCurrentArea(areaOf(route));
   renderLanguageNav(route);
 
@@ -148,7 +172,10 @@ async function render() {
   }
   // A later navigation started while the module loaded: only the latest render mounts
   if (token !== renderToken) return;
-  unmountScreen = screen.mount(screenRoot, route.params);
+  const mounted = screen.mount(screenRoot, route.params);
+  unmountScreen = typeof mounted === "function" ? mounted : mounted.unmount;
+  updateScreen = mounted.update ?? null;
+  mountedName = route.name;
   if (flash) showFlash(flash);
 }
 
@@ -245,9 +272,14 @@ export function confirmLeave() {
   return ask(null);
 }
 
+// Whether `path` is a route of the mounted screen that keeps its mount (no leave to ask about)
+function staysOnScreen(path) {
+  return updateScreen !== null && matchRoute(path)?.name === mountedName;
+}
+
 async function go(path, { flash, trigger } = {}) {
   if (path === location.pathname) return;
-  if (dirty) {
+  if (dirty && !staysOnScreen(path)) {
     const seq = ++leaveSeq;
     // Only the latest leave asked while the alert was open goes ahead on Discard
     if (!(await ask(trigger)) || seq !== leaveSeq) return;
@@ -263,7 +295,7 @@ export function navigate(path, { flash } = {}) {
 
 async function onPopState() {
   closeMenu();
-  if (dirty && location.pathname !== currentPath) {
+  if (dirty && location.pathname !== currentPath && !staysOnScreen(location.pathname)) {
     // Put the dirty screen's URL back (this drops the entry history just moved off), then ask
     history.pushState(null, "", currentPath);
     // The alert is already asking about another leave: this one is undone, that one stands

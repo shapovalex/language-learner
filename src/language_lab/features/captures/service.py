@@ -1,4 +1,6 @@
-"""Create Capture: the server stamps CreatedAt, and the AnkiStore does the rest (AD-20)."""
+"""Captures: Create Capture, where the server stamps CreatedAt and the AnkiStore does the rest
+(AD-20), and the reads, List and Get Capture.
+"""
 
 from datetime import UTC, datetime
 
@@ -16,3 +18,11 @@ class CaptureService:
         """
         created_at = datetime.now(UTC).replace(microsecond=0)
         return await self._anki.create_capture(capture_id, text, created_at)
+
+    async def list_all(self) -> list[Capture]:
+        """Every Capture, newest first. Raises `AppError(ANKI_UNAVAILABLE | ANKI_BUSY)`."""
+        return await self._anki.list_captures()
+
+    async def get(self, capture_id: str) -> Capture:
+        """The Capture `capture_id`. Raises `AppError(NOT_FOUND | ANKI_UNAVAILABLE | ANKI_BUSY)`."""
+        return await self._anki.get_capture(capture_id)

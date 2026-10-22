@@ -24,6 +24,7 @@ The Make an Item pane is epic-capture-to-item's, and Delete Capture is entry 3's
 import re
 import uuid
 from datetime import datetime
+from typing import Any
 from zoneinfo import ZoneInfo
 
 import pytest
@@ -32,10 +33,6 @@ from playwright.sync_api import Locator, Page, Response, expect
 from tests.support import viewports
 from tests.support.navigation import path_pattern
 from tests.support.network import HeldRoute, stub_api_error, stub_api_json
-
-pytestmark = pytest.mark.skip(
-    reason="ATDD red phase: the Captures list and Capture detail are not built until story 3.2"
-)
 
 CAPTURES_PATH = "/captures"
 API = "/api/captures"
@@ -282,3 +279,230 @@ def test_a_capture_that_isnt_in_anki_shows_a_message_and_the_back_link(page: Pag
 
     expect(back_link(page)).to_be_visible()
     expect(detail(page)).to_have_count(0)
+
+
+# Secondary cases (green phase)
+
+UNSAVED_ALERT = "Discard unsaved changes?"
+LONG_TEXT = "notwithstanding" * 30  # one word, far wider than any screen
+
+
+def unsaved_alert(page: Page) -> Locator:
+    return page.get_by_role("alertdialog", name=UNSAVED_ALERT, exact=True)
+
+
+def horizontal_overflow(page: Page) -> float:
+    return page.evaluate(
+        "document.documentElement.scrollWidth - document.documentElement.clientWidth"
+    )
+
+
+@pytest.mark.p1
+def test_on_desktop_typed_compose_text_survives_opening_a_capture(page: Page) -> None:
+    """AC-10: on desktop, opening rows with unsaved compose text keeps the text and asks
+    nothing: the screen stays mounted.
+    """
+    page.set_viewport_size(viewports.DESKTOP)
+    stub_list(page, THREE)
+    stub_detail(page, TODAY_EARLY)
+    stub_detail(page, YESTERDAY)
+    page.goto(CAPTURES_PATH)
+    compose_box(page).fill("half a thought")
+
+    rows(page).nth(1).click()
+    expect(detail(page)).to_contain_text(TODAY_EARLY["text"])
+    rows(page).nth(2).click()
+
+    expect(detail(page)).to_contain_text(YESTERDAY["text"])
+    expect(rows(page).nth(2)).to_have_attribute("aria-current", "page")
+    expect(compose_box(page)).to_have_value("half a thought")
+    expect(unsaved_alert(page)).to_be_hidden()
+
+
+@pytest.mark.p1
+def test_on_the_phone_unsaved_text_survives_a_capture_and_back(page: Page) -> None:
+    """AC-9: on the phone, opening a Capture and coming back with browser back keeps the
+    unsaved compose text, with no alert.
+    """
+    page.set_viewport_size(viewports.PHONE)
+    stub_list(page, THREE)
+    stub_detail(page, TODAY_LATE)
+    page.goto(CAPTURES_PATH)
+    compose_box(page).fill("half a thought")
+
+    rows(page).first.click()
+    expect(detail(page)).to_contain_text(TODAY_LATE["text"])
+    page.go_back()
+
+    expect(page).to_have_url(path_pattern(CAPTURES_PATH))
+    expect(compose_box(page)).to_have_value("half a thought")
+    expect(unsaved_alert(page)).to_be_hidden()
+
+
+@pytest.mark.p1
+def test_ipad_portrait_uses_the_phone_layout(page: Page) -> None:
+    """AC-9: at iPad portrait (below 1024px) a Capture is its own screen, with the back link."""
+    page.set_viewport_size(viewports.TABLET)
+    stub_list(page, THREE)
+    stub_detail(page, TODAY_EARLY)
+    page.goto(f"{CAPTURES_PATH}/{TODAY_EARLY['captureId']}")
+
+    expect(detail(page)).to_contain_text(TODAY_EARLY["text"])
+    expect(back_link(page)).to_be_visible()
+    expect(compose_box(page)).to_be_hidden()
+    expect(captures_list(page)).to_be_hidden()
+
+
+@pytest.mark.p1
+def test_ipad_landscape_has_two_panes(page: Page) -> None:
+    """AC-10: at iPad landscape (1180px wide) list and detail are two panes, no back link."""
+    page.set_viewport_size({"width": 1180, "height": 820})
+    stub_list(page, [TODAY_EARLY])
+    stub_detail(page, TODAY_EARLY)
+    page.goto(f"{CAPTURES_PATH}/{TODAY_EARLY['captureId']}")
+
+    expect(detail(page)).to_contain_text(TODAY_EARLY["text"])
+    expect(main(page).get_by_text("1 Capture · newest first", exact=True)).to_be_visible()
+    expect(compose_box(page)).to_be_visible()
+    expect(back_link(page)).to_have_count(0)
+
+
+@pytest.mark.p1
+def test_on_desktop_a_capture_not_in_anki_leaves_the_list_with_nothing_selected(
+    page: Page,
+) -> None:
+    """AC-16: on desktop the list stays, with no row selected."""
+    capture_id = str(uuid.uuid4())
+    stub_list(page, THREE)
+    stub_api_error(
+        page,
+        f"{API}/{capture_id}",
+        status=404,
+        code="not_found",
+        message="Not found.",
+        method="GET",
+    )
+    page.set_viewport_size(viewports.DESKTOP)
+    page.goto(f"{CAPTURES_PATH}/{capture_id}")
+
+    expect(main(page).get_by_text(NOT_IN_ANKI, exact=True)).to_be_visible()
+    expect(rows(page)).to_have_count(len(THREE))
+    expect(captures_list(page).locator('[aria-current="page"]')).to_have_count(0)
+
+
+@pytest.mark.p1
+def test_a_list_that_fails_to_load_shows_an_alert_and_try_again_reloads(page: Page) -> None:
+    """AC-12: a failed GET /api/captures shows an inline alert with the envelope's message and
+    Try again, which reloads the list.
+    """
+    held = HeldRoute(page, API, method="GET")
+    page.set_viewport_size(viewports.PHONE)
+    page.goto(CAPTURES_PATH)
+    held.fulfill_json(
+        {
+            "error": {
+                "code": "anki_unavailable",
+                "message": "Anki isn't reachable.",
+                "requestId": "r",
+            }
+        },
+        status=503,
+    )
+    alert = main(page).get_by_role("alert")
+    expect(alert).to_contain_text("Anki isn't reachable.")
+    page.unroute(f"**{API}")
+    stub_list(page, THREE)
+
+    alert.get_by_role("button", name="Try again", exact=True).click()
+
+    expect(rows(page)).to_have_count(len(THREE))
+    expect(main(page).get_by_role("alert")).to_have_count(0)
+
+
+@pytest.mark.p1
+def test_on_the_phone_there_is_no_selection_hint(page: Page) -> None:
+    """AC-15: below 1024px there is no hint at /captures."""
+    page.set_viewport_size(viewports.PHONE)
+    stub_list(page, THREE)
+    page.goto(CAPTURES_PATH)
+    expect(rows(page)).to_have_count(len(THREE))
+
+    expect(main(page).get_by_text(NO_SELECTION, exact=True)).to_be_hidden()
+
+
+@pytest.mark.p1
+@pytest.mark.parametrize("viewport", viewports.ALL.values(), ids=viewports.ALL.keys())
+def test_list_and_detail_fit_every_width_with_long_text(page: Page, viewport: Any) -> None:
+    """AC-8 / AC-10: list and detail fit phone, tablet and desktop with no horizontal scroll,
+    a long unbroken text wrapping.
+    """
+    long_one = capture(LONG_TEXT, "2026-10-22T12:02:00Z")
+    page.set_viewport_size(viewport)
+    stub_list(page, [long_one, *THREE])
+    stub_detail(page, long_one)
+    page.goto(CAPTURES_PATH)
+    expect(rows(page)).to_have_count(4)
+
+    list_overflow = horizontal_overflow(page)
+    page.goto(f"{CAPTURES_PATH}/{long_one['captureId']}")
+    expect(detail(page)).to_contain_text(LONG_TEXT)
+
+    assert max(list_overflow, horizontal_overflow(page)) <= 0
+
+
+@pytest.mark.p1
+@pytest.mark.browser_context_args(timezone_id=TORONTO, locale="en-US")
+@pytest.mark.parametrize(
+    ("body", "expected"),
+    [
+        (YESTERDAY, "Captured yesterday · 19:40"),
+        (OCT_5, "Captured Oct 5 · 12:31"),
+        (LAST_YEAR, "Captured Oct 4, 2025 · 22:05"),
+    ],
+    ids=["yesterday", "this-year", "last-year"],
+)
+def test_the_detail_reads_its_creation_time_relative_to_today(
+    page: Page, body: dict[str, str], expected: str
+) -> None:
+    """AC-11: the detail reads "Captured yesterday · …", or the date, with its year outside
+    the current one, in the browser's time zone.
+    """
+    page.clock.set_fixed_time(NOW)
+    page.set_viewport_size(viewports.DESKTOP)
+    stub_list(page, [TODAY_LATE, TODAY_EARLY, YESTERDAY, OCT_5, LAST_YEAR])
+    stub_detail(page, body)
+    page.goto(f"{CAPTURES_PATH}/{body['captureId']}")
+
+    expect(detail(page)).to_contain_text(expected)
+
+
+@pytest.mark.p1
+def test_on_the_phone_a_newly_saved_capture_tops_the_list(page: Page) -> None:
+    """AC-14: at phone width too, a saved Capture is the list's first row."""
+    text = f"un rendez-vous {uuid.uuid4()}"
+    page.set_viewport_size(viewports.PHONE)
+    page.goto(CAPTURES_PATH)
+    compose_box(page).fill(text)
+
+    with page.expect_response(is_save):
+        main(page).get_by_role("button", name=SAVE, exact=True).click()
+
+    expect(rows(page).first).to_contain_text(text)
+
+
+@pytest.mark.p1
+def test_on_desktop_a_row_click_selects_it_without_a_full_reload(page: Page) -> None:
+    """AC-10: clicking a row on desktop selects it and shows its detail, with no page load."""
+    page.set_viewport_size(viewports.DESKTOP)
+    stub_list(page, THREE)
+    stub_detail(page, YESTERDAY)
+    page.goto(CAPTURES_PATH)
+    expect(rows(page)).to_have_count(len(THREE))
+    page.evaluate("window.__noReload = true")
+
+    rows(page).nth(2).click()
+
+    expect(rows(page).nth(2)).to_have_attribute("aria-current", "page")
+    expect(detail(page)).to_contain_text(YESTERDAY["text"])
+    expect(page).to_have_url(path_pattern(f"{CAPTURES_PATH}/{YESTERDAY['captureId']}"))
+    assert page.evaluate("window.__noReload === true")

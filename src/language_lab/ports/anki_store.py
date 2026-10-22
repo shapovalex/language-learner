@@ -1,8 +1,8 @@
 """The AnkiStore port (AD-1, AD-5): every Anki use case a feature can ask for.
 
 Each method is one complete use case that the adapter runs under the Anki lock: readiness, sync,
-the SetupState, the Setup preview and apply, and Create Capture so far. Later entries add
-methods here, to the AnkiConnect adapter and to the fake in tests/fakes/ together.
+the SetupState, the Setup preview and apply, Create Capture, and List and Get Capture so far.
+Later entries add methods here, to the AnkiConnect adapter and to the fake in tests/fakes/ together.
 """
 
 from collections.abc import Collection
@@ -60,5 +60,19 @@ class AnkiStore(Protocol):
         its card suspended (AD-6); a stored one comes back unchanged and nothing is written. The
         CaptureId is matched in Python, never in a query (AD-4). Raises
         `AppError(SETUP_REQUIRED | ANKI_UNAVAILABLE | ANKI_BUSY)`.
+        """
+        ...
+
+    async def list_captures(self) -> list[Capture]:
+        """Every Capture of the Prefix, its fields decoded through the codec, newest first by
+        CreatedAt (equal times by CaptureId, descending), from reads only under one lock hold;
+        not gated (AD-19). Raises `AppError(ANKI_UNAVAILABLE | ANKI_BUSY)`.
+        """
+        ...
+
+    async def get_capture(self, capture_id: str) -> Capture:
+        """The Capture `capture_id`, matched in Python and never in a query (AD-4), from reads
+        only under one lock hold; not gated (AD-19). Raises
+        `AppError(NOT_FOUND | ANKI_UNAVAILABLE | ANKI_BUSY)`.
         """
         ...

@@ -96,3 +96,13 @@ export function createCapture(captureId, text) {
     body: JSON.stringify({ captureId, text }),
   });
 }
+
+// Every Capture, newest first by CreatedAt (FR-10): `{captures: [{captureId, text, createdAt}]}`
+export function listCaptures() {
+  return request("/api/captures");
+}
+
+// One Capture, `{captureId, text, createdAt}`; 404 `not_found` when it isn't in Anki
+export function getCapture(captureId) {
+  return request(`/api/captures/${encodeURIComponent(captureId)}`);
+}

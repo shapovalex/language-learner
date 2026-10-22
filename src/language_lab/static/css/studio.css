@@ -460,6 +460,134 @@ main h1 {
   }
 }
 
+/* Captures list and Capture detail (S-Captures, S-CapturesDesk). Below 1024px the detail is
+   its own screen; from 1024px list and detail are two panes. */
+.captures-list-header {
+  margin: 0 0 var(--space-4);
+  color: var(--color-ink-muted);
+  font-size: var(--font-size-body-sm);
+  font-weight: 600;
+}
+
+.captures-list {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.capture-row {
+  gap: var(--space-5);
+}
+
+.capture-row-body {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+  min-width: 0;
+}
+
+.capture-row-text {
+  overflow-wrap: anywhere;
+}
+
+.capture-row-time,
+.capture-detail-time {
+  color: var(--color-ink-muted);
+  font-size: var(--font-size-body-sm);
+  font-weight: 500;
+}
+
+.capture-row::after {
+  flex: none;
+}
+
+.captures-empty,
+.captures-not-found {
+  margin: 0 0 var(--space-7);
+  color: var(--color-ink-muted);
+}
+
+.captures-load-alert-body {
+  margin: 0 0 var(--space-4);
+}
+
+.back-link {
+  display: inline-flex;
+  align-items: center;
+  min-height: var(--space-target-min);
+  margin: var(--space-5) 0;
+  color: var(--color-accent);
+  font-size: var(--font-size-label);
+  font-weight: var(--font-weight-label);
+  text-decoration: none;
+}
+
+.capture-detail {
+  margin: 0 0 var(--space-7);
+  padding: var(--space-card-pad-phone);
+  border-radius: var(--radius-card);
+  background: var(--color-surface);
+}
+
+.capture-detail-text {
+  margin: 0 0 var(--space-4);
+  font-size: var(--font-size-body-lg);
+  font-weight: 600;
+  overflow-wrap: anywhere;
+  white-space: pre-wrap;
+}
+
+.capture-detail-time {
+  margin: 0;
+}
+
+.captures-hint {
+  margin: 0;
+  padding: var(--space-card-pad-phone);
+  border-radius: var(--radius-card);
+  background: var(--color-surface-sunken);
+  color: var(--color-ink-muted);
+}
+
+@media (max-width: 1023px) {
+  .captures-detail-open .captures-list-pane,
+  .captures-layout:not(.captures-detail-open) .captures-detail-pane,
+  .captures-layout .wide-only {
+    display: none;
+  }
+}
+
+@media (min-width: 1024px) {
+  .captures-layout {
+    display: grid;
+    grid-template-columns: minmax(320px, 420px) minmax(0, 1fr);
+    gap: var(--space-9);
+    align-items: start;
+  }
+
+  .captures-list-pane {
+    min-width: 0;
+  }
+
+  /* Level with the compose card, under the heading */
+  .captures-detail-pane {
+    min-width: 0;
+    padding-top: calc(var(--space-7) * 2 + var(--font-size-display) * 1.2);
+  }
+
+  .capture-detail,
+  .captures-hint {
+    padding: var(--space-card-pad-desktop);
+  }
+
+  .captures-layout .narrow-only {
+    display: none;
+  }
+}
+
 /* Setup (DESIGN.md Setup): subtitle naming the Prefix, then the readiness card */
 .setup-subtitle {
   margin: calc(-1 * var(--space-5)) 0 var(--space-7);
