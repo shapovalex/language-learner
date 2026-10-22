@@ -3,7 +3,7 @@
 import re
 from typing import Annotated, TypedDict
 
-from fastapi import APIRouter
+from fastapi import APIRouter, Response
 from pydantic import AfterValidator, BaseModel, Field
 
 from language_lab.domain.captures import Capture
@@ -44,6 +44,12 @@ def _body(capture: Capture) -> CaptureBody:
     }
 
 
+def _require_capture_id(capture_id: str) -> None:
+    # A malformed CaptureId names no Capture, so it never reaches the store
+    if re.fullmatch(_UUID4, capture_id) is None:
+        raise AppError(ErrorCode.NOT_FOUND)
+
+
 def captures_router(service: CaptureService) -> APIRouter:
     router = APIRouter(prefix="/api/captures")
 
@@ -57,9 +63,13 @@ def captures_router(service: CaptureService) -> APIRouter:
 
     @router.get("/{capture_id}")
     async def get_capture(capture_id: str) -> CaptureBody:
-        # A malformed CaptureId names no Capture, so it never reaches the store
-        if re.fullmatch(_UUID4, capture_id) is None:
-            raise AppError(ErrorCode.NOT_FOUND)
+        _require_capture_id(capture_id)
         return _body(await service.get(capture_id))
+
+    @router.delete("/{capture_id}", status_code=204)
+    async def delete_capture(capture_id: str) -> Response:
+        _require_capture_id(capture_id)
+        await service.delete(capture_id)  # one already gone is deleted too: a retry succeeds
+        return Response(status_code=204)
 
     return router

@@ -1,5 +1,5 @@
 """Captures: Create Capture, where the server stamps CreatedAt and the AnkiStore does the rest
-(AD-20), and the reads, List and Get Capture.
+(AD-20), the reads, List and Get Capture, and Delete Capture.
 """
 
 from datetime import UTC, datetime
@@ -26,3 +26,9 @@ class CaptureService:
     async def get(self, capture_id: str) -> Capture:
         """The Capture `capture_id`. Raises `AppError(NOT_FOUND | ANKI_UNAVAILABLE | ANKI_BUSY)`."""
         return await self._anki.get_capture(capture_id)
+
+    async def delete(self, capture_id: str) -> None:
+        """Delete the Capture `capture_id`; one already gone is no error. Raises
+        `AppError(SETUP_REQUIRED | ANKI_UNAVAILABLE | ANKI_BUSY)`.
+        """
+        await self._anki.delete_capture(capture_id)

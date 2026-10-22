@@ -8,9 +8,13 @@
 // own screen with the "‹ Captures" back link; from 1024px list and detail are two panes, with
 // the open row selected. The screen stays mounted across those routes (`update`), so unsaved
 // compose text survives opening a Capture. Times read in the browser's time zone, 24-hour.
+//
+// "Delete Capture" in detail asks through the router's confirmation, then DELETE
+// /api/captures/<captureId> (FR-13). After it the list shows without it at /captures; a failed
+// delete keeps the Capture with an inline alert in detail.
 
-import { createCapture, getCapture, listCaptures } from "../api.js";
-import { setDirty } from "../router.js";
+import { createCapture, deleteCapture, getCapture, listCaptures } from "../api.js";
+import { confirmDestructive, navigate, setDirty } from "../router.js";
 
 const LABEL = "New Capture";
 const PLACEHOLDER = "Paste or type a word, phrase or sentence";
@@ -25,6 +29,12 @@ const NO_SELECTION = "Choose a Capture to see it here.";
 const NOT_IN_ANKI = "This Capture isn't in Anki.";
 const BACK = "‹ Captures";
 const TWO_PANES = "(min-width: 1024px)";
+const DELETE_CAPTURE = "Delete Capture";
+const DELETE_TITLE = "Delete this Capture?";
+const DELETE_BODY = "This removes the Capture from Anki. Items you made from it stay.";
+const DELETE_CONFIRM = "Delete permanently";
+const NOT_DELETED_TITLE = "Not deleted — Anki isn't reachable";
+const NOT_DELETED_BODY = "Make sure Anki Desktop is open on the Mac mini, then try again.";
 
 const TIME = new Intl.DateTimeFormat("en-US", {
   hour: "2-digit",
@@ -105,8 +115,26 @@ function failureCopy(error) {
   if (error?.name === "ApiError" && error.code === "anki_unavailable") {
     return [UNREACHABLE_TITLE, UNREACHABLE_BODY];
   }
-  // An ApiError carries the envelope's fixed message (AD-15)
-  return ["Not saved", error?.name === "ApiError" ? error.message : NETWORK_FALLBACK];
+  return ["Not saved", errorMessage(error)];
+}
+
+function deleteFailureCopy(error) {
+  if (error?.name === "ApiError" && error.code === "anki_unavailable") {
+    return [NOT_DELETED_TITLE, NOT_DELETED_BODY];
+  }
+  return ["Not deleted", errorMessage(error)];
+}
+
+// The failed delete's alert: no Try again, since Delete Capture is right there
+function deleteAlert(error) {
+  const [title, body] = deleteFailureCopy(error);
+  const alert = element("div", "inline-alert-error capture-delete-alert");
+  alert.setAttribute("role", "alert");
+  alert.append(
+    element("p", "compose-alert-title", title),
+    element("p", "capture-delete-alert-body", body),
+  );
+  return alert;
 }
 
 export function mount(root, params = {}) {
@@ -115,6 +143,7 @@ export function mount(root, params = {}) {
   const twoPanes = window.matchMedia(TWO_PANES);
 
   const heading = element("h1", null, "Captures");
+  heading.tabIndex = -1; // focus lands here after a delete removes the focused button
   const card = element("section", "compose-card");
   const label = element("label", "compose-label", LABEL);
   const box = element("textarea", "compose-field");
@@ -145,7 +174,15 @@ export function mount(root, params = {}) {
   // `captures`: null while loading or failed; `saved` are the ones saved meanwhile, newest first
   const list = { captures: null, error: null, saved: [], token: 0 };
   // `capture`: the open one, once known; `status`: "loading", "shown", "missing" or "failed"
-  const open = { id: params.captureId ?? null, capture: null, status: null, error: null, token: 0 };
+  // `deleteError`: the open Capture's failed delete, shown until another Capture opens
+  const open = {
+    id: params.captureId ?? null,
+    capture: null,
+    status: null,
+    error: null,
+    deleteError: null,
+    token: 0,
+  };
 
   function withSaved(captures) {
     const ids = new Set(list.saved.map((c) => c.captureId));
@@ -227,11 +264,62 @@ export function mount(root, params = {}) {
       return;
     }
     const article = element("article", "capture-detail");
-    article.append(
+    const content = element("div", "capture-detail-content");
+    content.append(
       element("p", "capture-detail-text", open.capture.text),
       element("p", "capture-detail-time", detailTime(open.capture.createdAt)),
     );
-    detailPane.replaceChildren(back, article);
+    article.append(content);
+    // Phone: in the header beside the back link (S-NewItem); desktop: in the card, beside the
+    // text (S-CapturesDesk). Only once the read confirmed the Capture is in Anki
+    const actions = element("div", "capture-detail-actions narrow-only");
+    actions.append(back);
+    if (open.status === "shown") {
+      actions.append(deleteButton("narrow-only"));
+      article.append(deleteButton("wide-only"));
+    }
+    detailPane.replaceChildren(actions, article);
+    if (open.deleteError) detailPane.append(deleteAlert(open.deleteError));
+  }
+
+  function deleteButton(layout) {
+    const button = element("button", `button-destructive-text ${layout}`, DELETE_CAPTURE);
+    button.type = "button";
+    button.addEventListener("click", () => onDelete(button));
+    return button;
+  }
+
+  function forget(captureId) {
+    list.saved = list.saved.filter((c) => c.captureId !== captureId);
+    if (list.captures) list.captures = list.captures.filter((c) => c.captureId !== captureId);
+  }
+
+  async function onDelete(trigger) {
+    const id = open.id;
+    try {
+      const deleted = await confirmDestructive({
+        title: DELETE_TITLE,
+        body: DELETE_BODY,
+        confirmLabel: DELETE_CONFIRM,
+        trigger,
+        action: () => deleteCapture(id),
+      });
+      if (!deleted) return;
+    } catch (error) {
+      if (!mounted || open.id !== id) return;
+      open.deleteError = error;
+      renderDetail();
+      // The alert replaced the button that had focus: give it the new one this layout shows
+      const buttons = [...detailPane.querySelectorAll(".button-destructive-text")];
+      buttons.find((button) => button.checkVisibility?.() !== false)?.focus();
+      return;
+    }
+    if (!mounted) return;
+    forget(id);
+    renderList();
+    if (open.id !== id) return;
+    await navigate("/captures");
+    if (mounted) heading.focus();
   }
 
   async function loadList() {
@@ -278,6 +366,7 @@ export function mount(root, params = {}) {
 
   function show(captureId) {
     open.id = captureId ?? null;
+    open.deleteError = null;
     if (open.id === null) {
       ++open.token;
       open.capture = null;

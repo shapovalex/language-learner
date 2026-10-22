@@ -1,7 +1,7 @@
 """The AnkiStore port (AD-1, AD-5): every Anki use case a feature can ask for.
 
 Each method is one complete use case that the adapter runs under the Anki lock: readiness, sync,
-the SetupState, the Setup preview and apply, Create Capture, and List and Get Capture so far.
+the SetupState, the Setup preview and apply, and Create, List, Get and Delete Capture so far.
 Later entries add methods here, to the AnkiConnect adapter and to the fake in tests/fakes/ together.
 """
 
@@ -74,5 +74,13 @@ class AnkiStore(Protocol):
         """The Capture `capture_id`, matched in Python and never in a query (AD-4), from reads
         only under one lock hold; not gated (AD-19). Raises
         `AppError(NOT_FOUND | ANKI_UNAVAILABLE | ANKI_BUSY)`.
+        """
+        ...
+
+    async def delete_capture(self, capture_id: str) -> None:
+        """Delete the Capture `capture_id`, its note and card, under one lock hold. The
+        CaptureId is matched in Python and never in a query (AD-4); a CaptureId no Capture holds
+        is already deleted, so nothing is written and the call succeeds. Raises
+        `AppError(SETUP_REQUIRED | ANKI_UNAVAILABLE | ANKI_BUSY)`.
         """
         ...

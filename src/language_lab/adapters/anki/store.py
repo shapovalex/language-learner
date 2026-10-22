@@ -14,6 +14,9 @@ both apply to it (AD-4, AD-19).
 List Captures and Get Capture (story 3.2) are reads through `client.invoke`, under one lock hold
 each, and not gated (AD-19). Their only query is the exact Capture note type scope; the
 CaptureId is matched in Python and never sent (AD-4). Anki ids stay here: a `Capture` has none.
+
+Delete Capture (story 3.3) finds the note the same way and deletes it through `client.invoke`,
+so the guard and the gate apply; a CaptureId no Capture holds writes nothing and succeeds.
 """
 
 import asyncio
@@ -212,6 +215,25 @@ class AnkiConnectStore:
         if stored is None:
             raise AppError(ErrorCode.NOT_FOUND)
         return stored
+
+    async def delete_capture(self, capture_id: str) -> None:
+        """Delete every note whose CaptureId is `capture_id` (matched in Python, AD-4) with one
+        `deleteNotes`, under one lock hold; with none, nothing is written. Raises
+        `AppError(SETUP_REQUIRED | ANKI_UNAVAILABLE | ANKI_BUSY)`.
+        """
+        manifest = self._require_manifest()
+        async with self._lock.hold():
+            infos = await self._capture_infos(note_query(manifest, f"{manifest.prefix} Capture"))
+            note_ids: list[int] = []
+            for info in infos:
+                if _field(info, _CAPTURE_ID).strip() != capture_id:
+                    continue
+                note_id = info.get("noteId")
+                if not isinstance(note_id, int) or isinstance(note_id, bool):
+                    raise AppError(ErrorCode.ANKI_UNAVAILABLE)
+                note_ids.append(note_id)
+            if note_ids:
+                await self._client.invoke("deleteNotes", notes=note_ids)
 
     async def _capture_infos(self, query: str) -> list[dict[str, Any]]:
         """The `notesInfo` entries of the exact Capture scope's `findNotes`, skipping notes

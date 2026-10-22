@@ -16,14 +16,11 @@ import pytest
 
 from language_lab.app import create_app
 from language_lab.domain.captures import Capture
+from language_lab.domain.errors import AppError, ErrorCode
 from tests.fakes.anki_store import FakeAnkiStore
 from tests.support.fixtures.settings import SettingsFactory
 from tests.support.hosts import app_client, client_over
 from tests.support.live_server import closed_port
-
-pytestmark = pytest.mark.skip(
-    reason="ATDD red phase: DELETE /api/captures/{captureId} is not built until story 3.3"
-)
 
 CAPTURES = "/api/captures"
 
@@ -123,3 +120,40 @@ def test_the_app_built_without_an_injected_store_has_the_delete_route(
 
     assert response.status_code == 503
     assert response.json()["error"]["code"] == "anki_unavailable"
+
+
+@pytest.mark.p1
+def test_a_deleted_capture_reads_as_not_found(settings_factory: SettingsFactory) -> None:
+    """AC-4: after DELETE, GET of that Capture is 404 `not_found` and the list leaves it out."""
+    store = store_with(TARGET, OTHER)
+    client = client_over(settings_factory, store)
+    client.delete(f"{CAPTURES}/{TARGET.capture_id}")
+
+    response = client.get(f"{CAPTURES}/{TARGET.capture_id}")
+
+    assert response.status_code == 404
+    assert response.json()["error"]["code"] == "not_found"
+    listed = client.get(CAPTURES).json()["captures"]
+    assert [c["captureId"] for c in listed] == [OTHER.capture_id]
+
+
+@pytest.mark.p1
+def test_a_gated_anki_is_409_setup_required(
+    settings_factory: SettingsFactory, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """AC-4: a store refusing the delete while Setup isn't ready is 409 `setup_required`
+    (AD-19).
+    """
+    store = store_with(TARGET)
+
+    async def gated(*_: object) -> None:
+        raise AppError(ErrorCode.SETUP_REQUIRED)
+
+    monkeypatch.setattr(store, "delete_capture", gated)
+    client = client_over(settings_factory, store)
+
+    response = client.delete(f"{CAPTURES}/{TARGET.capture_id}")
+
+    assert response.status_code == 409
+    assert response.json()["error"]["code"] == "setup_required"
+    assert list(store.captures) == [TARGET.capture_id]

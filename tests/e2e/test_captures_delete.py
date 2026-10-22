@@ -20,6 +20,7 @@ on a Capture the test saves itself.
 """
 
 import uuid
+from typing import Any
 
 import pytest
 from playwright.sync_api import Locator, Page, Request, Response, expect
@@ -28,10 +29,6 @@ from tests.support import viewports
 from tests.support.keys import shift_tab, tab
 from tests.support.navigation import path_pattern
 from tests.support.network import HeldRoute, stub_api_error, stub_api_json
-
-pytestmark = pytest.mark.skip(
-    reason="ATDD red phase: Delete Capture and its confirmation are not built until story 3.3"
-)
 
 CAPTURES_PATH = "/captures"
 API = "/api/captures"
@@ -270,3 +267,254 @@ def test_a_failed_delete_keeps_the_capture_and_shows_the_error(page: Page) -> No
     expect(detail(page)).to_contain_text(TARGET["text"])
     expect(rows(page).filter(has_text=TARGET["text"])).to_have_count(1)
     expect(page).to_have_url(path_pattern(f"{CAPTURES_PATH}/{TARGET['captureId']}"))
+
+
+# Secondary cases (green phase)
+
+UNSAVED_ALERT = "Discard unsaved changes?"
+NOT_IN_ANKI = "This Capture isn't in Anki."
+
+
+def unsaved_alert(page: Page) -> Locator:
+    return page.get_by_role("alertdialog", name=UNSAVED_ALERT, exact=True)
+
+
+def horizontal_overflow(page: Page) -> float:
+    return page.evaluate(
+        "document.documentElement.scrollWidth - document.documentElement.clientWidth"
+    )
+
+
+@pytest.mark.p1
+def test_cancel_returns_focus_and_the_dialog_opens_again(page: Page) -> None:
+    """AC-7: Cancel returns focus to "Delete Capture"; the dialog opens again, and a second
+    Cancel also sends nothing.
+    """
+    deletes = record_deletes(page)
+    open_stubbed_capture(page, viewports.DESKTOP)
+    delete_button(page).click()
+    cancel_button(page).click()
+
+    expect(delete_button(page)).to_be_focused()
+
+    delete_button(page).click()
+    expect(dialog(page)).to_be_visible()
+    cancel_button(page).click()
+    expect(dialog(page)).to_be_hidden()
+    assert deletes == []
+
+
+@pytest.mark.p1
+def test_compose_text_survives_a_delete_and_focus_lands_on_the_heading(page: Page) -> None:
+    """AC-8: unsaved compose text survives the delete with no unsaved alert (same-screen
+    navigation), and focus moves to the "Captures" heading, since the button is gone.
+    """
+    text = f"in the offing {uuid.uuid4()}"
+    page.set_viewport_size(viewports.PHONE)
+    page.goto(CAPTURES_PATH)
+    compose_box(page).fill(text)
+    with page.expect_response(is_save):
+        main(page).get_by_role("button", name=SAVE, exact=True).click()
+    compose_box(page).fill("half typed")
+    rows(page).filter(has_text=text).click()
+    delete_button(page).click()
+
+    confirm_button(page).click()
+
+    expect(page).to_have_url(path_pattern(CAPTURES_PATH))
+    expect(unsaved_alert(page)).to_be_hidden()
+    expect(compose_box(page)).to_have_value("half typed")
+    expect(main(page).get_by_role("heading", name="Captures", exact=True)).to_be_focused()
+
+
+@pytest.mark.p1
+def test_on_desktop_the_header_count_drops_after_a_delete(page: Page) -> None:
+    """AC-9: the header count ("N Captures · newest first") drops by one after the delete."""
+    text = f"by and large {uuid.uuid4()}"
+    page.set_viewport_size(viewports.DESKTOP)
+    page.goto(CAPTURES_PATH)
+    save_and_open(page, text)
+    before = rows(page).count()
+    delete_button(page).click()
+
+    confirm_button(page).click()
+
+    expect(rows(page)).to_have_count(before - 1)
+    left = before - 1
+    header = f"{left} {'Capture' if left == 1 else 'Captures'} · newest first"
+    expect(main(page).get_by_text(header, exact=True)).to_have_count(1 if left else 0)
+
+
+@pytest.mark.p1
+def test_cancel_is_disabled_while_the_delete_is_in_flight(page: Page) -> None:
+    """AC-11: while the DELETE is pending Cancel is disabled too, and Esc doesn't close it."""
+    held = HeldRoute(page, f"{API}/{TARGET['captureId']}", method="DELETE")
+    open_stubbed_capture(page, viewports.DESKTOP)
+    delete_button(page).click()
+    confirm_button(page).click()
+
+    expect(cancel_button(page)).to_be_disabled()
+
+    expect(confirm_button(page)).to_have_text(CONFIRM)
+    page.keyboard.press("Escape")
+    expect(dialog(page)).to_be_visible()
+    held.fulfill_json(
+        {"error": {"code": "anki_busy", "message": "Busy.", "requestId": ""}}, status=503
+    )
+    expect(dialog(page)).to_be_hidden()
+
+
+@pytest.mark.p1
+def test_a_second_press_while_busy_sends_no_second_delete(page: Page) -> None:
+    """AC-11: a second Delete permanently while the DELETE is pending sends nothing more."""
+    held = HeldRoute(page, f"{API}/{TARGET['captureId']}", method="DELETE")
+    deletes = record_deletes(page)
+    open_stubbed_capture(page, viewports.DESKTOP)
+    delete_button(page).click()
+    confirm_button(page).click()
+    expect(confirm_button(page)).to_be_disabled()
+
+    confirm_button(page).dispatch_event("click")
+
+    assert len(deletes) == 1
+    error = {"code": "anki_unavailable", "message": "Anki isn't reachable.", "requestId": ""}
+    held.fulfill_json({"error": error}, status=503)
+    expect(dialog(page)).to_be_hidden()
+    assert len(deletes) == 1
+
+
+@pytest.mark.p1
+def test_a_browser_back_while_the_delete_is_in_flight_keeps_the_capture_open(
+    page: Page,
+) -> None:
+    """AC-12: a browser back while the DELETE is pending leaves the route as it was, so a
+    failure still shows its alert in Capture detail.
+    """
+    held = HeldRoute(page, f"{API}/{TARGET['captureId']}", method="DELETE")
+    page.set_viewport_size(viewports.PHONE)
+    stub_api_json(page, API, {"captures": [TARGET, OTHER]}, method="GET")
+    stub_api_json(page, f"{API}/{TARGET['captureId']}", TARGET, method="GET")
+    page.goto(CAPTURES_PATH)
+    rows(page).filter(has_text=TARGET["text"]).click()
+    delete_button(page).click()
+    confirm_button(page).click()
+    expect(confirm_button(page)).to_be_disabled()
+
+    page.evaluate("history.back()")
+
+    expect(page).to_have_url(path_pattern(f"{CAPTURES_PATH}/{TARGET['captureId']}"))
+    error = {"code": "anki_unavailable", "message": "Anki isn't reachable.", "requestId": ""}
+    held.fulfill_json({"error": error}, status=503)
+    expect(main(page).get_by_role("alert").filter(has_text=NOT_DELETED)).to_be_visible()
+    expect(detail(page)).to_contain_text(TARGET["text"])
+
+
+@pytest.mark.p1
+def test_on_desktop_delete_capture_sits_in_the_card(page: Page) -> None:
+    """AC-6: on desktop "Delete Capture" is inside the detail card, beside the text."""
+    open_stubbed_capture(page, viewports.DESKTOP)
+
+    expect(detail(page).get_by_role("button", name=DELETE_CAPTURE, exact=True)).to_be_visible()
+
+    expect(delete_button(page)).to_have_count(1)
+
+
+@pytest.mark.p1
+def test_another_failure_shows_not_deleted_with_the_envelope_message(page: Page) -> None:
+    """AC-12: a failure other than `anki_unavailable` shows "Not deleted" with the envelope's
+    message, and Delete Capture opens the dialog again.
+    """
+    stub_api_error(
+        page,
+        f"{API}/{TARGET['captureId']}",
+        status=503,
+        code="anki_busy",
+        message="Anki is busy. Try again in a moment.",
+        method="DELETE",
+    )
+    open_stubbed_capture(page, viewports.DESKTOP)
+    delete_button(page).click()
+
+    confirm_button(page).click()
+
+    alert = main(page).get_by_role("alert").filter(has_text="Not deleted")
+    expect(alert).to_contain_text("Anki is busy. Try again in a moment.")
+    expect(alert).not_to_contain_text(NOT_DELETED)
+    expect(delete_button(page)).to_be_focused()
+    delete_button(page).click()
+    expect(dialog(page)).to_be_visible()
+
+
+@pytest.mark.p1
+def test_a_network_failure_shows_the_server_unreachable_message(page: Page) -> None:
+    """AC-12: a DELETE that never reaches the server shows "LanguageLab could not reach the
+    server."
+    """
+
+    def abort_delete(route: Any) -> None:
+        if route.request.method == "DELETE":
+            route.abort()
+        else:
+            route.fallback()
+
+    page.route(f"**{API}/{TARGET['captureId']}", abort_delete)
+    open_stubbed_capture(page, viewports.PHONE)
+    delete_button(page).click()
+
+    confirm_button(page).click()
+
+    alert = main(page).get_by_role("alert").filter(has_text="Not deleted")
+    expect(alert).to_contain_text("LanguageLab could not reach the server.")
+    expect(detail(page)).to_contain_text(TARGET["text"])
+
+
+@pytest.mark.p1
+def test_no_delete_capture_on_a_capture_that_isnt_in_anki(page: Page) -> None:
+    """AC-6: "This Capture isn't in Anki." has no Delete Capture."""
+    capture_id = str(uuid.uuid4())
+    stub_api_error(
+        page,
+        f"{API}/{capture_id}",
+        status=404,
+        code="not_found",
+        message="Not found.",
+        method="GET",
+    )
+    page.set_viewport_size(viewports.PHONE)
+    page.goto(f"{CAPTURES_PATH}/{capture_id}")
+
+    expect(main(page).get_by_text(NOT_IN_ANKI, exact=True)).to_be_visible()
+
+    expect(delete_button(page)).to_have_count(0)
+
+
+@pytest.mark.p1
+def test_a_browser_back_closes_the_dialog_as_cancel(page: Page) -> None:
+    """AC-10: a browser back while the dialog is open closes it like Cancel, with no DELETE."""
+    deletes = record_deletes(page)
+    page.set_viewport_size(viewports.DESKTOP)
+    stub_api_json(page, API, {"captures": [TARGET, OTHER]}, method="GET")
+    stub_api_json(page, f"{API}/{TARGET['captureId']}", TARGET, method="GET")
+    page.goto(CAPTURES_PATH)
+    rows(page).filter(has_text=TARGET["text"]).click()
+    delete_button(page).click()
+
+    page.go_back()
+
+    expect(dialog(page)).to_be_hidden()
+    expect(page).to_have_url(path_pattern(CAPTURES_PATH))
+    assert deletes == []
+
+
+@pytest.mark.p1
+@pytest.mark.parametrize("viewport", viewports.ALL.values(), ids=viewports.ALL.keys())
+def test_the_dialog_fits_every_width(page: Page, viewport: Any) -> None:
+    """AC-6: the dialog fits phone, tablet and desktop with no horizontal scroll."""
+    open_stubbed_capture(page, viewport)
+    delete_button(page).click()
+
+    expect(dialog(page)).to_be_visible()
+
+    assert horizontal_overflow(page) <= 0
+    box = dialog(page).bounding_box()
+    assert box is not None and box["x"] >= 0 and box["x"] + box["width"] <= viewport["width"]
