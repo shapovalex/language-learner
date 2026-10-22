@@ -6,7 +6,7 @@ bmad-spec
 bmad-ticket
 
 --
-bmad-ticket split epic XXX into stories
+bmad-ticket split epic XXX into stories. Create reasonably small number of stories, ideally less than 5
 --
 
 bmad-testarch-test-design
