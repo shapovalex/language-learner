@@ -339,6 +339,61 @@ main h1 {
   font-weight: 600;
 }
 
+/* Captures compose box (S-Captures, DESIGN.md text-field) */
+.compose-card {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-4);
+  margin: 0 0 var(--space-7);
+  padding: var(--space-6);
+  border-radius: var(--radius-card);
+  background: var(--color-surface);
+}
+
+.compose-label {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  font-size: var(--font-size-label);
+  font-weight: var(--font-weight-label);
+}
+
+.compose-field {
+  box-sizing: border-box;
+  width: 100%;
+  min-width: 0;
+  padding: 12px 14px;
+  border: 2px solid var(--color-border-input);
+  border-radius: var(--radius-field);
+  background: var(--color-surface);
+  color: var(--color-ink);
+  font-size: max(16px, var(--font-size-body));
+  font-weight: 500;
+  resize: vertical;
+}
+
+.compose-field:focus {
+  border-color: var(--color-accent);
+}
+
+.compose-alert {
+  margin: 0;
+}
+
+.compose-alert-title {
+  margin: 0 0 var(--space-1);
+  color: var(--color-danger);
+}
+
+.compose-alert-body {
+  margin: 0 0 var(--space-4);
+  font-weight: 400;
+}
+
+.compose-card > .button-primary {
+  align-self: stretch;
+}
+
 /* Skeleton: spinner arc and label, then 14px bars at 80/60/70% (DESIGN.md Loading) */
 .skeleton {
   display: flex;

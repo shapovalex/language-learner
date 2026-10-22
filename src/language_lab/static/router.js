@@ -178,6 +178,7 @@ export function setDirty(state) {
 
 function describeLoss({ kind, count, target }) {
   if (kind === "draft") return "This Draft isn't saved.";
+  if (kind === "capture") return "This Capture isn't saved.";
   return `${count} unsaved ${count === 1 ? "change" : "changes"} to “${target}”`;
 }
 

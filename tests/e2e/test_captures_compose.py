@@ -29,8 +29,6 @@ from tests.support.navigation import SETUP, main_nav, path_pattern
 from tests.support.network import HeldRoute, record_json_bodies, stub_api_error
 from tests.support.unsaved import unsaved_alert
 
-pytestmark = pytest.mark.skip(reason="ATDD red phase: until story 3.1 adds the compose box")
-
 CAPTURES_PATH = "/captures"
 API = "/api/captures"
 LABEL = "New Capture"
@@ -191,3 +189,23 @@ def test_anki_unreachable_keeps_the_text_and_shows_the_error_with_try_again(page
     expect(alert.get_by_role("button", name="Try again", exact=True)).to_be_visible()
     expect(compose_box(page)).to_have_value(TEXT)
     expect(page.get_by_role("status")).to_have_count(0)
+
+
+@pytest.mark.p1
+@pytest.mark.parametrize("viewport", viewports.ALL.values(), ids=viewports.ALL.keys())
+def test_the_compose_box_fits_every_width(page: Page, viewport: Any) -> None:
+    """AC-9: on phone, tablet and desktop the compose box fits with no horizontal scroll, and
+    its text is at least 16px, so iOS Safari doesn't zoom on focus.
+    """
+    page.set_viewport_size(viewport)
+    page.goto(CAPTURES_PATH)
+    expect(compose_box(page)).to_be_visible()
+
+    overflow = page.evaluate(
+        "document.documentElement.scrollWidth - document.documentElement.clientWidth"
+    )
+    assert overflow <= 0
+    font_size = compose_box(page).evaluate("el => parseFloat(getComputedStyle(el).fontSize)")
+    assert font_size >= 16
+    box = compose_box(page).bounding_box()
+    assert box is not None and box["x"] >= 0 and box["x"] + box["width"] <= viewport["width"]

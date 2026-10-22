@@ -2,7 +2,9 @@
 
 import asyncio
 from collections.abc import Collection
+from datetime import datetime
 
+from language_lab.domain.captures import Capture
 from language_lab.domain.errors import AppError, ErrorCode
 from language_lab.domain.setup import SetupPreview, SetupState
 from language_lab.domain.setup import plan_hash as _plan_hash
@@ -24,6 +26,10 @@ class FakeAnkiStore:
     `sync()` returns `outcome`. With `gated=True` each `sync()` stays in flight until
     `finish()` ends it, oldest first. Counts every `sync()` call (`sync_calls`), the ones that
     returned an outcome (`syncs`), and how many run at once (`in_flight`, `max_in_flight`).
+
+    `create_capture()` is create-or-noop by CaptureId over `captures` (AD-20): a known CaptureId
+    returns the stored Capture unchanged. It raises `anki_busy` or `anki_unavailable` as the
+    other methods do.
     """
 
     def __init__(
@@ -53,6 +59,7 @@ class FakeAnkiStore:
         self.apply_calls = 0
         self.applies = 0
         self._apply_gates: list[asyncio.Future[ErrorCode | None]] = []
+        self.captures: dict[str, Capture] = {}
 
     async def reachable(self) -> bool:
         if self.busy:
@@ -98,6 +105,13 @@ class FakeAnkiStore:
         """End the oldest in-flight gated `setup_apply()`: verify, or raise an `ErrorCode`."""
         gate = self._apply_gates.pop(0)
         gate.set_result(end)
+
+    async def create_capture(self, capture_id: str, text: str, created_at: datetime) -> Capture:
+        if self.busy:
+            raise AppError(ErrorCode.ANKI_BUSY)
+        if not self.available:
+            raise AppError(ErrorCode.ANKI_UNAVAILABLE)
+        return self.captures.setdefault(capture_id, Capture(capture_id, text, created_at))
 
     async def sync(self) -> SyncOutcome:
         self.sync_calls += 1

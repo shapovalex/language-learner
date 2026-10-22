@@ -86,3 +86,13 @@ export function getApplyStatus() {
 export function fullSyncUploaded() {
   return request("/api/setup/full-sync/uploaded", { method: "POST" });
 }
+
+// Save a Capture under the composition's CaptureId (FR-9, AD-8): 201 `{captureId, text,
+// createdAt}`. A retry with the same CaptureId returns the Capture already saved (AD-20).
+export function createCapture(captureId, text) {
+  return request("/api/captures", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ captureId, text }),
+  });
+}

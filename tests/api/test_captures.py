@@ -20,11 +20,12 @@ from datetime import UTC, datetime
 
 import pytest
 
+from language_lab.app import create_app
+from language_lab.domain.errors import AppError, ErrorCode
 from tests.fakes.anki_store import FakeAnkiStore
 from tests.support.fixtures.settings import SettingsFactory
-from tests.support.hosts import client_over
-
-pytestmark = pytest.mark.skip(reason="ATDD red phase: until story 3.1 adds POST /api/captures")
+from tests.support.hosts import app_client, client_over
+from tests.support.live_server import closed_port
 
 CAPTURES = "/api/captures"
 TEXT = "I'd rather not jump to conclusions."
@@ -107,3 +108,70 @@ def test_a_blank_text_or_a_non_canonical_capture_id_is_validation_failed(
     assert response.status_code == 422
     assert response.json()["error"]["code"] == "validation_failed"
     assert store.captures == {}
+
+
+@pytest.mark.p1
+def test_a_retry_with_the_same_capture_id_returns_the_first_capture(
+    settings_factory: SettingsFactory,
+) -> None:
+    """AC-6: a POST retried with the same CaptureId and other text is 201 with the first text
+    and `createdAt`, and nothing more is stored (AD-20).
+    """
+    store = FakeAnkiStore()
+    client = client_over(settings_factory, store)
+    capture_id = str(uuid.uuid4())
+    first = client.post(CAPTURES, json={"captureId": capture_id, "text": TEXT}).json()
+
+    response = client.post(CAPTURES, json={"captureId": capture_id, "text": "edited"})
+
+    assert response.status_code == 201
+    assert response.json() == first
+    assert list(store.captures) == [capture_id]
+
+
+@pytest.mark.p1
+def test_the_app_built_without_an_injected_store_has_the_route(
+    settings_factory: SettingsFactory,
+) -> None:
+    """AC-6: `create_app(settings)` wires POST /api/captures over the AnkiConnect store: with
+    no Anki listening, a valid POST reaches the store and is 503 `anki_unavailable`.
+    """
+    settings = settings_factory(env={"ANKI_CONNECT_URL": f"http://127.0.0.1:{closed_port()}"})
+    client = app_client(create_app(settings), settings)
+
+    response = client.post(CAPTURES, json=_valid())
+
+    assert response.status_code == 503
+    assert response.json()["error"]["code"] == "anki_unavailable"
+
+
+@pytest.mark.p1
+def test_an_unreachable_anki_is_503_anki_unavailable(settings_factory: SettingsFactory) -> None:
+    """AC-6: an Anki that doesn't answer is 503 `anki_unavailable`, and nothing is saved."""
+    store = FakeAnkiStore(available=False)
+    client = client_over(settings_factory, store)
+
+    response = client.post(CAPTURES, json=_valid())
+
+    assert response.status_code == 503
+    assert response.json()["error"]["code"] == "anki_unavailable"
+    assert store.captures == {}
+
+
+@pytest.mark.p1
+def test_a_gated_anki_is_409_setup_required(
+    settings_factory: SettingsFactory, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """AC-6: a store refusing the write while Setup isn't ready is 409 `setup_required` (AD-19)."""
+    store = FakeAnkiStore()
+
+    async def gated(*_: object) -> None:
+        raise AppError(ErrorCode.SETUP_REQUIRED)
+
+    monkeypatch.setattr(store, "create_capture", gated)
+    client = client_over(settings_factory, store)
+
+    response = client.post(CAPTURES, json=_valid())
+
+    assert response.status_code == 409
+    assert response.json()["error"]["code"] == "setup_required"
