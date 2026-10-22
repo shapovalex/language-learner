@@ -123,3 +123,17 @@ export function getCapture(captureId) {
 export function deleteCapture(captureId) {
   return request(`/api/captures/${encodeURIComponent(captureId)}`, { method: "DELETE" });
 }
+
+// A blank Draft (AD-8): 201 `{itemId}`, the ItemId the Draft carries until Save
+export function blankDraft() {
+  return request("/api/drafts/blank", { method: "POST" });
+}
+
+// Save an Item (FR-20): `multipart/form-data` with the `item` JSON part, ItemContent plus
+// `itemId` and `audio` (Consistency Conventions). 200 `{itemId}`; a retry with the same ItemId
+// updates the Item (AD-20). The part is a string field: a Blob would arrive as a file
+export function saveItem(lang, item) {
+  const body = new FormData();
+  body.append("item", JSON.stringify(item));
+  return request(`/api/items/${encodeURIComponent(lang)}`, { method: "POST", body });
+}

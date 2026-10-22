@@ -12,17 +12,27 @@
 // "Delete Capture" in detail asks through the router's confirmation, then DELETE
 // /api/captures/<captureId> (FR-13). After it the list shows without it at /captures; a failed
 // delete keeps the Capture with an inline alert in detail.
+//
+// Capture detail also has the Make an Item pane (story 4.1). "Write it myself" asks POST
+// /api/drafts/blank for the ItemId and opens the Draft editor at /captures/<captureId>/new, in
+// place of the list and detail. The Draft lives only in this module's memory (AD-13), so that
+// route with no Draft in memory (a reload, a direct visit) shows the Capture instead. Save to
+// Anki is POST /api/items/<lang>; it returns to the Capture with the success banner, and a failed
+// Save keeps the Draft and its ItemId, so Save again updates rather than duplicates (AD-20).
 
 import {
+  blankDraft,
   createCapture,
   deleteCapture,
   errorMessage,
   getCapture,
   isApiError,
   listCaptures,
+  saveItem,
 } from "../api.js";
 import { element, skeleton } from "../dom.js";
-import { confirmDestructive, navigate, setDirty } from "../router.js";
+import { confirmDestructive, navigate, redirect, setDirty } from "../router.js";
+import { blankValues, chosenText, draftEditor, itemPart, makeItemPane } from "./make-item.js";
 
 const LABEL = "New Capture";
 const PLACEHOLDER = "Paste or type a word, phrase or sentence";
@@ -42,6 +52,19 @@ const DELETE_BODY = "This removes the Capture from Anki. Items you made from it 
 const DELETE_CONFIRM = "Delete permanently";
 const NOT_DELETED_TITLE = "Not deleted — Anki isn't reachable";
 const NOT_DELETED_BODY = "Make sure Anki Desktop is open on the Mac mini, then try again.";
+
+function capturePath(captureId) {
+  return `/captures/${encodeURIComponent(captureId)}`;
+}
+
+function savedFlash(target) {
+  return `Saved “${target}” to Anki. Make another Item from this Capture, or delete it.`;
+}
+
+// The pane's choices, as a Capture opens: Use as is, nothing picked
+function freshChoice() {
+  return { source: "capture", custom: "", language: null, category: null, busy: false, error: null };
+}
 
 const TIME = new Intl.DateTimeFormat("en-US", {
   hour: "2-digit",
@@ -145,7 +168,10 @@ export function mount(root, params = {}) {
   const detailPane = element("div", "captures-detail-pane");
   const layout = element("div", "captures-layout");
   layout.append(listPane, detailPane);
-  root.replaceChildren(layout);
+  // The Draft editor replaces the layout while it's open; the layout stays, with its compose text
+  const draftRoot = element("div");
+  draftRoot.hidden = true;
+  root.replaceChildren(layout, draftRoot);
 
   // `captures`: null while loading or failed; `saved` are the ones saved meanwhile, newest first
   const list = { captures: null, error: null, saved: [], token: 0 };
@@ -159,6 +185,11 @@ export function mount(root, params = {}) {
     deleteError: null,
     token: 0,
   };
+  // The Make an Item pane's choices for the open Capture
+  let choice = freshChoice();
+  // The Draft, from "Write it myself" until it's saved or left; `editing` while it's on screen
+  let draft = null;
+  let editing = false;
 
   function withSaved(captures) {
     const ids = new Set(list.saved.map((c) => c.captureId));
@@ -256,6 +287,102 @@ export function mount(root, params = {}) {
     }
     detailPane.replaceChildren(actions, article);
     if (open.deleteError) detailPane.append(deleteAlert(open.deleteError));
+    if (open.status === "shown") detailPane.append(makeItemPane(choice, { onWrite }));
+  }
+
+  // "Write it myself": a blank Draft of the chosen text, Language and Category
+  async function onWrite() {
+    const capture = open.capture;
+    const target = chosenText(choice, capture.text);
+    if (choice.busy || target === null || !choice.language || !choice.category) return;
+    const picked = { ...choice };
+    choice.busy = true;
+    choice.error = null;
+    renderDetail();
+    try {
+      const { itemId } = await blankDraft();
+      if (!mounted || open.capture !== capture) return;
+      choice.busy = false;
+      draft = {
+        captureId: capture.captureId,
+        captureText: capture.text,
+        language: picked.language,
+        category: picked.category,
+        itemId,
+        values: blankValues(picked.category, target),
+        busy: false,
+        error: null,
+      };
+      navigate(`${capturePath(capture.captureId)}/new`);
+    } catch (error) {
+      if (!mounted || open.capture !== capture) return;
+      choice.busy = false;
+      choice.error = errorMessage(error);
+      renderDetail();
+    }
+  }
+
+  // The one dirty state the router holds: the open Draft's, else the compose text's
+  function syncDirty() {
+    if (editing) {
+      setDirty({ kind: "draft", count: 1, target: draft.values.target });
+    } else {
+      setDirty(box.value.trim() ? { kind: "capture", count: 1, target: "" } : null);
+    }
+  }
+
+  function renderEditor({ focus = null } = {}) {
+    const { screen, title } = draftEditor(draft, {
+      onEdit: syncDirty,
+      onSave: saveDraft,
+      // The router asks about the Draft before it goes
+      onDiscard: () => navigate(capturePath(draft.captureId)),
+      alertFor: (error) => failureCopy(error, [UNREACHABLE_TITLE, UNREACHABLE_BODY], "Not saved"),
+    });
+    draftRoot.replaceChildren(screen);
+    if (focus === "title") title.focus();
+    if (focus === "save") draftRoot.querySelector('button[type="submit"]')?.focus();
+  }
+
+  function openEditor() {
+    editing = true;
+    layout.hidden = true;
+    draftRoot.hidden = false;
+    renderEditor({ focus: "title" });
+    syncDirty();
+  }
+
+  function closeEditor() {
+    draft = null;
+    editing = false;
+    draftRoot.replaceChildren();
+    draftRoot.hidden = true;
+    layout.hidden = false;
+    syncDirty();
+    renderDetail();
+    // The editor's focused control is gone: back to the pane the Draft came from
+    detailPane.querySelector(".make-item-heading")?.focus();
+  }
+
+  async function saveDraft() {
+    const saving = draft;
+    if (!saving || saving.busy) return;
+    saving.busy = true;
+    saving.error = null;
+    renderEditor();
+    const item = itemPart(saving);
+    try {
+      await saveItem(saving.language, item);
+    } catch (error) {
+      if (!mounted || draft !== saving) return;
+      saving.busy = false;
+      saving.error = error;
+      renderEditor({ focus: "save" });
+      return;
+    }
+    if (!mounted || draft !== saving) return;
+    setDirty(null);
+    navigate(capturePath(saving.captureId), { flash: savedFlash(item.target) });
   }
 
   function deleteButton(layout) {
@@ -343,6 +470,7 @@ export function mount(root, params = {}) {
   function show(captureId) {
     open.id = captureId ?? null;
     open.deleteError = null;
+    choice = freshChoice();
     if (open.id === null) {
       ++open.token;
       open.capture = null;
@@ -397,7 +525,7 @@ export function mount(root, params = {}) {
   }
 
   function onInput() {
-    setDirty(box.value.trim() ? { kind: "capture", count: 1, target: "" } : null);
+    syncDirty();
     renderButtons();
   }
 
@@ -414,7 +542,7 @@ export function mount(root, params = {}) {
       // Text typed while the Save was in flight is a new composition: keep it
       if (box.value === text) {
         box.value = "";
-        setDirty(null);
+        syncDirty();
       }
       state.captureId = crypto.randomUUID();
       state.busy = false;
@@ -435,6 +563,8 @@ export function mount(root, params = {}) {
   save.addEventListener("click", submit);
   render();
   renderList();
+  // A Draft route with nothing in memory shows its Capture (AD-13)
+  if (params.draft) redirect(capturePath(open.id));
   show(open.id);
   loadList();
 
@@ -446,6 +576,14 @@ export function mount(root, params = {}) {
   // The route moved within Captures: open another Capture, or none
   unmount.update = (next) => {
     const id = next.captureId ?? null;
+    if (next.draft) {
+      if (draft?.captureId === id) {
+        if (!editing) openEditor();
+        return;
+      }
+      redirect(capturePath(id));
+    }
+    if (editing) closeEditor();
     if (id === open.id) return;
     const previous = open.id;
     show(id);

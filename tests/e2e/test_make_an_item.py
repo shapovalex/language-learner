@@ -32,7 +32,7 @@ import pytest
 from playwright.sync_api import Page, ViewportSize, expect
 
 from tests.support import viewports
-from tests.support.captures_screen import API, CAPTURES_PATH, capture, main
+from tests.support.captures_screen import API, CAPTURES_PATH, capture, compose_box, main
 from tests.support.items_screen import (
     CHOOSE_REASON,
     CUSTOM_REASON,
@@ -59,11 +59,7 @@ from tests.support.items_screen import (
 )
 from tests.support.navigation import path_pattern
 from tests.support.network import stub_api_error, stub_api_json
-from tests.support.unsaved import LEAVE_PATHS, unsaved_alert
-
-pytestmark = pytest.mark.skip(
-    reason="ATDD red phase: un-skip when story 4.1 adds the Make an Item pane and Draft editor"
-)
+from tests.support.unsaved import LEAVE_PATHS, discard_button, unsaved_alert
 
 CAPTURE = capture("I'd rather not jump to conclusions.", "2026-10-22T21:14:00Z")
 CAPTURE_ID = CAPTURE["captureId"]
@@ -277,3 +273,22 @@ def test_each_write_it_myself_issues_a_new_item_id(page: Page) -> None:
 
     assert second != first
     assert uuid.UUID(second).version == 4
+
+
+@pytest.mark.p1
+def test_discarding_a_draft_keeps_the_unsaved_compose_text(page: Page) -> None:
+    """AC-14: Discard in the Draft editor asks first, and on Discard returns to the Capture with
+    the compose text still there and still unsaved: leaving the screen asks again, about it.
+    """
+    open_capture(page, viewports.DESKTOP)
+    compose_box(page).fill("une idée à noter")
+    write_blank_draft(page, "English", "Vocabulary")
+    editor(page).get_by_role("button", name="Discard", exact=True).click()
+    expect(unsaved_alert(page)).to_contain_text(DRAFT_LOSS)
+    discard_button(page).click()
+
+    expect(page).to_have_url(path_pattern(f"{CAPTURES_PATH}/{CAPTURE_ID}"))
+
+    expect(compose_box(page)).to_have_value("une idée à noter")
+    LEAVE_PATHS["desktop-pill"].leave(page)
+    expect(unsaved_alert(page)).to_contain_text("This Capture isn't saved.")

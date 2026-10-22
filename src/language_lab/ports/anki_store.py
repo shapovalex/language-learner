@@ -1,7 +1,8 @@
 """The AnkiStore port (AD-1, AD-5): every Anki use case a feature can ask for.
 
 Each method is one complete use case that the adapter runs under the Anki lock: readiness, sync,
-the SetupState, the Setup preview and apply, and Create, List, Get and Delete Capture so far.
+the SetupState, the Setup preview and apply, Create, List, Get and Delete Capture, and Save Item so
+far.
 Later entries add methods here, to the AnkiConnect adapter and to the fake in tests/fakes/ together.
 """
 
@@ -10,6 +11,8 @@ from datetime import datetime
 from typing import Protocol
 
 from language_lab.domain.captures import Capture
+from language_lab.domain.catalog import Language
+from language_lab.domain.items import AudioIntent, ItemContent
 from language_lab.domain.setup import SetupPreview, SetupState
 from language_lab.domain.sync import SyncOutcome
 
@@ -82,5 +85,20 @@ class AnkiStore(Protocol):
         CaptureId is matched in Python and never in a query (AD-4); a CaptureId no Capture holds
         is already deleted, so nothing is written and the call succeeds. Raises
         `AppError(SETUP_REQUIRED | ANKI_UNAVAILABLE | ANKI_BUSY)`.
+        """
+        ...
+
+    async def save_item(
+        self,
+        item_id: str,
+        language: Language,
+        content: ItemContent,
+        audio: AudioIntent = AudioIntent.KEEP,
+    ) -> None:
+        """Save the Item `item_id`, create-or-update by ItemId (AD-20), under one lock hold. The
+        ItemId is matched in Python, never in a query (AD-4). A new one is added to its
+        Language/Category Pronunciation deck, then cards 0-2 move to their Study decks (AD-6); a
+        stored one has its fields updated, its `Audio` and cards left as they are. Only `keep` is
+        built so far. Raises `AppError(SETUP_REQUIRED | ANKI_UNAVAILABLE | ANKI_BUSY)`.
         """
         ...

@@ -5,7 +5,9 @@ from collections.abc import Collection
 from datetime import datetime
 
 from language_lab.domain.captures import Capture
+from language_lab.domain.catalog import Language
 from language_lab.domain.errors import AppError, ErrorCode
+from language_lab.domain.items import AudioIntent, ItemContent
 from language_lab.domain.setup import SetupPreview, SetupState
 from language_lab.domain.setup import plan_hash as _plan_hash
 from language_lab.domain.sync import SyncOutcome
@@ -37,6 +39,9 @@ class FakeAnkiStore:
 
     `delete_capture()` drops the CaptureId from `captures`; one it doesn't hold is no error. It
     raises `anki_busy` or `anki_unavailable` as the other methods do.
+
+    `save_item()` is create-or-update by ItemId over `items`, each held as `(Language,
+    ItemContent)` (AD-20). It raises `anki_busy` or `anki_unavailable` as the other methods do.
     """
 
     def __init__(
@@ -67,6 +72,7 @@ class FakeAnkiStore:
         self.applies = 0
         self._apply_gates: list[asyncio.Future[ErrorCode | None]] = []
         self.captures: dict[str, Capture] = {}
+        self.items: dict[str, tuple[Language, ItemContent]] = {}
 
     async def reachable(self) -> bool:
         if self.busy:
@@ -145,6 +151,19 @@ class FakeAnkiStore:
         if not self.available:
             raise AppError(ErrorCode.ANKI_UNAVAILABLE)
         self.captures.pop(capture_id, None)
+
+    async def save_item(
+        self,
+        item_id: str,
+        language: Language,
+        content: ItemContent,
+        audio: AudioIntent = AudioIntent.KEEP,
+    ) -> None:
+        if self.busy:
+            raise AppError(ErrorCode.ANKI_BUSY)
+        if not self.available:
+            raise AppError(ErrorCode.ANKI_UNAVAILABLE)
+        self.items[item_id] = (language, content)
 
     async def sync(self) -> SyncOutcome:
         self.sync_calls += 1

@@ -24,8 +24,6 @@ from pydantic import ValidationError
 
 from tests.support.items import SENTENCE, VOCABULARY, content
 
-pytestmark = pytest.mark.skip(reason="ATDD red phase: un-skip when story 4.1 adds domain/items.py")
-
 
 @pytest.mark.p0
 @pytest.mark.parametrize("wire", [VOCABULARY, SENTENCE], ids=["vocabulary", "sentence"])
@@ -33,8 +31,9 @@ def test_item_content_is_one_type_discriminated_by_category(wire: dict[str, Any]
     """AC-1: Vocabulary and Sentence content validate as one `ItemContent` by `category`, each
     with its own fields, and dump back to the same camelCase wire shape.
     """
-    from language_lab.domain.items import ItemContent
     from pydantic import TypeAdapter
+
+    from language_lab.domain.items import ItemContent
 
     validated = content(wire)
 

@@ -7,11 +7,10 @@ from fastapi import APIRouter, Response
 from pydantic import AfterValidator, BaseModel, Field
 
 from language_lab.domain.captures import Capture
+from language_lab.domain.catalog import UUID4
 from language_lab.domain.errors import AppError, ErrorCode
 from language_lab.features.captures.service import CaptureService
 
-# A UUIDv4 in lowercase canonical form, as the Prefix guard's media pattern takes it (AD-8)
-_UUID4 = r"^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$"
 _CREATED_AT_FORMAT = "%Y-%m-%dT%H:%M:%SZ"
 
 
@@ -22,7 +21,7 @@ def _not_blank(text: str) -> str:
 
 
 class CreateRequest(BaseModel):
-    capture_id: str = Field(alias="captureId", pattern=_UUID4)  # camelCase on the wire
+    capture_id: str = Field(alias="captureId", pattern=UUID4)  # camelCase on the wire
     text: Annotated[str, AfterValidator(_not_blank)]
 
 
@@ -46,7 +45,7 @@ def _body(capture: Capture) -> CaptureBody:
 
 def _require_capture_id(capture_id: str) -> None:
     # A malformed CaptureId names no Capture, so it never reaches the store
-    if re.fullmatch(_UUID4, capture_id) is None:
+    if re.fullmatch(UUID4, capture_id) is None:
         raise AppError(ErrorCode.NOT_FOUND)
 
 

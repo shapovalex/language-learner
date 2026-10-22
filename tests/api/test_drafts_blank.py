@@ -17,8 +17,6 @@ from tests.fakes.anki_store import FakeAnkiStore
 from tests.support.fixtures.settings import SettingsFactory
 from tests.support.hosts import client_over
 
-pytestmark = pytest.mark.skip(reason="ATDD red phase: un-skip when story 4.1 adds features/drafts")
-
 BLANK = "/api/drafts/blank"
 UUID4 = re.compile(r"[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}")
 
