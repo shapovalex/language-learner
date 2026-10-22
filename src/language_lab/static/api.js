@@ -106,3 +106,8 @@ export function listCaptures() {
 export function getCapture(captureId) {
   return request(`/api/captures/${encodeURIComponent(captureId)}`);
 }
+
+// Delete a Capture (FR-13): 204, also for one already gone, so a retry succeeds
+export function deleteCapture(captureId) {
+  return request(`/api/captures/${encodeURIComponent(captureId)}`, { method: "DELETE" });
+}

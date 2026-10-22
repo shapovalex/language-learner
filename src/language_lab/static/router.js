@@ -5,6 +5,8 @@
 // `update(params)`, on that function or that object, stays mounted while the route moves
 // within it (`/captures` ↔ `/captures/<id>`), so its unsaved state survives and no unsaved
 // alert is asked (story 3.2).
+// `confirmDestructive` is the delete confirmation (S-Delete, story 3.3): a sibling of the
+// unsaved alert that shares only its focus cycling, so Capture and Item delete both use it.
 
 // A path segment, percent-decoded; kept as it is when it isn't valid percent-encoding
 function decoded(segment) {
@@ -52,6 +54,15 @@ let alertDialog;
 let alertBody;
 let alertButtons = [];
 let keepButton;
+
+// Destructive confirmation: null, or { resolve, reject, trigger, action, busy } while open
+let confirmState = null;
+let confirmDialog;
+let confirmTitle;
+let confirmBody;
+let confirmButton;
+let confirmCancel;
+let confirmButtons = [];
 
 // Flash: handed over by navigate(path, { flash }), shown once on the next screen
 let pendingFlash = null;
@@ -267,6 +278,90 @@ function ask(trigger) {
   return pendingAnswer;
 }
 
+// Destructive confirmation (S-Delete)
+
+// Opens the confirmation for `trigger`'s action. Delete permanently runs `action` (async) while
+// the dialog stays open and busy, and resolves true once it succeeds, or rejects with its
+// failure; Cancel, Esc and a browser back resolve false. Focus returns to `trigger` on close.
+export function confirmDestructive({ title, body, confirmLabel, trigger = null, action }) {
+  if (confirmState) return Promise.resolve(false);
+  confirmTitle.textContent = title;
+  confirmBody.textContent = body;
+  confirmButton.textContent = confirmLabel;
+  return new Promise((resolve, reject) => {
+    confirmState = { resolve, reject, trigger, action, busy: false };
+    setConfirmBusy(false);
+    confirmDialog.showModal();
+    confirmCancel.focus();
+  });
+}
+
+// Both buttons are disabled while the action runs; their labels stay
+function setConfirmBusy(busy) {
+  for (const button of confirmButtons) button.disabled = busy;
+}
+
+// Closes the dialog and returns focus; the state is handed back for the caller to settle
+function finishConfirm() {
+  const state = confirmState;
+  confirmState = null;
+  setConfirmBusy(false);
+  if (confirmDialog.open) confirmDialog.close();
+  const trigger = state.trigger;
+  if (trigger?.isConnected && trigger.checkVisibility?.() !== false) trigger.focus();
+  return state;
+}
+
+function cancelConfirm() {
+  if (!confirmState || confirmState.busy) return;
+  finishConfirm().resolve(false);
+}
+
+async function runConfirm() {
+  const state = confirmState;
+  if (!state || state.busy) return;
+  state.busy = true;
+  setConfirmBusy(true);
+  try {
+    await state.action();
+  } catch (error) {
+    finishConfirm();
+    state.reject(error);
+    return;
+  }
+  finishConfirm();
+  state.resolve(true);
+}
+
+function setUpConfirm() {
+  confirmDialog = document.getElementById("confirm-dialog");
+  confirmTitle = document.getElementById("confirm-dialog-title");
+  confirmBody = document.getElementById("confirm-dialog-body");
+  confirmButtons = [...confirmDialog.querySelectorAll("button")];
+  confirmButton = confirmDialog.querySelector('button[value="confirm"]');
+  confirmCancel = confirmDialog.querySelector('button[value="cancel"]');
+
+  confirmButton.addEventListener("click", runConfirm);
+  confirmCancel.addEventListener("click", cancelConfirm);
+  // Esc is Cancel, and does nothing while the action runs
+  confirmDialog.addEventListener("cancel", (event) => {
+    event.preventDefault();
+    cancelConfirm();
+  });
+  // A close the browser forces is Cancel; while the action runs the dialog stays up
+  confirmDialog.addEventListener("close", () => {
+    if (!confirmState || confirmDialog.open) return;
+    if (confirmState.busy) {
+      confirmDialog.showModal();
+    } else {
+      cancelConfirm();
+    }
+  });
+  confirmDialog.addEventListener("keydown", (event) => {
+    if (event.key === "Tab") cycleFocus(event, confirmButtons);
+  });
+}
+
 // Resolves true when the screen may be left: clean, or the user chose Discard. Never navigates.
 export function confirmLeave() {
   return ask(null);
@@ -295,6 +390,12 @@ export function navigate(path, { flash } = {}) {
 
 async function onPopState() {
   closeMenu();
+  if (confirmState?.busy) {
+    // The confirmed action is in flight: stay, so its outcome shows where it was asked
+    history.pushState(null, "", currentPath);
+    return;
+  }
+  cancelConfirm();
   if (dirty && location.pathname !== currentPath && !staysOnScreen(location.pathname)) {
     // Put the dirty screen's URL back (this drops the entry history just moved off), then ask
     history.pushState(null, "", currentPath);
@@ -391,6 +492,7 @@ export function start() {
 
   setUpMenu();
   setUpAlert();
+  setUpConfirm();
   document.addEventListener("click", onLinkClick);
   window.addEventListener("popstate", onPopState);
   render();

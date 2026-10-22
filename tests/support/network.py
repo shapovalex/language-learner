@@ -11,12 +11,12 @@ from playwright.sync_api import Page, Request, Route
 
 def _fulfill_json(page: Page, path: str, body: Any, *, status: int, method: str | None) -> None:
     """Answer requests to `path` with `body` as JSON; with `method`, only that method's, and
-    every other request goes on to the server.
+    every other request falls back to an earlier handler, or the server.
     """
 
     def handle(route: Route) -> None:
         if method is not None and route.request.method != method:
-            route.continue_()
+            route.fallback()
             return
         route.fulfill(status=status, content_type="application/json", body=json.dumps(body))
 
@@ -52,8 +52,8 @@ def stub_api_json(
 
 
 class HeldRoute:
-    """Holds every request to `path` (only `method`'s, when given: the others go on to the
-    server) until the test answers it, so a loading state can be seen.
+    """Holds every request to `path` (only `method`'s, when given: the others fall back to an
+    earlier handler, or the server) until the test answers it, so a loading state can be seen.
 
     Register it before the navigation that triggers the request, like `stub_api_error`.
     """
@@ -70,7 +70,7 @@ class HeldRoute:
 
     def _hold(self, route: Route) -> None:
         if self._method is not None and route.request.method != self._method:
-            route.continue_()
+            route.fallback()
             return
         self._routes.append(route)
 

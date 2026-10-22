@@ -260,6 +260,19 @@ main h1 {
   cursor: not-allowed;
 }
 
+/* Destructive text button: "Delete Capture", "Delete" (DESIGN.md button-destructive-text) */
+.button-destructive-text {
+  min-height: var(--space-target-min);
+  padding: 0 var(--space-3);
+  border: 0;
+  background: none;
+  color: var(--color-danger);
+  font: inherit;
+  font-size: var(--font-size-label);
+  font-weight: var(--font-weight-label);
+  cursor: pointer;
+}
+
 /* Alert dialog, unsaved-changes variant: no icon disc, no chips. A native modal <dialog>, so it
    sits in the top layer over its own backdrop at every width (the .scrim is phone-only). */
 .alert-dialog {
@@ -277,6 +290,19 @@ main h1 {
   /* Literal fallback where ::backdrop does not inherit custom properties yet: the scrim token */
   background: #221e2e6b;
   background: var(--color-scrim, #221e2e6b);
+}
+
+/* The delete variant's 48px icon disc (S-Delete); the unsaved variant has none */
+.alert-dialog-icon {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 48px;
+  height: 48px;
+  margin: 0 0 var(--space-5);
+  border-radius: var(--radius-full);
+  background: var(--color-danger-soft);
+  color: var(--color-danger);
 }
 
 .alert-dialog-title {
@@ -544,6 +570,20 @@ main h1 {
   margin: 0;
 }
 
+/* Phone: back link, then Delete Capture at the end of the row */
+.capture-detail-actions {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-3);
+}
+
+.capture-delete-alert-body {
+  margin: var(--space-2) 0 0;
+  color: var(--color-on-feedback-poor-strong);
+  font-weight: 500;
+}
+
 .captures-hint {
   margin: 0;
   padding: var(--space-card-pad-phone);
@@ -585,6 +625,20 @@ main h1 {
 
   .captures-layout .narrow-only {
     display: none;
+  }
+
+  /* Delete Capture in the card, beside the text and time (S-CapturesDesk) */
+  .capture-detail {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: flex-start;
+    justify-content: space-between;
+    gap: var(--space-4);
+  }
+
+  .capture-detail-content {
+    flex: 1 1 300px;
+    min-width: 0;
   }
 }
 

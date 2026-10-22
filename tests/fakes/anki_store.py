@@ -34,6 +34,9 @@ class FakeAnkiStore:
     `list_captures()` returns `captures` newest first by `created_at` (ties by CaptureId), as the
     adapter sorts. `get_capture()` returns the stored one or raises `not_found`. Both raise
     `anki_busy` or `anki_unavailable` as the other methods do.
+
+    `delete_capture()` drops the CaptureId from `captures`; one it doesn't hold is no error. It
+    raises `anki_busy` or `anki_unavailable` as the other methods do.
     """
 
     def __init__(
@@ -135,6 +138,13 @@ class FakeAnkiStore:
         if capture is None:
             raise AppError(ErrorCode.NOT_FOUND)
         return capture
+
+    async def delete_capture(self, capture_id: str) -> None:
+        if self.busy:
+            raise AppError(ErrorCode.ANKI_BUSY)
+        if not self.available:
+            raise AppError(ErrorCode.ANKI_UNAVAILABLE)
+        self.captures.pop(capture_id, None)
 
     async def sync(self) -> SyncOutcome:
         self.sync_calls += 1

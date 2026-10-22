@@ -34,6 +34,17 @@
         <button class="button button-secondary" type="button" value="keep">Keep editing</button>
       </div>
     </dialog>
+    <dialog class="alert-dialog" id="confirm-dialog" role="alertdialog" aria-labelledby="confirm-dialog-title" aria-describedby="confirm-dialog-body">
+      <div class="alert-dialog-icon" aria-hidden="true">
+        <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 7h16"></path><path d="M10 11v6"></path><path d="M14 11v6"></path><path d="M6 7l1 13h10l1-13"></path><path d="M9 7V4h6v3"></path></svg>
+      </div>
+      <h2 class="alert-dialog-title" id="confirm-dialog-title"></h2>
+      <p class="alert-dialog-body" id="confirm-dialog-body"></p>
+      <div class="alert-dialog-actions">
+        <button class="button button-destructive" type="button" value="confirm"></button>
+        <button class="button button-secondary" type="button" value="cancel">Cancel</button>
+      </div>
+    </dialog>
     <main id="app"></main>
   </body>
 </html>

@@ -44,10 +44,6 @@ from tests.support.anki_state import (
     sent_writes,
 )
 
-pytestmark = pytest.mark.skip(
-    reason="ATDD red phase: AnkiStore.delete_capture is not built until story 3.3"
-)
-
 PREFIX = "LanguageLab"
 DEV = "LanguageLabDev"
 MANIFEST = build_manifest(PREFIX)
@@ -64,14 +60,17 @@ def wired(
     collection: Collection,
     *,
     state: str = "ready",
+    replies: dict[str, Any] | None = None,
     failure: Any = None,
 ) -> tuple[Any, AnkiConnectReplay]:
     """The real client and store over `collection`, sharing a `SetupGate` set to `state`
-    (`ready` by default); `failure` fails every request. Returns (store, replay).
+    (`ready` by default); `replies` replaces some of the collection's replies; `failure` fails
+    every request. Returns (store, replay).
     """
     gate = SetupGate(MANIFEST)
     gate.set(SetupState(state))
-    replay = AnkiConnectReplay(collection_replies(collection, writes=True), failure=failure)
+    answers = collection_replies(collection, writes=True) | (replies or {})
+    replay = AnkiConnectReplay(answers, failure=failure)
     client = AnkiConnectClient(
         ANKI_URL, transport=replay.transport, guard=PrefixGuard(MANIFEST), gate=gate
     )
@@ -84,6 +83,20 @@ def code_of(outcome: Any) -> str | None:
 
 def sent_bodies(replay: AnkiConnectReplay) -> str:
     return repr([r.body for r in replay.sent])
+
+
+def notes_info_with(collection: Collection, note_id: int, entry: Any) -> Any:
+    """A `notesInfo` reply over `collection` whose entry for `note_id` is `entry`."""
+    answers = collection_replies(collection, writes=True)
+
+    def notes_info(body: Any) -> Any:
+        reply = answers["notesInfo"]
+        result = reply(body) if callable(reply) else reply
+        infos = zip(body["params"]["notes"], result["result"], strict=True)
+        result["result"] = [entry(info) if n == note_id else info for n, info in infos]
+        return result
+
+    return notes_info
 
 
 @pytest.mark.p0
@@ -161,3 +174,49 @@ def test_anki_down_is_anki_unavailable_for_delete() -> None:
     outcome = settle(store.delete_capture(str(uuid.uuid4())))
 
     assert code_of(outcome) == "anki_unavailable"
+
+
+@pytest.mark.p1
+@pytest.mark.parametrize("state", GATED_STATES)
+def test_a_gated_anki_with_nothing_to_delete_succeeds(state: str) -> None:
+    """AC-3: with no such Capture there is nothing to write, so a gated Anki succeeds too."""
+    collection = managed_collection(MANIFEST)
+    kept = capture_note(collection, MANIFEST, str(uuid.uuid4()), "kept", CREATED_AT_FIELD)
+    store, replay = wired(collection, state=state)
+
+    outcome = settle(store.delete_capture(str(uuid.uuid4())))
+
+    assert (outcome, sent_writes(replay.sent)) == (None, [])
+    assert list(collection.notes) == [kept]
+
+
+@pytest.mark.p1
+def test_a_capture_deleted_since_find_notes_is_skipped() -> None:
+    """AC-2: a `{}` notesInfo entry (the note deleted since `findNotes`) is already gone, so
+    nothing is written.
+    """
+    collection = managed_collection(MANIFEST)
+    capture_id = str(uuid.uuid4())
+    note_id = capture_note(collection, MANIFEST, capture_id, "gone", CREATED_AT_FIELD)
+    notes_info = notes_info_with(collection, note_id, lambda _: {})
+    store, replay = wired(collection, replies={"notesInfo": notes_info})
+
+    outcome = settle(store.delete_capture(capture_id))
+
+    assert (outcome, sent_writes(replay.sent)) == (None, [])
+
+
+@pytest.mark.p1
+def test_a_malformed_note_id_is_anki_unavailable() -> None:
+    """AC-1: a matching entry without an integer `noteId` is `anki_unavailable`, with no write."""
+    collection = managed_collection(MANIFEST)
+    capture_id = str(uuid.uuid4())
+    note_id = capture_note(collection, MANIFEST, capture_id, "kept", CREATED_AT_FIELD)
+    notes_info = notes_info_with(collection, note_id, lambda info: info | {"noteId": "1"})
+    store, replay = wired(collection, replies={"notesInfo": notes_info})
+
+    outcome = settle(store.delete_capture(capture_id))
+
+    assert code_of(outcome) == "anki_unavailable"
+    assert sent_writes(replay.sent) == []
+    assert list(collection.notes) == [note_id]
