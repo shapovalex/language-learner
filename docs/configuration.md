@@ -59,5 +59,6 @@ environment.
 | `OPENROUTER_API_KEY` | empty | OpenRouter API key (secret). |
 | `OPENROUTER_MODELS` | empty | OpenRouter model IDs, comma-separated, in order of preference. The template fills in three example IDs. Every model must support strict JSON Schema output. |
 
-This release reads and validates every key at startup. The AnkiConnect endpoint, the Azure values
-and the OpenRouter values are not used yet: the features that use them arrive in later releases.
+This release reads and validates every key at startup. [Setup](setup.md) and Sync use the
+AnkiConnect endpoint. Setup's readiness checks only that the Azure key and region and the
+OpenRouter key are set. The features that call those services arrive in later releases.
