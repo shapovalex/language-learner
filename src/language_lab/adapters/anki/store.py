@@ -7,18 +7,25 @@ startup `setup_state()`, each preview, each apply's verification) is set in the 
 `migrations` (adapters/anki/migrations.py) run only inside a confirmed apply whose plan has a
 Migrate item, after its Create and Repair items (FR-7, AD-3). The opt-in repairs the user
 checked (entry 11) run last, under the same lock hold.
+
+Create Capture (story 3.1) writes through `client.invoke`, so the Prefix guard and the setup gate
+both apply to it (AD-4, AD-19).
 """
 
 import asyncio
 from collections.abc import Collection
+from datetime import UTC, datetime
 from typing import Any
 
 from language_lab.adapters.anki.client import AnkiConnectClient
+from language_lab.adapters.anki.codec import decode_field, encode_field
 from language_lab.adapters.anki.lock import AnkiLock
 from language_lab.adapters.anki.manifest import Manifest
 from language_lab.adapters.anki.migrations import Migration, run_migrations
+from language_lab.adapters.anki.query import note_query
 from language_lab.adapters.anki.setup_apply import run_plan, run_repairs
-from language_lab.adapters.anki.setup_gate import SetupGate, read_preview
+from language_lab.adapters.anki.setup_gate import SCHEMA_VERSION_FIELD, SetupGate, read_preview
+from language_lab.domain.captures import Capture
 from language_lab.domain.errors import AppError, ErrorCode
 from language_lab.domain.setup import PlanAction, SetupPreview, SetupState, checked_repairs
 from language_lab.domain.setup import plan_hash as _plan_hash
@@ -33,6 +40,29 @@ _FAILED = "failed"
 # Decided 2026-10-21: a dialog in Anki or a cancelled Sync ends the Sync at once
 _GAVE_UP = frozenset({"waitingForUser", "cancelled"})
 _AUTH_REQUIRED_TYPE = "authenticationRequired"
+
+# The Capture note type's fields (manifest.py) and the stored CreatedAt format (AD-9)
+_TEXT, _CREATED_AT, _CAPTURE_ID = "Text", "CreatedAt", "CaptureId"
+_CREATED_AT_FORMAT = "%Y-%m-%dT%H:%M:%SZ"
+
+
+def _field(info: dict[str, Any], name: str) -> str:
+    """Field `name` of one `notesInfo` entry, decoded; `ANKI_UNAVAILABLE` when malformed."""
+    fields = info.get("fields")
+    field = fields.get(name) if isinstance(fields, dict) else None
+    value = field.get("value") if isinstance(field, dict) else None
+    if not isinstance(value, str):
+        raise AppError(ErrorCode.ANKI_UNAVAILABLE)
+    return decode_field(value)
+
+
+def _stored_capture(capture_id: str, info: dict[str, Any]) -> Capture:
+    """The Capture a `notesInfo` entry holds, its fields decoded through the codec."""
+    try:
+        created_at = datetime.strptime(_field(info, _CREATED_AT).strip(), _CREATED_AT_FORMAT)
+    except ValueError:
+        raise AppError(ErrorCode.ANKI_UNAVAILABLE) from None
+    return Capture(capture_id, _field(info, _TEXT), created_at.replace(tzinfo=UTC))
 
 
 def _failure_outcome(poll: dict[str, Any]) -> SyncOutcome:
@@ -117,6 +147,65 @@ class AnkiConnectStore:
             _, verified = await read_preview(self._client.invoke, manifest)
             self._set_gate(verified)
         return verified
+
+    async def create_capture(self, capture_id: str, text: str, created_at: datetime) -> Capture:
+        """Find the Capture by CaptureId (matched in Python, AD-4) and return it unchanged, or
+        add it to `<Prefix>::Captures` and suspend its card (AD-6, AD-20), under one lock hold.
+        Raises `AppError(SETUP_REQUIRED | ANKI_UNAVAILABLE | ANKI_BUSY)`.
+        """
+        manifest = self._require_manifest()
+        model = f"{manifest.prefix} Capture"
+        created_at = created_at.astimezone(UTC).replace(microsecond=0)
+        async with self._lock.hold():
+            stored = await self._find_capture(note_query(manifest, model), capture_id)
+            if stored is not None:
+                return stored
+            fields = {
+                _TEXT: text,
+                _CREATED_AT: created_at.strftime(_CREATED_AT_FORMAT),
+                _CAPTURE_ID: capture_id,
+                SCHEMA_VERSION_FIELD: str(manifest.schema_version),
+            }
+            note_id = await self._client.invoke(
+                "addNote",
+                note={
+                    "deckName": manifest.card_deck(model, 0),
+                    "modelName": model,
+                    "fields": {name: encode_field(value) for name, value in fields.items()},
+                    "options": {"allowDuplicate": True},
+                },
+            )
+            if not isinstance(note_id, int) or isinstance(note_id, bool):
+                raise AppError(ErrorCode.ANKI_UNAVAILABLE)
+            infos = await self._client.invoke("notesInfo", notes=[note_id])
+            if not isinstance(infos, list) or len(infos) != 1 or not isinstance(infos[0], dict):
+                raise AppError(ErrorCode.ANKI_UNAVAILABLE)
+            cards = infos[0].get("cards")
+            if not isinstance(cards, list) or not cards:
+                raise AppError(ErrorCode.ANKI_UNAVAILABLE)
+            await self._client.invoke("suspend", cards=cards)
+        return Capture(capture_id, text, created_at)
+
+    async def _find_capture(self, query: str, capture_id: str) -> Capture | None:
+        """The stored Capture whose decoded CaptureId is `capture_id`, from the exact Capture
+        scope's `findNotes` and `notesInfo`; None when there is none.
+        """
+        ids = await self._client.invoke("findNotes", query=query)
+        if not isinstance(ids, list):
+            raise AppError(ErrorCode.ANKI_UNAVAILABLE)
+        if not ids:
+            return None
+        infos = await self._client.invoke("notesInfo", notes=ids)
+        if not isinstance(infos, list) or len(infos) != len(ids):
+            raise AppError(ErrorCode.ANKI_UNAVAILABLE)
+        for info in infos:
+            if info == {}:  # a note deleted since `findNotes`
+                continue
+            if not isinstance(info, dict):
+                raise AppError(ErrorCode.ANKI_UNAVAILABLE)
+            if _field(info, _CAPTURE_ID).strip() == capture_id:
+                return _stored_capture(capture_id, info)
+        return None
 
     def _set_gate(self, preview: SetupPreview) -> None:
         if self._gate is not None:

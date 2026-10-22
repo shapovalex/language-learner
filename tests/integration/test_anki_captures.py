@@ -48,8 +48,6 @@ from tests.support.anki_state import (
     sent_writes,
 )
 
-pytestmark = pytest.mark.skip(reason="ATDD red phase: until story 3.1 adds create_capture")
-
 PREFIX = "LanguageLab"
 DEV = "LanguageLabDev"
 MANIFEST = build_manifest(PREFIX)
@@ -270,3 +268,29 @@ def test_a_failing_anki_returns_anki_unavailable_with_no_note(failure: str) -> N
     assert code_of(outcome) == "anki_unavailable"
     assert "suspend" not in sent_writes(replay.sent)
     assert captures_in(collection) == {}
+
+
+def _suspend_error(body: Any) -> dict[str, Any]:
+    return {"result": None, "error": "collection is not available"}
+
+
+@pytest.mark.p1
+def test_a_failing_suspend_is_anki_unavailable_and_a_retry_writes_nothing() -> None:
+    """AC-5: a `suspend` that fails after `addNote` is `anki_unavailable`, and the note stays
+    unsuspended (a tolerated AD-6 leftover for Setup's opt-in repair). A retry with that
+    CaptureId finds the note and writes nothing (AD-20).
+    """
+    from language_lab.domain.captures import Capture
+
+    collection = managed_collection(MANIFEST)
+    store, replay = wired(collection, replies={"suspend": _suspend_error})
+    capture_id = str(uuid.uuid4())
+
+    outcome = create(store, capture_id)
+
+    assert code_of(outcome) == "anki_unavailable"
+    (new_id,) = captures_in(collection)
+    assert [c.suspended for c in collection.cards.values() if c.note == new_id] == [False]
+    retry_store, retry_replay = wired(collection)
+    assert create(retry_store, capture_id) == Capture(capture_id, TEXT, CREATED_AT)
+    assert sent_writes(retry_replay.sent) == []

@@ -35,6 +35,8 @@ from language_lab.adapters.anki.migrations import build_migrations
 from language_lab.adapters.anki.setup_gate import SetupGate
 from language_lab.adapters.anki.store import AnkiConnectStore
 from language_lab.domain.errors import AppError, ErrorCode, error_envelope
+from language_lab.features.captures.routes import captures_router
+from language_lab.features.captures.service import CaptureService
 from language_lab.features.setup.routes import setup_router
 from language_lab.features.setup.service import SetupService
 from language_lab.features.sync.scheduler import Clock, SyncScheduler
@@ -343,6 +345,7 @@ def create_app(
         openrouter_configured=bool(settings.openrouter_api_key.get_secret_value()),
     )
     app.include_router(setup_router(setup))
+    app.include_router(captures_router(CaptureService(anki_store)))
 
     app.mount(f"/static/{version}", StaticFiles(directory=str(_STATIC)), name="static")
 
