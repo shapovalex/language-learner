@@ -16,6 +16,12 @@ a manifest note type with its `SchemaVersion` field set. `findNotes` answers an 
 `note:"<type>"` query, `notesInfo` answers in the recorded shape, and with `writes=True` the
 collection also answers `addNote` and `updateNoteFields` (`NOTE_WRITE_ACTIONS`).
 
+Captures (story 3.1): `addNote` gives the new note one card per template of its model, all in
+the note's deck, as Anki does. It refuses a note whose first field is empty, and, unless
+`options.allowDuplicate` is true, one whose first field another note of that model already has,
+with AnkiConnect's error texts. `capture_note()` puts a Capture in the collection as Create
+Capture leaves it.
+
 Migrations (story 2.9): with `writes=True`, `modelFieldAdd` adds the field to the model, at
 `index` or at the end, and to each of its notes, empty.
 
@@ -209,6 +215,31 @@ def managed_note(
     return add_note(collection, note_type, fields)
 
 
+def capture_note(
+    collection: Collection,
+    manifest: Manifest,
+    capture_id: str,
+    text: str,
+    created_at: str,
+    *,
+    suspended: bool = True,
+) -> int:
+    """Put a Capture note of `manifest` in `collection`, as Create Capture leaves it: `text`,
+    `created_at` and `capture_id` stored exactly (markup included), the manifest's
+    SchemaVersion, and one card in `<Prefix>::Captures`; return its id.
+    """
+    note_type = f"{manifest.prefix} Capture"
+    fields = {
+        "Text": text,
+        "CreatedAt": created_at,
+        "CaptureId": capture_id,
+        "SchemaVersion": str(manifest.schema_version),
+    }
+    note_id = add_note(collection, note_type, fields)
+    add_card(collection, note_id, 0, f"{manifest.prefix}::Captures", suspended=suspended)
+    return note_id
+
+
 def add_card(
     collection: Collection, note_id: int, ord: int, deck: str, *, suspended: bool = False
 ) -> int:
@@ -275,6 +306,14 @@ def _note_info(note_id: int, note: Note, cards: list[int] | None = None) -> dict
     }
 
 
+def _is_duplicate(collection: Collection, model: str, first: str) -> bool:
+    """Anki's duplicate check: a note of `model` whose first field is `first` already exists."""
+    return any(
+        note.model == model and next(iter(note.fields.values()), None) == first
+        for note in collection.notes.values()
+    )
+
+
 def _answer_note_write(
     collection: Collection, action: str, params: dict[str, Any]
 ) -> dict[str, Any]:
@@ -282,10 +321,21 @@ def _answer_note_write(
     match action:
         case "addNote":
             model = collection.models.get(note.get("modelName", ""))
-            if model is None or note.get("deckName") not in collection.decks:
+            deck = note.get("deckName")
+            if model is None or deck not in collection.decks:
                 return _error("model or deck was not found")
             fields = {name: note.get("fields", {}).get(name, "") for name in model.fields}
-            return _ok(add_note(collection, note["modelName"], fields))
+            first = fields[model.fields[0]]
+            if not first.strip():
+                return _error("cannot create note because it is empty")
+            allow_duplicate = note.get("options", {}).get("allowDuplicate", False)
+            if not allow_duplicate and _is_duplicate(collection, note["modelName"], first):
+                return _error("cannot create note because it is a duplicate")
+            note_id = add_note(collection, note["modelName"], fields)
+            # Anki gives the new note one card per template, every one in the note's deck
+            for ord in range(len(model.templates)):
+                add_card(collection, note_id, ord, deck)
+            return _ok(note_id)
         case "updateNoteFields":
             stored = collection.notes.get(note.get("id"))
             if stored is None:
