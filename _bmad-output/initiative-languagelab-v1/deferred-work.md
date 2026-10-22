@@ -23,3 +23,6 @@
 - source_plan: `_bmad-output/initiative-languagelab-v1/epic-anki-setup-sync/story-upgrade-migration-and-full-sync-docs-plan.md`
   summary: Persist the full-sync-required flag so the "Full sync required" tile survives a LanguageLab restart.
   evidence: `SyncService._full_sync_required` is in memory only (`src/language_lab/features/sync/service.py:37`), set only by `SetupService._apply`; a restart after a field-changing migration but before the upload drops the reminder. docs/setup.md now warns about this.
+- source_plan: `_bmad-output/initiative-languagelab-v1/epic-anki-setup-sync/story-acceptance-on-the-released-wheel-against-languagelabdev-plan.md`
+  summary: Measure the Setup preview's `read_leftovers` cost on the Mac Mini at the first run with real LanguageLab cards (epic-capture-to-item); it moves there from entry 13.
+  evidence: Story 2.13 ran Setup against an empty `LanguageLabDev` Prefix, which holds no managed cards, so its preview timings (steps D3 and D8 of `_bmad-output/test-artifacts/acceptance/setup-sync-acceptance-2-13.md`) cannot show the `cardsInfo` read growing with many LanguageLab cards. The story 2.11 entry above still names entry 13 for that measurement.
