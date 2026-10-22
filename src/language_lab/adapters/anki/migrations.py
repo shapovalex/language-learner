@@ -18,17 +18,13 @@ propagates; a failed write (`AppError`) doesn't end the run: the verification re
 `build_migrations(prefix)` is the production list: empty at SchemaVersion 1.
 """
 
-from collections.abc import Awaitable, Callable, Iterable
+from collections.abc import Iterable
 from dataclasses import dataclass
-from typing import Any
 
 from language_lab.adapters.anki.manifest import Manifest
+from language_lab.adapters.anki.setup_apply import Invoke, try_write
 from language_lab.adapters.anki.setup_diff import AnkiState
 from language_lab.adapters.anki.setup_gate import SCHEMA_VERSION_FIELD
-from language_lab.domain.errors import AppError
-
-# `invoke(action, **params)`: one guarded, ungated v6 call returning its `result`
-type Invoke = Callable[..., Awaitable[Any]]
 
 
 @dataclass(frozen=True)
@@ -63,19 +59,11 @@ def _older(state: AnkiState, current: int) -> list[tuple[int, int | None]]:
     ]
 
 
-async def _write(invoke: Invoke, action: str, **params: Any) -> None:
-    """One write; a failure (`AppError`) is left to verify. A `PrefixViolation` propagates."""
-    try:
-        await invoke(action, **params)
-    except AppError:
-        pass
-
-
 async def _add_field(invoke: Invoke, step: AddField, fields: dict[str, list[str]]) -> None:
     present = fields.setdefault(step.note_type, [])
     if step.field in present:
         return
-    await _write(invoke, "modelFieldAdd", modelName=step.note_type, fieldName=step.field)
+    await try_write(invoke, "modelFieldAdd", modelName=step.note_type, fieldName=step.field)
     present.append(step.field)
 
 
@@ -97,7 +85,7 @@ async def run_migrations(
                 for step in migration.steps:
                     await _add_field(invoke, step, fields)
     for note_id, _ in older:
-        await _write(
+        await try_write(
             invoke,
             "updateNoteFields",
             note={"id": note_id, "fields": {SCHEMA_VERSION_FIELD: str(current)}},

@@ -39,20 +39,33 @@ from tests.support.anki_state import (
     apply_manifest,
     collection_replies,
     managed_collection,
-    preset_config,
     sent_writes,
     set_path,
     stock_collection,
 )
+from tests.support.setup_collections import (
+    MANIFEST,
+    PREFIX,
+    STUDY_LEAF,
+    VOCABULARY,
+    as_tuples,
+    bury_flag_on,
+    changed_css,
+    changed_front,
+    deck_on_default,
+    field_removed,
+    from_set_up,
+    missing_card_template,
+    missing_deck,
+    missing_note_type,
+    no_preset,
+    two_prefix_presets,
+    user_options,
+)
 
-PREFIX = "LanguageLab"
 DEV = "LanguageLabDev"
-MANIFEST = build_manifest(PREFIX)
 DEV_MANIFEST = build_manifest(DEV)
 
-VOCABULARY = f"{PREFIX} English Vocabulary"
-SENTENCE = f"{PREFIX} French Sentence"
-STUDY_LEAF = f"{PREFIX}::Study::English::Vocabulary::Produce"
 BURY_FLAGS: Mapping[str, bool] = MANIFEST.preset.bury_flags  # dotted path -> the value Setup sets
 
 _MISSING = object()
@@ -94,10 +107,6 @@ def preview_items(collection: Collection) -> set[tuple[str, str, str]]:
     """A fresh preview of `collection`, as the user coming back to Setup sees it."""
     store, _ = store_for(collection)
     return as_tuples(settle(store.setup_preview()).items)
-
-
-def as_tuples(items: Any) -> set[tuple[str, str, str]]:
-    return {(str(item.action), str(item.kind), item.name) for item in items}
 
 
 def dotted(config: Mapping[str, Any], path: str) -> Any:
@@ -155,66 +164,8 @@ def test_apply_refuses_a_stale_plan_hash_before_any_write() -> None:
     assert not any(name.startswith(f"{PREFIX} ") for name in collection.models)
 
 
-# A change to a set-up Prefix that apply can put right
-def _changed_front(c: Collection) -> None:
-    c.models[VOCABULARY].templates["Produce"]["Front"] += "<hr>"
-
-
-def _changed_css(c: Collection) -> None:
-    c.models[SENTENCE].css += "\n.card { color: red; }"
-
-
-def _missing_card_template(c: Collection) -> None:
-    del c.models[VOCABULARY].templates["Pronounce"]
-
-
-def _missing_deck(c: Collection) -> None:
-    del c.decks[STUDY_LEAF]
-
-
-def _missing_note_type(c: Collection) -> None:
-    del c.models[f"{PREFIX} Capture"]
-
-
-def _bury_flag_on(c: Collection) -> None:
-    set_path(c.presets[PREFIX], "rev.bury", True)
-
-
-def _deck_on_default(c: Collection) -> None:
-    c.decks[STUDY_LEAF] = DEFAULT_PRESET
-
-
-def _no_preset(c: Collection) -> None:
-    del c.presets[PREFIX]
-    for deck, preset in c.decks.items():
-        if preset == PREFIX:
-            c.decks[deck] = DEFAULT_PRESET
-
-
-def _two_prefix_presets(c: Collection) -> None:
-    c.presets["Twin"] = preset_config(PREFIX)  # a second config named the Prefix, its own id
-    c.decks[STUDY_LEAF] = "Twin"
-
-
-def _user_options(c: Collection) -> None:
-    for path, value in {"new.perDay": 50, "rev.maxIvl": 3650, "desiredRetention": 0.85}.items():
-        set_path(c.presets[PREFIX], path, value)
-
-
-def _field_removed(c: Collection) -> None:
-    c.models[VOCABULARY].fields.remove("Mnemonic")
-
-
-def _from_set_up(change: Callable[[Collection], None]) -> Callable[[], Collection]:
-    def build() -> Collection:
-        collection = managed_collection(MANIFEST)
-        change(collection)
-        return collection
-
-    return build
-
-
-# label -> (the collection before apply, the verification's items after it)
+# label -> (the collection before apply, the verification's items after it): each change to a
+# set-up Prefix (tests/support/setup_collections.py) is one apply can put right
 APPLY_CASES: dict[str, tuple[Callable[[], Collection], set[tuple[str, str, str]]]] = {
     "empty-prefix": (stock_collection, set()),
     "empty-prefix-beside-dev": (
@@ -222,20 +173,20 @@ APPLY_CASES: dict[str, tuple[Callable[[], Collection], set[tuple[str, str, str]]
         set(),
     ),
 } | {
-    label: (_from_set_up(change), expected)
+    label: (from_set_up(change), expected)
     for label, change, expected in [
-        ("changed-template", _changed_front, set()),
-        ("changed-css", _changed_css, set()),
-        ("missing-card-template", _missing_card_template, set()),
-        ("missing-deck", _missing_deck, set()),
-        ("missing-note-type", _missing_note_type, set()),
-        ("bury-flag-on", _bury_flag_on, set()),
-        ("deck-on-default-preset", _deck_on_default, set()),
-        ("no-preset", _no_preset, set()),
-        ("two-prefix-presets", _two_prefix_presets, set()),
-        ("user-deck-options", _user_options, set()),
+        ("changed-template", changed_front, set()),
+        ("changed-css", changed_css, set()),
+        ("missing-card-template", missing_card_template, set()),
+        ("missing-deck", missing_deck, set()),
+        ("missing-note-type", missing_note_type, set()),
+        ("bury-flag-on", bury_flag_on, set()),
+        ("deck-on-default-preset", deck_on_default, set()),
+        ("no-preset", no_preset, set()),
+        ("two-prefix-presets", two_prefix_presets, set()),
+        ("user-deck-options", user_options, set()),
         # Migrate waits for entry 9: apply skips it, so verify still shows it
-        ("field-removed", _field_removed, {("migrate", "noteType", VOCABULARY)}),
+        ("field-removed", field_removed, {("migrate", "noteType", VOCABULARY)}),
     ]
 }
 
@@ -353,7 +304,7 @@ def test_a_refused_preset_save_is_reported_by_verify_and_the_rest_still_applies(
     """
     collection = managed_collection(MANIFEST)
     set_path(collection.presets[PREFIX], "rev.bury", True)
-    _changed_front(collection)
+    changed_front(collection)
     produce = next(
         t
         for nt in MANIFEST.note_types
@@ -376,7 +327,7 @@ def test_a_refused_preset_move_skips_the_save_and_verify_reports_the_preset() ->
     guard would refuse, isn't sent, and verify reports the preset instead of the run failing.
     """
     collection = managed_collection(MANIFEST)
-    _no_preset(collection)
+    no_preset(collection)
     replies = collection_replies(collection, writes=True)
     replies["setDeckConfigId"] = {"result": False, "error": None}
     replay = AnkiConnectReplay(replies)

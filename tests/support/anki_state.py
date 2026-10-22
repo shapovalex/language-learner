@@ -31,6 +31,7 @@ import copy
 import fnmatch
 import itertools
 import re
+import uuid
 from collections.abc import Callable
 from dataclasses import dataclass, field
 from typing import Any
@@ -138,6 +139,11 @@ def preset_config(name: str, **overrides: Any) -> dict[str, Any]:
     for path, value in overrides.items():
         set_path(config, path, value)
     return config
+
+
+def media_name(prefix: str) -> str:
+    """An AD-7 managed media name: `<Prefix>_<ItemId>_<sha256[:12]>.mp3`."""
+    return f"{prefix}_{uuid.uuid4()}_{uuid.uuid4().hex[:12]}.mp3"
 
 
 def set_path(config: dict[str, Any], path: str, value: Any) -> None:

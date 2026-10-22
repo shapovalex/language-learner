@@ -27,49 +27,41 @@ import json
 from typing import Any
 
 import pytest
-from playwright.sync_api import Locator, Page, Route, expect
+from playwright.sync_api import Page, Route, expect
 
 from tests.support.navigation import CAPTURES, SETUP, go_by_nav
 from tests.support.network import HeldRoute, record_json_bodies, stub_api_error, stub_api_json
+from tests.support.setup_screen import (
+    APPLY,
+    APPLY_LABEL,
+    CHANGES_HEADING,
+    FIX_REASON,
+    IDLE,
+    PLAN,
+    PLAN_HASH,
+    PREFIX,
+    READINESS,
+    STATUS,
+    item,
+    open_setup,
+    plan,
+    readiness,
+)
 
-READINESS = "/api/setup/readiness"
-PLAN = "/api/setup/plan"
-APPLY = "/api/setup/apply"
-STATUS = "/api/setup/apply/status"
-PREFIX = "LanguageLabDev"  # not the default, so a hard-coded "LanguageLab" can't pass
-PLAN_HASH = "0" * 64
 LEFT_OVER_HASH = "1" * 64
 EMPTY_HASH = "2" * 64  # stands in for plan_hash(()): the screen only compares hashes
 
-APPLY_LABEL = "Apply setup"
-FIX_REASON = "Fix the failing check to continue."
 PROGRESS = "Applying setup and verifying… Keep Anki open."
 VERIFIED_TITLE = "Setup applied and verified"
 VERIFIED_DETAIL = "Decks, note types, templates and deck options match what LanguageLab expects."
 DISCREPANCY_EXPLANATION = "Anki was changed. Review the difference below, then run Setup again."
 RUN_AGAIN = "Run Setup again"
-CHANGES_HEADING = "What will change in Anki"
 
 PRESET_FOUND = (
     "Expected sibling burying off on every Study and Pronunciation deck; "
     "found it on, or a deck on another preset."
 )
 DECK_FOUND = "Expected this deck; found none."
-
-
-def readiness(*, anki_connect: bool = True) -> dict[str, Any]:
-    return {
-        "prefix": PREFIX,
-        "checks": [
-            {"id": "ankiConnect", "ok": anki_connect},
-            {"id": "azure", "ok": True},
-            {"id": "openrouter", "ok": True},
-        ],
-    }
-
-
-def item(action: str, kind: str, name: str) -> dict[str, str]:
-    return {"action": action, "kind": kind, "name": name}
 
 
 ITEMS = [
@@ -83,15 +75,10 @@ DISCREPANCIES = [
 ]
 
 
-def plan(items: list[dict[str, str]], plan_hash: str = PLAN_HASH) -> dict[str, Any]:
-    return {"prefix": PREFIX, "planHash": plan_hash, "items": items, "unmanaged": []}
-
-
 def result(discrepancies: list[dict[str, str]], plan_hash: str) -> dict[str, Any]:
     return {"verified": not discrepancies, "planHash": plan_hash, "discrepancies": discrepancies}
 
 
-IDLE = {"state": "idle", "result": None}
 RUNNING = {"state": "running", "result": None}
 
 
@@ -104,16 +91,6 @@ class Stub:
 
     def _fulfill(self, route: Route) -> None:
         route.fulfill(status=200, content_type="application/json", body=json.dumps(self.body))
-
-
-def open_setup(
-    page: Page, plan_body: dict[str, Any], *, anki_connect: bool = True, status: Any = IDLE
-) -> Locator:
-    stub_api_json(page, READINESS, readiness(anki_connect=anki_connect))
-    stub_api_json(page, PLAN, plan_body)
-    stub_api_json(page, STATUS, status)
-    page.goto("/setup")
-    return page.get_by_role("main")
 
 
 @pytest.mark.p0

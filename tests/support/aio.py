@@ -4,6 +4,8 @@ import asyncio
 from collections.abc import Awaitable
 from concurrent.futures import ThreadPoolExecutor
 
+from tests.support.clock import bounded
+
 
 async def settled[T](awaitable: Awaitable[T]) -> T | Exception:
     """The awaitable's result, or the exception it raised, so the test body asserts on it."""
@@ -21,3 +23,11 @@ def settle[T](awaitable: Awaitable[T]) -> T | Exception:
     """
     with ThreadPoolExecutor(max_workers=1) as worker:
         return worker.submit(asyncio.run, settled(awaitable)).result()
+
+
+def run[T](awaitable: Awaitable[T]) -> T:
+    """Run a scenario on its own loop, bounded in real time; re-raise what it raised."""
+    outcome = settle(bounded(awaitable))
+    if isinstance(outcome, Exception):
+        raise outcome
+    return outcome

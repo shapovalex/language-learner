@@ -14,7 +14,6 @@ Nothing reaches a real Anki: the client takes an httpx transport, and these test
 through `AnkiConnectReplay` (tests/support/anki_connect.py).
 """
 
-import uuid
 from typing import Any
 
 import pytest
@@ -31,6 +30,7 @@ from tests.support.anki_connect import (
     anki_fixture,
     run_stub_ankiconnect,
 )
+from tests.support.anki_state import media_name
 from tests.support.fixtures.settings import SettingsFactory
 
 RELEASE = "LanguageLab"
@@ -40,11 +40,6 @@ OK_NULL = {"result": None, "error": None}
 STUDY_LEAF = f"{RELEASE}::Study::English::Vocabulary::Understand"
 CAPTURES = f"{RELEASE}::Captures"
 VOCABULARY = f"{RELEASE} English Vocabulary"
-
-
-def media_name(prefix: str = RELEASE) -> str:
-    """An AD-7 managed media name: `<Prefix>_<ItemId>_<sha256[:12]>.mp3`."""
-    return f"{prefix}_{uuid.uuid4()}_{uuid.uuid4().hex[:12]}.mp3"
 
 
 # (action, params) the guard must let through for the LanguageLab Prefix
@@ -59,8 +54,8 @@ ALLOWED: list[tuple[str, dict[str, Any]]] = [
     ("cloneDeckConfigId", {"name": RELEASE, "cloneFrom": 1}),
     ("setDeckConfigId", {"decks": [f"{RELEASE}::Study", STUDY_LEAF], "configId": 1}),
     ("addNote", {"note": {"modelName": VOCABULARY, "deckName": STUDY_LEAF, "fields": {}}}),
-    ("storeMediaFile", {"filename": media_name(), "data": ""}),
-    ("deleteMediaFile", {"filename": media_name()}),
+    ("storeMediaFile", {"filename": media_name(RELEASE), "data": ""}),
+    ("deleteMediaFile", {"filename": media_name(RELEASE)}),
     ("multi", {"actions": [{"action": "createDeck", "params": {"deck": CAPTURES}}]}),
 ]
 

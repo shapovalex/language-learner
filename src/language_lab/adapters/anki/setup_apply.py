@@ -30,17 +30,14 @@ import copy
 from collections.abc import Awaitable, Callable, Iterable, Mapping
 from typing import Any
 
-from language_lab.adapters.anki.manifest import Manifest, NoteType
+from language_lab.adapters.anki.guard import is_int
+from language_lab.adapters.anki.manifest import CardTemplate, Manifest, NoteType
 from language_lab.adapters.anki.setup_diff import AnkiState
 from language_lab.domain.errors import AppError, ErrorCode
 from language_lab.domain.setup import PlanAction, PlanItem, ResourceKind
 
 # `invoke(action, **params)`: one guarded, ungated v6 call returning its `result`
 type Invoke = Callable[..., Awaitable[Any]]
-
-
-def _is_id(value: Any) -> bool:
-    return isinstance(value, int) and not isinstance(value, bool)
 
 
 def _set_path(config: dict[str, Any], path: str, value: Any) -> None:
@@ -55,8 +52,22 @@ def _set_path(config: dict[str, Any], path: str, value: Any) -> None:
     node[leaf] = value
 
 
+def _card_template(template: CardTemplate) -> dict[str, str]:
+    return {"Name": template.name, "Front": template.front, "Back": template.back}
+
+
 def _card_templates(note_type: NoteType) -> list[dict[str, str]]:
-    return [{"Name": t.name, "Front": t.front, "Back": t.back} for t in note_type.templates]
+    return [_card_template(t) for t in note_type.templates]
+
+
+async def try_write(invoke: Invoke, action: str, **params: Any) -> Any:
+    """One write; `None` when it failed (an `AppError`), so the run goes on and verify reports
+    it. A `PrefixViolation` propagates.
+    """
+    try:
+        return await invoke(action, **params)
+    except AppError:
+        return None
 
 
 class _PlanRun:
@@ -68,10 +79,7 @@ class _PlanRun:
 
     async def _write(self, action: str, **params: Any) -> Any:
         """One write; `None` when it failed (an `AppError`), so the run goes on."""
-        try:
-            return await self._invoke(action, **params)
-        except AppError:
-            return None
+        return await try_write(self._invoke, action, **params)
 
     async def create_deck(self, deck: str) -> None:
         if await self._write("createDeck", deck=deck) is not None:
@@ -103,11 +111,7 @@ class _PlanRun:
                 await self._write(
                     "modelTemplateAdd",
                     modelName=note_type.name,
-                    template={
-                        "Name": template.name,
-                        "Front": template.front,
-                        "Back": template.back,
-                    },
+                    template=_card_template(template),
                 )
         await self._write(
             "updateModelStyling", model={"name": note_type.name, "css": note_type.css}
@@ -124,11 +128,11 @@ class _PlanRun:
             for d in existing
             if d in configs and configs[d].get("name") == preset.name
         ]
-        config_id = ours[0] if ours and _is_id(ours[0]) else None
+        config_id = ours[0] if ours and is_int(ours[0]) else None
         cloned = False
         if config_id is None:
             config_id = await self._write("cloneDeckConfigId", name=preset.name)
-            if not _is_id(config_id):
+            if not is_int(config_id):
                 return  # the preset couldn't be made: verify reports it
             cloned = True
         moving = [d for d in existing if d not in configs or configs[d].get("id") != config_id]
@@ -179,21 +183,13 @@ async def run_plan(
         await run.preset(has_item=has_preset_item)
 
 
-async def _try(invoke: Invoke, action: str, **params: Any) -> None:
-    """One write; a failure (an `AppError`) doesn't end the run: verify reports it."""
-    try:
-        await invoke(action, **params)
-    except AppError:
-        pass
-
-
 async def run_repairs(invoke: Invoke, items: Iterable[PlanItem]) -> None:
     """Run each checked opt-in repair row, in order, one write each."""
     for item in items:
         if item.kind is ResourceKind.ORPHAN_MEDIA:
-            await _try(invoke, "deleteMediaFile", filename=item.name)
+            await try_write(invoke, "deleteMediaFile", filename=item.name)
         elif item.kind is ResourceKind.MISPLACED_CARD:
             expected = item.detail["expectedDeck"]
-            await _try(invoke, "changeDeck", cards=[int(item.name)], deck=expected)
+            await try_write(invoke, "changeDeck", cards=[int(item.name)], deck=expected)
         elif item.kind is ResourceKind.UNSUSPENDED_CARD:
-            await _try(invoke, "suspend", cards=[int(item.name)])
+            await try_write(invoke, "suspend", cards=[int(item.name)])

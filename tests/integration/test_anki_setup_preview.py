@@ -43,17 +43,30 @@ from tests.support.anki_state import (
     preset_config,
     sent_actions,
     sent_queries,
-    set_path,
     stock_collection,
 )
+from tests.support.setup_collections import (
+    MANIFEST,
+    PREFIX,
+    SENTENCE,
+    STUDY_LEAF,
+    VOCABULARY,
+    as_tuples,
+    bury_flag_on,
+    changed_css,
+    changed_front,
+    deck_on_default,
+    field_removed,
+    from_set_up,
+    missing_card_template,
+    missing_deck,
+    missing_note_type,
+    no_preset,
+    two_prefix_presets,
+    user_options,
+)
 
-PREFIX = "LanguageLab"
 DEV = "LanguageLabDev"
-MANIFEST = build_manifest(PREFIX)
-
-VOCABULARY = f"{PREFIX} English Vocabulary"
-SENTENCE = f"{PREFIX} French Sentence"
-STUDY_LEAF = f"{PREFIX}::Study::English::Vocabulary::Produce"
 
 
 def preview(collection: Collection, manifest: Manifest = MANIFEST) -> tuple[Any, list[Any]]:
@@ -64,55 +77,7 @@ def preview(collection: Collection, manifest: Manifest = MANIFEST) -> tuple[Any,
     return settle(store.setup_preview()), replay.sent
 
 
-def as_tuples(items: Any) -> set[tuple[str, str, str]]:
-    return {(str(item.action), str(item.kind), item.name) for item in items}
-
-
 # One change to a set-up Prefix, then the plan items it must preview
-def _changed_front(c: Collection) -> None:
-    c.models[VOCABULARY].templates["Produce"]["Front"] += "<hr>"
-
-
-def _changed_css(c: Collection) -> None:
-    c.models[SENTENCE].css += "\n.card { color: red; }"
-
-
-def _missing_card_template(c: Collection) -> None:
-    del c.models[VOCABULARY].templates["Pronounce"]
-
-
-def _missing_deck(c: Collection) -> None:
-    del c.decks[STUDY_LEAF]
-
-
-def _missing_note_type(c: Collection) -> None:
-    del c.models[f"{PREFIX} Capture"]
-
-
-def _bury_flag_on(c: Collection) -> None:
-    set_path(c.presets[PREFIX], "rev.bury", True)
-
-
-def _deck_on_default(c: Collection) -> None:
-    c.decks[STUDY_LEAF] = DEFAULT_PRESET
-
-
-def _no_preset(c: Collection) -> None:
-    del c.presets[PREFIX]
-    for deck, preset in c.decks.items():
-        if preset == PREFIX:
-            c.decks[deck] = DEFAULT_PRESET
-
-
-def _two_prefix_presets(c: Collection) -> None:
-    c.presets["Twin"] = preset_config(PREFIX)  # a second config named the Prefix, its own id
-    c.decks[STUDY_LEAF] = "Twin"
-
-
-def _field_removed(c: Collection) -> None:
-    c.models[VOCABULARY].fields.remove("Mnemonic")
-
-
 def _field_added(c: Collection) -> None:
     c.models[SENTENCE].fields.append("Extra")
 
@@ -124,11 +89,6 @@ def _fields_reordered(c: Collection) -> None:
 
 def _extra_card_template(c: Collection) -> None:
     c.models[SENTENCE].templates["Card 5"] = {"Front": "{{Target}}", "Back": "{{Russian}}"}
-
-
-def _user_options(c: Collection) -> None:
-    for path, value in {"new.perDay": 50, "rev.maxIvl": 3650, "desiredRetention": 0.85}.items():
-        set_path(c.presets[PREFIX], path, value)
 
 
 def _dev_prefix_set_up(c: Collection) -> None:
@@ -154,39 +114,30 @@ CASES: dict[str, tuple[Callable[[], Collection], set[tuple[str, str, str]]]] = {
 }
 
 
-def _from_set_up(change: Callable[[Collection], None]) -> Callable[[], Collection]:
-    def build() -> Collection:
-        collection = managed_collection(MANIFEST)
-        change(collection)
-        return collection
-
-    return build
-
-
 CASES |= {
-    label: (_from_set_up(change), expected)
+    label: (from_set_up(change), expected)
     for label, change, expected in [
-        ("changed-template", _changed_front, {("repair", "templates", VOCABULARY)}),
-        ("changed-css", _changed_css, {("repair", "templates", SENTENCE)}),
-        ("missing-card-template", _missing_card_template, {("repair", "templates", VOCABULARY)}),
-        ("missing-deck", _missing_deck, {("create", "deck", STUDY_LEAF)}),
+        ("changed-template", changed_front, {("repair", "templates", VOCABULARY)}),
+        ("changed-css", changed_css, {("repair", "templates", SENTENCE)}),
+        ("missing-card-template", missing_card_template, {("repair", "templates", VOCABULARY)}),
+        ("missing-deck", missing_deck, {("create", "deck", STUDY_LEAF)}),
         (
             "missing-note-type",
-            _missing_note_type,
+            missing_note_type,
             {
                 ("create", "noteType", f"{PREFIX} Capture"),
                 ("create", "templates", f"{PREFIX} Capture"),
             },
         ),
-        ("bury-flag-on", _bury_flag_on, {("repair", "preset", PREFIX)}),
-        ("deck-on-default-preset", _deck_on_default, {("repair", "preset", PREFIX)}),
-        ("no-preset", _no_preset, {("create", "preset", PREFIX)}),
-        ("two-prefix-presets", _two_prefix_presets, {("repair", "preset", PREFIX)}),
-        ("field-removed", _field_removed, {("migrate", "noteType", VOCABULARY)}),
+        ("bury-flag-on", bury_flag_on, {("repair", "preset", PREFIX)}),
+        ("deck-on-default-preset", deck_on_default, {("repair", "preset", PREFIX)}),
+        ("no-preset", no_preset, {("create", "preset", PREFIX)}),
+        ("two-prefix-presets", two_prefix_presets, {("repair", "preset", PREFIX)}),
+        ("field-removed", field_removed, {("migrate", "noteType", VOCABULARY)}),
         ("field-added", _field_added, {("migrate", "noteType", SENTENCE)}),
         ("fields-reordered", _fields_reordered, {("migrate", "noteType", VOCABULARY)}),
         ("extra-card-template", _extra_card_template, {("repair", "templates", SENTENCE)}),
-        ("user-deck-options", _user_options, set()),
+        ("user-deck-options", user_options, set()),
         ("dev-prefix-beside", _dev_prefix_set_up, set()),
     ]
 }

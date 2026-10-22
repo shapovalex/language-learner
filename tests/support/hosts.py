@@ -2,11 +2,15 @@
 
 import json
 from pathlib import Path
+from typing import Any
 
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
+from language_lab.app import create_app
+from language_lab.ports.anki_store import AnkiStore
 from language_lab.settings import Settings
+from tests.support.fixtures.settings import SettingsFactory
 
 FIXTURES = Path(__file__).resolve().parents[1] / "fixtures"
 TAILSCALE_STATUS = FIXTURES / "tailscale-status.json"
@@ -48,6 +52,12 @@ def app_client(
         headers={"origin": local_url(settings)} if same_origin else None,
         raise_server_exceptions=raise_server_exceptions,
     )
+
+
+def client_over(settings_factory: SettingsFactory, store: AnkiStore, **settings: Any) -> TestClient:
+    """`app_client` for the app over `store`, configured by `settings_factory(**settings)`."""
+    built = settings_factory(**settings)
+    return app_client(create_app(built, anki_store=store), built)
 
 
 def tailscale_status_text() -> str:

@@ -26,7 +26,7 @@ from tests.fakes.anki_store import FakeAnkiStore
 from tests.support.aio import settle
 from tests.support.clock import FakeClock, bounded, drain
 from tests.support.fixtures.settings import SettingsFactory
-from tests.support.hosts import app_client
+from tests.support.hosts import client_over
 from tests.support.lifespan import LIFESPAN_BOUND_S, start_lifespan
 from tests.support.probes import GATED_ROUTE, error_envelope
 
@@ -72,8 +72,7 @@ def test_a_gated_write_is_the_409_setup_required_envelope(probe_client: TestClie
 def test_the_plan_carries_the_setup_state(settings_factory: SettingsFactory, state: str) -> None:
     """AC-10: GET /api/setup/plan says which SetupState this visit found."""
     store = FakeAnkiStore(preview=SetupPreview(items=ITEMS, state=SetupState(state)))
-    settings = settings_factory(anki_prefix=PREFIX)
-    client = app_client(create_app(settings, anki_store=store), settings)
+    client = client_over(settings_factory, store, anki_prefix=PREFIX)
 
     response = client.get(PLAN)
 

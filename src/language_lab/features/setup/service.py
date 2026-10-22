@@ -28,10 +28,10 @@ import asyncio
 import contextlib
 import logging
 from collections.abc import Collection
-from typing import Literal, NotRequired, TypedDict
+from typing import Any, Literal, NotRequired, TypedDict
 
 from language_lab.domain.errors import AppError, ErrorCode
-from language_lab.domain.setup import PlanItem, SetupPreview, SetupState, plan_hash
+from language_lab.domain.setup import PlanItem, SetupPreview, SetupState, checked_repairs
 from language_lab.domain.setup import plan_hash as _plan_hash
 from language_lab.domain.sync import SyncOutcome
 from language_lab.ports.anki_store import AnkiStore
@@ -117,12 +117,6 @@ def _rows(items: tuple[PlanItem, ...]) -> list[PlanRow]:
     ]
 
 
-def _checked(preview: SetupPreview, repairs: Collection[str]) -> tuple[PlanItem, ...]:
-    """The offered repair rows whose key is in `repairs`; a key no longer offered drops out."""
-    wanted = set(repairs)
-    return tuple(r for r in preview.repairs if r.key in wanted)
-
-
 def _repair_rows(preview: SetupPreview, checked: tuple[PlanItem, ...]) -> list[RepairRow]:
     keys = {r.key for r in checked}
     rows: list[RepairRow] = []
@@ -142,11 +136,11 @@ def _result(
     verification: SetupPreview, repairs: Collection[str], *, full_sync_required: bool
 ) -> ApplyResult:
     """The checked rows still offered are discrepancies too; unchecked ones aren't."""
-    still = _checked(verification, repairs)
+    still = checked_repairs(verification, repairs)
     discrepancies = (*verification.items, *still)
     return {
         "verified": not discrepancies,
-        "planHash": plan_hash(discrepancies),  # a retry re-checks the repairs still offered
+        "planHash": _plan_hash(discrepancies),  # a retry re-checks the repairs still offered
         "discrepancies": _rows(discrepancies),
         "fullSyncRequired": full_sync_required,
     }
@@ -156,6 +150,14 @@ def _retrieve(task: asyncio.Task[ApplyResult]) -> None:
     """Mark a run's exception as seen: its requests may all have gone away."""
     if not task.cancelled():
         task.exception()
+
+
+async def _cancel(task: asyncio.Task[Any] | None) -> None:
+    """Cancel `task` if it still runs and wait for it, whatever it ends with."""
+    if task is not None and not task.done():
+        task.cancel()
+        with contextlib.suppress(asyncio.CancelledError, Exception):
+            await task
 
 
 class SetupService:
@@ -197,10 +199,10 @@ class SetupService:
         `repairs` checked and in the hash. `anki_busy`/`anki_unavailable` propagate.
         """
         preview = await self._anki.setup_preview()
-        checked = _checked(preview, repairs)
+        checked = checked_repairs(preview, repairs)
         return {
             "prefix": self._prefix,
-            "planHash": plan_hash((*preview.items, *checked)),
+            "planHash": _plan_hash((*preview.items, *checked)),
             "state": str(preview.state),
             "items": _rows(preview.items),
             "repairs": _repair_rows(preview, checked),
@@ -248,21 +250,15 @@ class SetupService:
     async def aclose(self) -> None:
         """Cancel a startup refresh or a run still going (shutdown)."""
         refresh, self._refresh = self._refresh, None
-        if refresh is not None and not refresh.done():
-            refresh.cancel()
-            with contextlib.suppress(asyncio.CancelledError, Exception):
-                await refresh
+        await _cancel(refresh)
         run, self._run = self._run, None
-        if run is not None and not run.done():
-            run.cancel()
-            with contextlib.suppress(asyncio.CancelledError, Exception):
-                await run
+        await _cancel(run)
 
     async def _apply(self, plan_hash: str, repairs: Collection[str]) -> ApplyResult:
         preview = await self._anki.setup_preview()
         field_change = any(i.requires_full_sync for i in preview.items)
         # A stale hash or a newer-schema Anki goes straight to the store, which refuses it
-        fresh = _plan_hash((*preview.items, *_checked(preview, repairs)))
+        fresh = _plan_hash((*preview.items, *checked_repairs(preview, repairs)))
         applicable = fresh == plan_hash and preview.state is not SetupState.NEWER_SCHEMA
         if field_change and applicable:
             # Before the Anki lock is taken: the Sync holds it itself (AD-5, AD-17)

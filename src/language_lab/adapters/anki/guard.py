@@ -70,10 +70,15 @@ def _require(condition: bool) -> None:
         raise PrefixViolation
 
 
+def is_int(value: Any) -> bool:
+    """An `int` that isn't a `bool` (JSON's `true` decodes to one)."""
+    return isinstance(value, int) and not isinstance(value, bool)
+
+
 def _ids(value: Any) -> list[int]:
     """A non-empty list of integer ids, or a violation."""
     _require(isinstance(value, list) and len(value) > 0)
-    _require(all(isinstance(i, int) and not isinstance(i, bool) for i in value))
+    _require(all(is_int(i) for i in value))
     return value
 
 
@@ -199,7 +204,7 @@ class PrefixGuard:
         """The config is the `<Prefix>` preset a managed deck already uses."""
         _require(isinstance(config, dict) and config.get("name") == self._prefix)
         config_id = config.get("id")
-        _require(isinstance(config_id, int) and not isinstance(config_id, bool))
+        _require(is_int(config_id))
         current = await lookup("getDeckConfig", deck=self._preset_deck)
         _require(isinstance(current, dict) and current.get("name") == self._prefix)
         _require(current.get("id") == config_id)

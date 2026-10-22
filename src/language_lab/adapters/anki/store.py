@@ -20,7 +20,7 @@ from language_lab.adapters.anki.migrations import Migration, run_migrations
 from language_lab.adapters.anki.setup_apply import run_plan, run_repairs
 from language_lab.adapters.anki.setup_gate import SetupGate, read_preview
 from language_lab.domain.errors import AppError, ErrorCode
-from language_lab.domain.setup import PlanAction, SetupPreview, SetupState
+from language_lab.domain.setup import PlanAction, SetupPreview, SetupState, checked_repairs
 from language_lab.domain.setup import plan_hash as _plan_hash
 from language_lab.domain.sync import SyncOutcome
 
@@ -105,8 +105,7 @@ class AnkiConnectStore:
         async with self._lock.hold():
             state, before = await read_preview(self._client.invoke, manifest)
             self._set_gate(before)
-            wanted = set(repairs)
-            checked = tuple(r for r in before.repairs if r.key in wanted)
+            checked = checked_repairs(before, repairs)
             if _plan_hash((*before.items, *checked)) != plan_hash:
                 raise AppError(ErrorCode.PLAN_CHANGED)
             if before.state is SetupState.NEWER_SCHEMA:
