@@ -1,0 +1,348 @@
+{
+  "storyId": "5.1",
+  "date": "2026-10-23",
+  "phase": "RED scaffold",
+  "runner": "Python 3.14.8, pytest 9.1.1, pytest-playwright; Chromium",
+  "registry": [
+    {
+      "id": "AC-1",
+      "idSource": "generated",
+      "text": "Search matches normalized Target substrings using AD-12 NFC, casefold, surrounding Unicode punctuation, collapsed whitespace and apostrophe mapping; diacritics stay significant."
+    },
+    {
+      "id": "AC-2",
+      "idSource": "generated",
+      "text": "Search matches normalized Russian meaning substrings."
+    },
+    {
+      "id": "AC-3",
+      "idSource": "generated",
+      "text": "Search matches normalized RussianAlternatives substrings."
+    },
+    {
+      "id": "AC-4",
+      "idSource": "generated",
+      "text": "Search spans both Categories of only the requested Language; an empty query lists all its Items."
+    },
+    {
+      "id": "AC-5",
+      "idSource": "generated",
+      "text": "Search reads only exact Prefix-scoped note types, sends no user text in Anki queries, writes nothing and propagates Anki failures."
+    },
+    {
+      "id": "AC-6",
+      "idSource": "generated",
+      "text": "Item list rows expose read-only hasAudio metadata derived from the stored Audio field, without altering ItemContent or audio."
+    },
+    {
+      "id": "AC-7",
+      "idSource": "generated",
+      "text": "Phone and desktop Items show full-row links with Target, Russian meaning, Category and an audio indicator only for rows with Reference audio; a result opens detail."
+    },
+    {
+      "id": "AC-8",
+      "idSource": "generated",
+      "text": "Language-scoped live search is debounced and a late earlier response cannot replace the newest query results."
+    },
+    {
+      "id": "AC-9",
+      "idSource": "generated",
+      "text": "The Items list shows a loading skeleton while its read is pending and then shows the results."
+    },
+    {
+      "id": "AC-10",
+      "idSource": "generated",
+      "text": "An empty collection hides search and shows No English Items yet / Items are made from Captures.; searching a populated list with no matches shows No English Items match followed by the query."
+    },
+    {
+      "id": "AC-11",
+      "idSource": "generated",
+      "text": "A failed list read shows an inline alert with Try again; retry reads again and replaces the error with results."
+    },
+    {
+      "id": "AC-12",
+      "idSource": "generated",
+      "text": "Item detail edits Category fields and Save changes posts the existing ItemId and audio=keep through existing Save; only explicit Save commits, then dirty state clears. The adapter updates the existing note preserving Card identities, scheduling, review histories and audio."
+    },
+    {
+      "id": "AC-13",
+      "idSource": "generated",
+      "text": "Opening an Item again re-reads current Anki values including direct edits, rather than using the list or a prior editor buffer."
+    },
+    {
+      "id": "AC-14",
+      "idSource": "generated",
+      "text": "Changing Target rechecks duplicates before Save with the existing ItemId excluded; Cancel preserves edits and a changed Target is rechecked; Create anyway updates the edited Item under its original identity."
+    },
+    {
+      "id": "AC-15",
+      "idSource": "generated",
+      "text": "Duplicate Open existing uses the router unsaved-changes alert; Keep editing preserves the buffer and Discard opens the matched Item without saving the edited Item."
+    },
+    {
+      "id": "AC-16",
+      "idSource": "generated",
+      "text": "Failed Save preserves local edits and dirty state with prior Anki values and audio unchanged; retry saves the same ItemId, and leaving unsaved edits uses the router Keep editing / Discard guard."
+    }
+  ],
+  "mapping": [
+    {
+      "criterion": "AC-1",
+      "path": "tests/api/test_items_search.py",
+      "test": "test_search_normalizes_target_substrings",
+      "priority": "[P0]",
+      "line": 35
+    },
+    {
+      "criterion": "AC-2",
+      "path": "tests/api/test_items_search.py",
+      "test": "test_search_matches_the_russian_meaning",
+      "priority": "[P0]",
+      "line": 57
+    },
+    {
+      "criterion": "AC-3",
+      "path": "tests/api/test_items_search.py",
+      "test": "test_search_matches_a_russian_alternative",
+      "priority": "[P0]",
+      "line": 76
+    },
+    {
+      "criterion": "AC-4",
+      "path": "tests/api/test_items_search.py",
+      "test": "test_search_includes_both_categories_only_in_the_requested_language",
+      "priority": "[P0]",
+      "line": 103
+    },
+    {
+      "criterion": "AC-5",
+      "path": "tests/api/test_items_search.py",
+      "test": "test_search_uses_read_only_exact_prefix_scopes",
+      "priority": "[P0]",
+      "line": 130
+    },
+    {
+      "criterion": "AC-6",
+      "path": "tests/api/test_items_search.py",
+      "test": "test_item_list_reports_stored_audio_presence_without_writing",
+      "priority": "[P1]",
+      "line": 180
+    },
+    {
+      "criterion": "AC-7",
+      "path": "tests/e2e/test_items_search.py",
+      "test": "test_item_rows_open_detail_on_phone_and_desktop",
+      "priority": "[P0]",
+      "line": 32
+    },
+    {
+      "criterion": "AC-8",
+      "path": "tests/e2e/test_items_search.py",
+      "test": "test_live_search_debounces_and_ignores_a_late_old_response",
+      "priority": "[P1]",
+      "line": 62
+    },
+    {
+      "criterion": "AC-9",
+      "path": "tests/e2e/test_items_search.py",
+      "test": "test_pending_list_shows_loading_then_results",
+      "priority": "[P1]",
+      "line": 108
+    },
+    {
+      "criterion": "AC-10",
+      "path": "tests/e2e/test_items_search.py",
+      "test": "test_search_no_matches_is_distinct_from_an_empty_collection",
+      "priority": "[P1]",
+      "line": 123
+    },
+    {
+      "criterion": "AC-11",
+      "path": "tests/e2e/test_items_search.py",
+      "test": "test_failed_list_retry_replaces_the_error_with_items",
+      "priority": "[P1]",
+      "line": 144
+    },
+    {
+      "criterion": "AC-12",
+      "path": "tests/e2e/test_item_edit.py",
+      "test": "test_save_changes_commits_existing_identity_and_clears_dirty_state",
+      "priority": "[P0]",
+      "line": 46
+    },
+    {
+      "criterion": "AC-13",
+      "path": "tests/e2e/test_item_edit.py",
+      "test": "test_reopening_reads_the_current_item_instead_of_the_prior_buffer",
+      "priority": "[P0]",
+      "line": 83
+    },
+    {
+      "criterion": "AC-14",
+      "path": "tests/e2e/test_item_edit.py",
+      "test": "test_changed_target_rechecks_and_create_anyway_keeps_the_edited_item_id",
+      "priority": "[P0]",
+      "line": 102
+    },
+    {
+      "criterion": "AC-15",
+      "path": "tests/e2e/test_item_edit.py",
+      "test": "test_open_existing_guards_the_unsaved_edit_before_opening_the_match",
+      "priority": "[P0]",
+      "line": 137
+    },
+    {
+      "criterion": "AC-16",
+      "path": "tests/e2e/test_item_edit.py",
+      "test": "test_failed_save_keeps_edits_and_leave_guard_then_retries_the_same_item",
+      "priority": "[P0]",
+      "line": 163
+    }
+  ],
+  "checks": {
+    "ruff_check": "passed; repository-wide",
+    "ruff_format": "passed; 294 Python files",
+    "git_diff_check": "passed"
+  },
+  "runs": [
+    {
+      "run": "normal-scaffolds",
+      "tests": 16,
+      "passed": 0,
+      "failed": 0,
+      "errors": 0,
+      "skipped": 16,
+      "failures": []
+    },
+    {
+      "run": "api-red-activation",
+      "tests": 6,
+      "passed": 0,
+      "failed": 6,
+      "errors": 0,
+      "skipped": 0,
+      "failures": [
+        {
+          "criterion": "AC-1",
+          "test": "test_search_normalizes_target_substrings",
+          "message": "assert 404 == 200\n +  where 404 = <Response [404 Not Found]>.status_code"
+        },
+        {
+          "criterion": "AC-2",
+          "test": "test_search_matches_the_russian_meaning",
+          "message": "assert 404 == 200\n +  where 404 = <Response [404 Not Found]>.status_code"
+        },
+        {
+          "criterion": "AC-3",
+          "test": "test_search_matches_a_russian_alternative",
+          "message": "assert 404 == 200\n +  where 404 = <Response [404 Not Found]>.status_code"
+        },
+        {
+          "criterion": "AC-4",
+          "test": "test_search_includes_both_categories_only_in_the_requested_language",
+          "message": "assert 404 == 200\n +  where 404 = <Response [404 Not Found]>.status_code"
+        },
+        {
+          "criterion": "AC-5",
+          "test": "test_search_uses_read_only_exact_prefix_scopes",
+          "message": "assert set() == {'note:\"Langu... Vocabulary\"'}\n  \n  Extra items in the right set:\n  'note:\"LanguageLab English Sentence\"'\n  'note:\"LanguageLab English Vocabulary\"'\n  Use -v to get more diff"
+        },
+        {
+          "criterion": "AC-6",
+          "test": "test_item_list_reports_stored_audio_presence_without_writing",
+          "message": "assert 404 == 200\n +  where 404 = <Response [404 Not Found]>.status_code"
+        }
+      ]
+    },
+    {
+      "run": "e2e-red-activation",
+      "tests": 10,
+      "passed": 0,
+      "failed": 10,
+      "errors": 0,
+      "skipped": 0,
+      "failures": [
+        {
+          "criterion": "AC-15",
+          "test": "test_open_existing_guards_the_unsaved_edit_before_opening_the_match",
+          "message": "playwright._impl._errors.TimeoutError: Locator.fill: Timeout 15000ms exceeded.\nCall log:\n  - waiting for get_by_role(\"main\").get_by_role(\"textbox\", name=re.compile(r\"^Target(?! in Russian)\\b\"))"
+        },
+        {
+          "criterion": "AC-13",
+          "test": "test_reopening_reads_the_current_item_instead_of_the_prior_buffer",
+          "message": "playwright._impl._errors.TimeoutError: Locator.wait_for: Timeout 15000ms exceeded.\nCall log:\n  - waiting for get_by_role(\"main\").get_by_role(\"textbox\", name=re.compile(r\"^Russian\\ meaning(?! in Russian)\\b\")) to be visible"
+        },
+        {
+          "criterion": "AC-7",
+          "test": "test_item_rows_open_detail_on_phone_and_desktop",
+          "message": "AssertionError: Locator expected to be visible\nActual value: None\nError: element(s) not found \nCall log:\n  - Expect \"to_be_visible\" get_by_role(\"main\").get_by_role(\"link\").filter(has_text=\"jump to conclusions\") with timeout 10000ms\n  - waiting for get_by_role(\"main\").get_by_role(\"link\").filter(has_text=\"jump to conclusions\")\n\nAria snapshot:\n- banner:\n  - text: LanguageLab\n  - button \"Menu\"\n- main:\n  - navigation \"English\":\n    - link \"Items\":\n      - /url: /en/items\n    - link \"Pronunciation\":\n      - /url: /en/pronunciation\n  - heading \"English Items\" [level=1]"
+        },
+        {
+          "criterion": "AC-8",
+          "test": "test_live_search_debounces_and_ignores_a_late_old_response",
+          "message": "playwright._impl._errors.TimeoutError: Locator.wait_for: Timeout 15000ms exceeded.\nCall log:\n  - waiting for get_by_role(\"main\").get_by_role(\"textbox\", name=\"Search English Items\", exact=True) to be visible"
+        },
+        {
+          "criterion": "AC-12",
+          "test": "test_save_changes_commits_existing_identity_and_clears_dirty_state",
+          "message": "playwright._impl._errors.TimeoutError: Locator.fill: Timeout 15000ms exceeded.\nCall log:\n  - waiting for get_by_role(\"main\").get_by_role(\"textbox\", name=re.compile(r\"^Russian\\ meaning(?! in Russian)\\b\"))"
+        },
+        {
+          "criterion": "AC-14",
+          "test": "test_changed_target_rechecks_and_create_anyway_keeps_the_edited_item_id",
+          "message": "playwright._impl._errors.TimeoutError: Locator.fill: Timeout 15000ms exceeded.\nCall log:\n  - waiting for get_by_role(\"main\").get_by_role(\"textbox\", name=re.compile(r\"^Target(?! in Russian)\\b\"))"
+        },
+        {
+          "criterion": "AC-16",
+          "test": "test_failed_save_keeps_edits_and_leave_guard_then_retries_the_same_item",
+          "message": "playwright._impl._errors.TimeoutError: Locator.fill: Timeout 15000ms exceeded.\nCall log:\n  - waiting for get_by_role(\"main\").get_by_role(\"textbox\", name=re.compile(r\"^Russian\\ meaning(?! in Russian)\\b\"))"
+        },
+        {
+          "criterion": "AC-9",
+          "test": "test_pending_list_shows_loading_then_results",
+          "message": "AssertionError: Locator expected to be visible\nActual value: None\nError: element(s) not found \nCall log:\n  - Expect \"to_be_visible\" get_by_role(\"main\").get_by_role(\"status\").filter(has_text=\"Loading English Items…\") with timeout 10000ms\n  - waiting for get_by_role(\"main\").get_by_role(\"status\").filter(has_text=\"Loading English Items…\")\n\nAria snapshot:\n- banner:\n  - text: LanguageLab\n  - navigation \"Main\":\n    - link \"Captures\":\n      - /url: /captures\n    - link \"English\":\n      - /url: /en/items\n    - link \"French\":\n      - /url: /fr/items\n    - link \"Setup\":\n      - /url: /setup\n- main:\n  - navigation \"English\":\n    - link \"Items\":\n      - /url: /en/items\n    - link \"Pronunciation\":\n      - /url: /en/pronunciation\n  - heading \"English Items\" [level=1]"
+        },
+        {
+          "criterion": "AC-10",
+          "test": "test_search_no_matches_is_distinct_from_an_empty_collection",
+          "message": "playwright._impl._errors.TimeoutError: Locator.fill: Timeout 15000ms exceeded.\nCall log:\n  - waiting for get_by_role(\"main\").get_by_role(\"textbox\", name=\"Search English Items\", exact=True)"
+        },
+        {
+          "criterion": "AC-11",
+          "test": "test_failed_list_retry_replaces_the_error_with_items",
+          "message": "playwright._impl._errors.TimeoutError: Locator.wait_for: Timeout 15000ms exceeded.\nCall log:\n  - waiting for get_by_role(\"main\").get_by_role(\"alert\") to be visible"
+        }
+      ]
+    },
+    {
+      "run": "item-regressions",
+      "tests": 89,
+      "passed": 89,
+      "failed": 0,
+      "errors": 0,
+      "skipped": 0,
+      "failures": []
+    }
+  ],
+  "saveProbe": {
+    "cases": 4,
+    "passed": 4,
+    "categories": [
+      "vocabulary",
+      "sentence"
+    ],
+    "branches": [
+      "successful update",
+      "rejected update"
+    ],
+    "verified": "Existing note/Card identities and media stay on success; Audio unchanged; rejected update preserves whole collection. Both branches issue only updateNoteFields.",
+    "limit": "Supplementary local diagnostic, not a committed automated regression. Collection has no scheduling/review-history model."
+  },
+  "activation": "Temporary collection plugin removed only these modules skip markers at runtime. Committed tests remain skipped. No production code changed.",
+  "limitations": [
+    "API cases AC-1..AC-4 and AC-6 fail on missing list route (404); AC-5 fails on absent scoped queries. Assertions after those failures must be rechecked during implementation.",
+    "AC-7 and AC-9 fail on their criterion assertions: missing row and loading skeleton. Other browser cases stop at absent search, error-state or editable-detail prerequisites. Their deeper debounce, duplicate, freshness and retry transitions are scaffolded, not independently verified yet.",
+    "The desktop branch of AC-7 is not reached until the phone branch passes; French/Sentence editor variants are green-phase work.",
+    "Actual review histories and scheduling require released-wheel evidence in story 5.3."
+  ]
+}
