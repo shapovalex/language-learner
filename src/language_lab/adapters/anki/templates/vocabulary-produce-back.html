@@ -2,11 +2,12 @@
 
 <hr id="answer">
 
-<div class="prompt">{{Target}}</div>
-{{Audio}}
-{{#RussianAlternatives}}<div class="meta">{{RussianAlternatives}}</div>{{/RussianAlternatives}}
-{{#PartOfSpeech}}<div class="meta">{{PartOfSpeech}}</div>{{/PartOfSpeech}}
-{{#Grammar}}<div class="meta">{{Grammar}}</div>{{/Grammar}}
-{{#Example}}<div class="example">{{Example}}</div>{{/Example}}
-{{#ExampleRussian}}<div class="example">{{ExampleRussian}}</div>{{/ExampleRussian}}
-{{#Mnemonic}}<div class="note">{{Mnemonic}}</div>{{/Mnemonic}}
+<div class="ll-card answer">
+<div class="target">{{Target}}</div>
+{{#Audio}}<div class="audio">{{Audio}}</div>{{/Audio}}
+{{#RussianAlternatives}}<div class="meta alternatives">{{RussianAlternatives}}</div>{{/RussianAlternatives}}
+<div class="chips">{{#PartOfSpeech}}<span class="chip">{{PartOfSpeech}}</span>{{/PartOfSpeech}}{{#Grammar}}<span class="chip">{{Grammar}}</span>{{/Grammar}}</div>
+{{#Example}}<div class="panel"><div class="example">{{Example}}</div>{{#ExampleRussian}}<div class="example example-russian">{{ExampleRussian}}</div>{{/ExampleRussian}}</div>{{/Example}}
+{{^Example}}{{#ExampleRussian}}<div class="panel"><div class="example example-russian">{{ExampleRussian}}</div></div>{{/ExampleRussian}}{{/Example}}
+{{#Mnemonic}}<div class="note"><div class="label">Mnemonic</div>{{Mnemonic}}</div>{{/Mnemonic}}
+</div>
