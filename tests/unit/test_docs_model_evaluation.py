@@ -15,7 +15,6 @@ from tests.support.release import REPO_ROOT
 
 pytestmark = [
     pytest.mark.p2,
-    pytest.mark.skip(reason="red phase (story 4.2): un-skip with the docs section"),
 ]
 
 CONFIGURATION = REPO_ROOT / "docs" / "configuration.md"

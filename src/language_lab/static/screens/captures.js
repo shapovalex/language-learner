@@ -13,18 +13,23 @@
 // /api/captures/<captureId> (FR-13). After it the list shows without it at /captures; a failed
 // delete keeps the Capture with an inline alert in detail.
 //
-// Capture detail also has the Make an Item pane (story 4.1). "Write it myself" asks POST
-// /api/drafts/blank for the ItemId and opens the Draft editor at /captures/<captureId>/new, in
-// place of the list and detail. The Draft lives only in this module's memory (AD-13), so that
-// route with no Draft in memory (a reload, a direct visit) shows the Capture instead. Save to
-// Anki is POST /api/items/<lang>; it returns to the Capture with the success banner, and a failed
-// Save keeps the Draft and its ItemId, so Save again updates rather than duplicates (AD-20).
+// Capture detail also has the Make an Item pane (stories 4.1, 4.2). "Generate Draft" opens
+// /captures/<captureId>/new at once with "Writing your Draft…", asks POST /api/drafts/generate
+// with the chosen text, Language, Category and Generation context, then fills the Draft editor
+// from the reply; a failure shows its alert there with Try again, which sends the same request.
+// "Write it myself" asks POST /api/drafts/blank for the ItemId and opens the blank Draft editor.
+// The editor replaces the list and detail. The Draft and the Generation context live only in this
+// module's memory (AD-13), so that route with no Draft in memory (a reload, a direct visit) shows
+// the Capture instead, and the screen is dirty only once a Draft has values. Save to Anki is POST
+// /api/items/<lang>; it returns to the Capture with the success banner, and a failed Save keeps
+// the Draft and its ItemId, so Save again updates rather than duplicates (AD-20).
 
 import {
   blankDraft,
   createCapture,
   deleteCapture,
   errorMessage,
+  generateDraft,
   getCapture,
   isApiError,
   listCaptures,
@@ -32,7 +37,15 @@ import {
 } from "../api.js";
 import { element, skeleton } from "../dom.js";
 import { confirmDestructive, navigate, redirect, setDirty } from "../router.js";
-import { blankValues, chosenText, draftEditor, itemPart, makeItemPane } from "./make-item.js";
+import {
+  blankValues,
+  chosenText,
+  draftEditor,
+  generatedValues,
+  generatingScreen,
+  itemPart,
+  makeItemPane,
+} from "./make-item.js";
 
 const LABEL = "New Capture";
 const PLACEHOLDER = "Paste or type a word, phrase or sentence";
@@ -52,6 +65,9 @@ const DELETE_BODY = "This removes the Capture from Anki. Items you made from it 
 const DELETE_CONFIRM = "Delete permanently";
 const NOT_DELETED_TITLE = "Not deleted — Anki isn't reachable";
 const NOT_DELETED_BODY = "Make sure Anki Desktop is open on the Mac mini, then try again.";
+const MODEL_UNREACHABLE = ["Couldn't reach the model", "Your Capture is unchanged."];
+const NOT_GENERATED = "Couldn't generate a Draft";
+const INVALID_TWICE = "The model's answer failed the checks twice. Your Capture is unchanged.";
 
 function capturePath(captureId) {
   return `/captures/${encodeURIComponent(captureId)}`;
@@ -63,7 +79,15 @@ function savedFlash(target) {
 
 // The pane's choices, as a Capture opens: Use as is, nothing picked
 function freshChoice() {
-  return { source: "capture", custom: "", language: null, category: null, busy: false, error: null };
+  return {
+    source: "capture",
+    custom: "",
+    language: null,
+    category: null,
+    context: "",
+    busy: false,
+    error: null,
+  };
 }
 
 const TIME = new Intl.DateTimeFormat("en-US", {
@@ -122,6 +146,13 @@ function loadError(error, onRetry) {
 // the envelope's message
 function failureCopy(error, unreachable, title) {
   return isApiError(error, "anki_unavailable") ? unreachable : [title, errorMessage(error)];
+}
+
+// [title, body] of a failed generation (EXPERIENCE.md State Patterns)
+function generationFailure(error) {
+  if (isApiError(error, "llm_failed")) return MODEL_UNREACHABLE;
+  if (isApiError(error, "llm_invalid_output")) return [NOT_GENERATED, INVALID_TWICE];
+  return [NOT_GENERATED, errorMessage(error)];
 }
 
 // The failed delete's alert: no Try again, since Delete Capture is right there
@@ -187,7 +218,8 @@ export function mount(root, params = {}) {
   };
   // The Make an Item pane's choices for the open Capture
   let choice = freshChoice();
-  // The Draft, from "Write it myself" until it's saved or left; `editing` while it's on screen
+  // The Draft, from "Generate Draft" or "Write it myself" until it's saved or left; `editing`
+  // while it's on screen. A generated one has `values` null and `generation` set until its reply
   let draft = null;
   let editing = false;
 
@@ -287,7 +319,7 @@ export function mount(root, params = {}) {
     }
     detailPane.replaceChildren(actions, article);
     if (open.deleteError) detailPane.append(deleteAlert(open.deleteError));
-    if (open.status === "shown") detailPane.append(makeItemPane(choice, { onWrite }));
+    if (open.status === "shown") detailPane.append(makeItemPane(choice, { onGenerate, onWrite }));
   }
 
   // "Write it myself": a blank Draft of the chosen text, Language and Category
@@ -322,9 +354,77 @@ export function mount(root, params = {}) {
     }
   }
 
-  // The one dirty state the router holds: the open Draft's, else the compose text's
+  // "Generate Draft": open the Draft route at once, then ask the model
+  async function onGenerate() {
+    const capture = open.capture;
+    const target = chosenText(choice, capture.text);
+    if (choice.busy || target === null || !choice.language || !choice.category) return;
+    choice.error = null;
+    draft = {
+      captureId: capture.captureId,
+      captureText: capture.text,
+      language: choice.language,
+      category: choice.category,
+      itemId: null,
+      values: null,
+      busy: false,
+      error: null,
+      generation: {
+        request: {
+          language: choice.language,
+          category: choice.category,
+          target,
+          generationContext: choice.context,
+        },
+        busy: true,
+        error: null,
+      },
+    };
+    const pending = draft;
+    await navigate(`${capturePath(capture.captureId)}/new`);
+    // The route didn't open the editor (the leave was refused): there is no Draft to fill
+    if (!mounted || draft !== pending || !editing) {
+      if (draft === pending) draft = null;
+      return;
+    }
+    generate(pending);
+  }
+
+  async function generate(pending) {
+    const { generation } = pending;
+    // The first ask: openEditor() already shows the loading state. Try again: show it now
+    if (!generation.busy) {
+      generation.busy = true;
+      generation.error = null;
+      renderEditor({ focus: "title" });
+    }
+    let reply;
+    try {
+      reply = await generateDraft(generation.request);
+    } catch (error) {
+      if (!mounted || draft !== pending) return;
+      generation.busy = false;
+      generation.error = error;
+      if (editing) renderEditor({ focus: "retry" });
+      return;
+    }
+    // Left meanwhile: a late reply opens nothing
+    if (!mounted || draft !== pending) return;
+    // Used once: the next Draft from this Capture starts without it
+    choice.context = "";
+    const { itemId, ...content } = reply;
+    pending.itemId = itemId;
+    pending.values = generatedValues(content);
+    pending.generation = null;
+    if (!editing) return;
+    renderEditor({ focus: "title" });
+    syncDirty();
+  }
+
+  // The one dirty state the router holds: the open Draft's once it has values, else the
+  // compose text's
   function syncDirty() {
-    if (editing) {
+    if (editing && draft.values) {
       setDirty({ kind: "draft", count: 1, target: draft.values.target });
     } else {
       setDirty(box.value.trim() ? { kind: "capture", count: 1, target: "" } : null);
@@ -332,6 +432,16 @@ export function mount(root, params = {}) {
   }
 
   function renderEditor({ focus = null } = {}) {
+    if (!draft.values) {
+      const { screen, title, retry } = generatingScreen(draft, {
+        onRetry: () => generate(draft),
+        alertFor: generationFailure,
+      });
+      draftRoot.replaceChildren(screen);
+      if (focus === "title") title.focus();
+      if (focus === "retry") retry?.focus();
+      return;
+    }
     const { screen, title } = draftEditor(draft, {
       onEdit: syncDirty,
       onSave: saveDraft,

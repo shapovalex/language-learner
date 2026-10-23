@@ -51,10 +51,6 @@ from tests.support.openrouter import (
     timed_out,
 )
 
-pytestmark = pytest.mark.skip(
-    reason="red phase (story 4.2): un-skip with adapters/openrouter (OpenRouterLlm)"
-)
-
 MODELS = ["openai/gpt-5.6-luna", "google/gemini-3.5-flash-lite"]
 TARGETS = {"vocabulary": VOCABULARY_TARGET, "sentence": SENTENCE_TARGET}
 LANGUAGE_NAMES = {"en": "English", "fr": "French"}
@@ -214,3 +210,14 @@ def test_the_adapter_logs_no_prompt_or_reply(log_capture: LogCapture, replies: l
     assert API_KEY not in logged
     assert GENERATED_VOCABULARY["russian"] not in logged
     assert "a leap over the facts" not in logged
+
+
+@pytest.mark.p1
+def test_no_configured_model_is_llm_failed_with_no_request() -> None:
+    """AC-8: an empty OPENROUTER_MODELS has no model to ask: `llm_failed`, and nothing is sent."""
+    replay = OpenRouterReplay([])
+
+    outcome = generate(openrouter(replay, []))
+
+    assert code_of(outcome) == "llm_failed"
+    assert replay.sent == []

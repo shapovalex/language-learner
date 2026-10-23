@@ -3,19 +3,26 @@
 // the Captures screen keeps the pane's choices and the Draft in its memory (AD-13) and passes
 // them in; these build the DOM and report the user's edits back.
 //
-// The pane picks the text (Use as is or Custom value), the Language and the Category, and
-// "Write it myself" asks for a blank Draft; like Generate Draft (entry 2) it is disabled with a
-// visible reason until those are chosen. The editor shows every field of the Category, editable,
-// with the alternatives one per line, and Discard and Save to Anki (pinned to the bottom on the
-// phone).
+// The pane picks the text (Use as is or Custom value), the Language and the Category, and takes
+// an optional Generation context. "Generate Draft" asks the model for a Draft and "Write it
+// myself" for a blank one; both are disabled with a visible reason until those are chosen. The
+// editor shows every field of the Category, editable, with the alternatives one per line, Clear
+// on a Vocabulary example, and Discard and Save to Anki (pinned to the bottom on the phone).
+// While the model writes, the generating screen shows the loading state, or the failure with
+// Try again.
 
-import { element } from "../dom.js";
+import { element, skeleton } from "../dom.js";
 
 const MAKE_AN_ITEM = "Make an Item";
 const USE_AS_IS = "Use as is";
 const CUSTOM_VALUE = "Custom value";
 const CUSTOM_HINT = "Write it in the language you're learning, not in Russian.";
 const WRITE_IT_MYSELF = "Write it myself";
+const GENERATE_DRAFT = "Generate Draft";
+const GENERATION_CONTEXT = "Generation context · optional · used once, never saved";
+const WRITING = "Writing your Draft…";
+const TRY_AGAIN = "Try again";
+const CLEAR = "Clear";
 const CHOOSE_REASON = "Choose a Language and Category.";
 const CUSTOM_REASON = "Enter the custom value.";
 const REQUIRED_REASON = "Enter the Target text and Russian meaning.";
@@ -70,6 +77,19 @@ function nameOf(choices, key) {
 export function blankValues(category, target) {
   const values = Object.fromEntries(FIELDS[category].map(([key]) => [key, ""]));
   values.target = target;
+  return values;
+}
+
+// A generated Draft's field values, from the ItemContent the model's Draft carries
+export function generatedValues(content) {
+  const values = blankValues(content.category, content.target);
+  for (const [key] of FIELDS[content.category]) {
+    if (key === "alternatives") {
+      values.alternatives = (content.russianAlternatives ?? []).join("\n");
+    } else if (key !== "target") {
+      values[key] = content[key] ?? "";
+    }
+  }
   return values;
 }
 
@@ -134,9 +154,10 @@ function picker(label, choices, chosen, onChoose) {
   return [group, mark];
 }
 
-// The Make an Item pane. `choice` is {source, custom, language, category, busy, error}, which the
-// pane changes in place as the user picks; `onWrite()` runs on "Write it myself"
-export function makeItemPane(choice, { onWrite }) {
+// The Make an Item pane. `choice` is {source, custom, language, category, context, busy, error},
+// which the pane changes in place as the user picks; `onGenerate()` runs on "Generate Draft" and
+// `onWrite()` on "Write it myself"
+export function makeItemPane(choice, { onGenerate, onWrite }) {
   const headingId = uniqueId("make-item-heading");
   const section = element("section", "make-item");
   section.setAttribute("aria-labelledby", headingId);
@@ -189,13 +210,30 @@ export function makeItemPane(choice, { onWrite }) {
     refresh();
   });
 
+  // The Generation context is kept in `choice` only, and sent once with Generate Draft (AD-13)
+  const contextGroup = element("div", "make-item-group");
+  const contextId = uniqueId("make-item-context");
+  const contextLabel = element("label", "make-item-label", GENERATION_CONTEXT);
+  contextLabel.htmlFor = contextId;
+  const context = element("textarea", "compose-field make-item-context");
+  context.id = contextId;
+  context.rows = 2;
+  context.value = choice.context;
+  context.addEventListener("input", () => {
+    choice.context = context.value;
+  });
+  contextGroup.append(contextLabel, context);
+
   const actions = element("div", "make-item-actions");
+  const generate = element("button", "button button-primary", GENERATE_DRAFT);
+  generate.type = "button";
+  generate.addEventListener("click", onGenerate);
   const write = element("button", "button-link", WRITE_IT_MYSELF);
   write.type = "button";
   const reason = element("p", "make-item-reason");
   write.addEventListener("click", onWrite);
-  actions.append(write, reason);
-  section.append(heading, text, languages, categories, actions);
+  actions.append(generate, write, reason);
+  section.append(heading, text, languages, categories, contextGroup, actions);
   if (choice.error) {
     const alert = element("div", "inline-alert-error make-item-alert");
     alert.setAttribute("role", "alert");
@@ -215,6 +253,7 @@ export function makeItemPane(choice, { onWrite }) {
     }
     reason.textContent = why ?? "";
     reason.hidden = why === null;
+    generate.disabled = why !== null || choice.busy;
     write.disabled = why !== null || choice.busy;
   }
 
@@ -222,21 +261,17 @@ export function makeItemPane(choice, { onWrite }) {
   return section;
 }
 
-// The Draft editor. `draft` is {captureId, captureText, language, category, itemId, values,
-// busy, error}; edits go into `draft.values` and `onEdit()` runs after each. `onSave()` and
-// `onDiscard()` run on Save to Anki and Discard; `alertFor(error)` gives a failed Save's
-// [title, body]
-export function draftEditor(draft, { onEdit, onSave, onDiscard, alertFor }) {
-  const screen = element("div", "draft-screen");
-  const back = element("a", "back-link draft-back", BACK);
+function backLink(draft, className) {
+  const back = element("a", `back-link ${className}`, BACK);
   back.href = `/captures/${encodeURIComponent(draft.captureId)}`;
+  return back;
+}
 
-  const form = element("form", "draft-editor");
-  form.setAttribute("aria-label", "Draft");
-  form.noValidate = true;
-
+// The Draft's header: its Capture, `target` as the title, and the Language and Category, with
+// the "not saved yet" chip once there is a Draft to save
+function draftHeader(draft, target, { chip }) {
   const header = element("header", "draft-header");
-  const title = element("h1", "draft-title", draft.values.target);
+  const title = element("h1", "draft-title", target);
   title.tabIndex = -1;
   const meta = element("p", "draft-meta");
   meta.append(
@@ -245,15 +280,60 @@ export function draftEditor(draft, { onEdit, onSave, onDiscard, alertFor }) {
       null,
       `${nameOf(LANGUAGES, draft.language)} ${nameOf(CATEGORIES, draft.category)}`,
     ),
-    element("span", "chip chip-accent", DRAFT_CHIP),
   );
+  if (chip) meta.append(element("span", "chip chip-accent", DRAFT_CHIP));
   header.append(
     element("p", "draft-source", `From Capture “${draft.captureText}”`),
     title,
     meta,
   );
+  return { header, title };
+}
+
+// The generated Draft before it has values. `draft.generation` is {request, busy, error}: the
+// skeleton while `busy`, else the failure's alert (`alertFor(error)` gives [title, body]) with
+// Try again, which runs `onRetry()`. The back link shows at every width: there is no Discard yet
+export function generatingScreen(draft, { onRetry, alertFor }) {
+  const screen = element("div", "draft-screen");
+  const { header, title } = draftHeader(draft, draft.generation.request.target, { chip: false });
+  const body = element("div", "draft-generating");
+  let again = null;
+  if (draft.generation.busy) {
+    body.append(skeleton(WRITING));
+  } else {
+    const [alertTitle, alertBody] = alertFor(draft.generation.error);
+    const alert = element("div", "inline-alert-error draft-alert");
+    alert.setAttribute("role", "alert");
+    again = element("button", "button button-secondary", TRY_AGAIN);
+    again.type = "button";
+    again.addEventListener("click", onRetry);
+    alert.append(
+      element("p", "compose-alert-title", alertTitle),
+      element("p", "draft-alert-body", alertBody),
+      again,
+    );
+    body.append(alert);
+  }
+  screen.append(backLink(draft, "draft-generating-back"), header, body);
+  return { screen, title, retry: again };
+}
+
+// The Draft editor. `draft` is {captureId, captureText, language, category, itemId, values,
+// busy, error}; edits go into `draft.values` and `onEdit()` runs after each. `onSave()` and
+// `onDiscard()` run on Save to Anki and Discard; `alertFor(error)` gives a failed Save's
+// [title, body]
+export function draftEditor(draft, { onEdit, onSave, onDiscard, alertFor }) {
+  const screen = element("div", "draft-screen");
+  const back = backLink(draft, "draft-back");
+
+  const form = element("form", "draft-editor");
+  form.setAttribute("aria-label", "Draft");
+  form.noValidate = true;
+
+  const { header, title } = draftHeader(draft, draft.values.target, { chip: true });
 
   const fields = element("div", "draft-fields");
+  const inputs = {};
   for (const [key, label, multiline, placeholder] of FIELDS[draft.category]) {
     const id = uniqueId(`draft-${key}`);
     const wrap = element("div", "draft-field");
@@ -276,7 +356,27 @@ export function draftEditor(draft, { onEdit, onSave, onDiscard, alertFor }) {
       refresh();
       onEdit();
     });
-    wrap.append(caption, input);
+    inputs[key] = input;
+    if (key === "example") {
+      // Clear removes the example and its translation together (FR-14)
+      const row = element("div", "draft-field-row");
+      const clear = element("button", "button-link", CLEAR);
+      clear.type = "button";
+      clear.disabled = draft.busy;
+      clear.addEventListener("click", () => {
+        for (const cleared of ["example", "exampleRussian"]) {
+          draft.values[cleared] = "";
+          inputs[cleared].value = "";
+        }
+        refresh();
+        onEdit();
+        inputs.example.focus();
+      });
+      row.append(caption, clear);
+      wrap.append(row, input);
+    } else {
+      wrap.append(caption, input);
+    }
     fields.append(wrap);
   }
 

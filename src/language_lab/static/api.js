@@ -129,6 +129,16 @@ export function blankDraft() {
   return request("/api/drafts/blank", { method: "POST" });
 }
 
+// A generated Draft (FR-14 to FR-16): `{language, category, target, generationContext}` in,
+// 201 `{itemId, ...ItemContent}` out; `llm_failed` or `llm_invalid_output` when the model fails
+export function generateDraft(body) {
+  return request("/api/drafts/generate", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(body),
+  });
+}
+
 // Save an Item (FR-20): `multipart/form-data` with the `item` JSON part, ItemContent plus
 // `itemId` and `audio` (Consistency Conventions). 200 `{itemId}`; a retry with the same ItemId
 // updates the Item (AD-20). The part is a string field: a Blob would arrive as a file

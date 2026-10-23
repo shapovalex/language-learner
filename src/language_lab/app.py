@@ -34,6 +34,7 @@ from language_lab.adapters.anki.manifest import build_manifest
 from language_lab.adapters.anki.migrations import build_migrations
 from language_lab.adapters.anki.setup_gate import SetupGate
 from language_lab.adapters.anki.store import AnkiConnectStore
+from language_lab.adapters.openrouter import OpenRouterLlm
 from language_lab.domain.errors import AppError, ErrorCode, error_envelope
 from language_lab.features.captures.routes import captures_router
 from language_lab.features.captures.service import CaptureService
@@ -46,6 +47,7 @@ from language_lab.features.setup.service import SetupService
 from language_lab.features.sync.scheduler import Clock, SyncScheduler
 from language_lab.features.sync.service import SyncService
 from language_lab.ports.anki_store import AnkiStore
+from language_lab.ports.llm import Llm
 from language_lab.settings import (
     NECESSARY_KEYS,
     ConfigError,
@@ -119,7 +121,8 @@ async def _on_http_error(request: Request, exc: Exception) -> Response:
 # Domain failures that mean a dependency is down or busy, or that the request's premise is
 # stale (a Setup plan Anki no longer has), names nothing (a Capture not in Anki), or is unmet
 # (a write while Setup isn't ready, AD-19; a field change whose Sync didn't end OK, AD-17), or
-# a body FastAPI can't check itself (a Save's `item` JSON part), not a fault in the server
+# a body FastAPI can't check itself (a Save's `item` JSON part), or the language model upstream
+# failed (502), not a fault in the server
 _APP_ERROR_STATUS = {
     ErrorCode.VALIDATION_FAILED: 422,
     ErrorCode.ANKI_UNAVAILABLE: 503,
@@ -128,6 +131,8 @@ _APP_ERROR_STATUS = {
     ErrorCode.SETUP_REQUIRED: 409,
     ErrorCode.SYNC_REQUIRED: 409,
     ErrorCode.NOT_FOUND: 404,
+    ErrorCode.LLM_FAILED: 502,
+    ErrorCode.LLM_INVALID_OUTPUT: 502,
 }
 
 
@@ -279,9 +284,14 @@ def _render_shell(version: str) -> str:
 
 
 def create_app(
-    settings: Settings, *, anki_store: AnkiStore | None = None, clock: Clock | None = None
+    settings: Settings,
+    *,
+    anki_store: AnkiStore | None = None,
+    llm: Llm | None = None,
+    clock: Clock | None = None,
 ) -> FastAPI:
-    """The app. Builds the AnkiConnect adapter from settings unless `anki_store` is given.
+    """The app. Builds the AnkiConnect adapter from settings unless `anki_store` is given, and
+    the OpenRouter adapter unless `llm` is given.
 
     `clock` times the Sync schedule (real time unless given). Dev mode never Syncs.
     """
@@ -303,6 +313,13 @@ def create_app(
             migrations=build_migrations(settings.anki_prefix),
         )
 
+    openrouter: OpenRouterLlm | None = None
+    if llm is None:
+        openrouter = OpenRouterLlm(
+            settings.openrouter_api_key.get_secret_value(), settings.openrouter_models
+        )
+        llm = openrouter
+
     # Features take `sync` as the SyncRequester port (Setup below); none imports it (AD-1, AD-13)
     sync = SyncService(anki_store, enabled=not settings.dev)
     scheduler = SyncScheduler(sync, clock, enabled=not settings.dev)
@@ -319,8 +336,12 @@ def create_app(
                 await setup.aclose()
                 await sync.aclose()
             finally:
-                if anki_client is not None:
-                    await anki_client.aclose()
+                try:
+                    if anki_client is not None:
+                        await anki_client.aclose()
+                finally:
+                    if openrouter is not None:
+                        await openrouter.aclose()
 
     app = FastAPI(
         title="LanguageLab",
@@ -353,7 +374,7 @@ def create_app(
     )
     app.include_router(setup_router(setup))
     app.include_router(captures_router(CaptureService(anki_store)))
-    app.include_router(drafts_router(DraftService()))
+    app.include_router(drafts_router(DraftService(llm)))
     app.include_router(items_router(ItemService(anki_store)))
 
     app.mount(f"/static/{version}", StaticFiles(directory=str(_STATIC)), name="static")

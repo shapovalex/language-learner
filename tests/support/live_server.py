@@ -12,6 +12,7 @@ import uvicorn
 from language_lab.app import create_app
 from language_lab.settings import Settings
 from tests.fakes.anki_store import FakeAnkiStore
+from tests.fakes.llm import FakeLlm
 
 STARTUP_TIMEOUT_S = 10.0
 
@@ -46,8 +47,9 @@ def closed_port(host: str = "127.0.0.1") -> int:
 def run_live_server(settings: Settings, sock: socket.socket) -> Iterator[LiveServer]:
     """Serve `create_app(settings)` on `sock` until the block exits.
 
-    The AnkiStore is the in-memory fake (all checks reachable), so no E2E test reaches the
-    developer's real AnkiConnect. A test that needs another state stubs the API in the browser.
+    The AnkiStore is the in-memory fake (all checks reachable), and the Llm a `FakeLlm`, so no
+    E2E test reaches the developer's real AnkiConnect or OpenRouter. A test that needs another
+    state stubs the API in the browser.
 
     `settings.port` must equal the socket's port: the host allow-list (AD-16) is built
     from settings, so a mismatch rejects every request (R-14).
@@ -55,7 +57,9 @@ def run_live_server(settings: Settings, sock: socket.socket) -> Iterator[LiveSer
     if sock.getsockname()[1] != settings.port:
         raise ValueError("settings.port must match the bound socket")
     config = uvicorn.Config(
-        create_app(settings, anki_store=FakeAnkiStore()), log_config=None, access_log=False
+        create_app(settings, anki_store=FakeAnkiStore(), llm=FakeLlm()),
+        log_config=None,
+        access_log=False,
     )
     server = uvicorn.Server(config)
     thread = threading.Thread(target=server.run, kwargs={"sockets": [sock]}, daemon=True)

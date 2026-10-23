@@ -28,10 +28,6 @@ from tests.support.drafts import (
     generated,
 )
 
-pytestmark = pytest.mark.skip(
-    reason="red phase (story 4.2): un-skip with the generation models in domain/items.py"
-)
-
 FIELDS = {
     "vocabulary": {
         "russian",
