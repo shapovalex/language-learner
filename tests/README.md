@@ -61,7 +61,9 @@ tests/
     ports.py           public_methods(): a port's, fake's or adapter's public functions with signatures (AD-1)
     recorder.py        run_recorder_status(), run_recorder() (serve), run_recorder_anki(), run_recorder_anki_args() (anki with extra args, e.g. probe/sync)
     items.py           Item test data: VOCABULARY / SENTENCE ItemContent on the wire, content() (validated ItemContent), keep() (the audio intent), stored_fields() (a new note's fields after Save), NOTE_TYPES
-    items_screen.py    the Make an Item pane and Draft editor: copy, locators (pane, choice, write_it_myself, editor, field by label, save_button, banner), item_part() (the Save's multipart item JSON)
+    items_screen.py    the Make an Item pane and Draft editor: copy, locators (pane, choice, choose(), write_it_myself, generate_draft, generation_context, editor, field by label, save_button, banner), GENERATION_FAILED alert copy per code, item_part() (the Save's multipart item JSON)
+    drafts.py          generated Draft test data: GENERATED_VOCABULARY / GENERATED_SENTENCE (the model's reply on the wire), drafted() (the Draft's ItemContent), generated() (validated), fake_llm(), drafts_client() (app over a store and an Llm), generate_body()
+    openrouter.py      OpenRouter Chat Completions as the tests see it: completion() / answer() (hand-built replies), OpenRouterReplay (httpx MockTransport answering in order; records .sent), the failure kinds, prompt_text()
     hosts.py           app_client() (allowed Host + same-origin Origin, AD-16), local_hosts(), TAILNET_HOST, FOREIGN_HOST, recorded Tailscale inputs
     viewports.py       PHONE 390 / TABLET 820 / DESKTOP 1280
     fixtures/          pytest fixtures, one concern per module

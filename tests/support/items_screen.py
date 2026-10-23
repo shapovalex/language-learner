@@ -1,5 +1,5 @@
 """The Make an Item pane and the Draft editor: copy, locators and the Save request, shared by
-the Item E2E tests (tests/e2e/test_make_an_item.py).
+the Item E2E tests (tests/e2e/test_make_an_item.py, tests/e2e/test_generate_draft.py).
 
 The pane is a region named "Make an Item" in Capture detail; the Draft editor is a form named
 "Draft" at /captures/<captureId>/new. Its fields are found by the start of their label, so an
@@ -18,6 +18,7 @@ from playwright.sync_api import Locator, Page, Request
 from tests.support.captures_screen import main
 
 BLANK_DRAFT_API = "/api/drafts/blank"
+GENERATE_API = "/api/drafts/generate"
 ITEMS_API = "/api/items/"
 
 MAKE_AN_ITEM = "Make an Item"
@@ -26,6 +27,20 @@ CUSTOM_VALUE = "Custom value"
 WRITE_IT_MYSELF = "Write it myself"
 CHOOSE_REASON = "Choose a Language and Category."
 CUSTOM_REASON = "Enter the custom value."
+GENERATE_DRAFT = "Generate Draft"
+GENERATION_CONTEXT = "Generation context · optional · used once, never saved"
+WRITING = "Writing your Draft…"
+TRY_AGAIN = "Try again"
+CLEAR = "Clear"
+
+# A failed generation's inline alert per code: title, body (EXPERIENCE.md State Patterns)
+GENERATION_FAILED = {
+    "llm_failed": ("Couldn't reach the model", "Your Capture is unchanged."),
+    "llm_invalid_output": (
+        "Couldn't generate a Draft",
+        "The model's answer failed the checks twice. Your Capture is unchanged.",
+    ),
+}
 
 DRAFT_CHIP = "Draft — not saved yet"
 SAVE_TO_ANKI = "Save to Anki"
@@ -80,6 +95,24 @@ def write_it_myself(page: Page) -> Locator:
     return pane(page).get_by_role("button", name=WRITE_IT_MYSELF, exact=True)
 
 
+def generate_draft(page: Page) -> Locator:
+    return pane(page).get_by_role("button", name=GENERATE_DRAFT, exact=True)
+
+
+def generation_context(page: Page) -> Locator:
+    """The pane's Generation context field, by the start of its label."""
+    return pane(page).get_by_role("textbox", name=re.compile(r"^Generation context"))
+
+
+def choose(page: Page, language: str, category: str, custom: str | None = None) -> None:
+    """Pick the text, Language and Category in the pane."""
+    if custom is not None:
+        pane(page).get_by_role("radio", name=CUSTOM_VALUE, exact=True).check()
+        pane(page).get_by_role("textbox", name=CUSTOM_VALUE).fill(custom)
+    choice(page, language).click()
+    choice(page, category).click()
+
+
 def editor(page: Page) -> Locator:
     return main(page).get_by_role("form", name="Draft", exact=True)
 
@@ -96,6 +129,10 @@ def save_button(page: Page) -> Locator:
 
 def is_blank_draft(request: Request) -> bool:
     return request.method == "POST" and request.url.endswith(BLANK_DRAFT_API)
+
+
+def is_generate(request: Request) -> bool:
+    return request.method == "POST" and request.url.endswith(GENERATE_API)
 
 
 def is_item_save(request: Request) -> bool:

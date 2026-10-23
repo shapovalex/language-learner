@@ -46,6 +46,7 @@ from tests.support.items_screen import (
     VOCABULARY_FIELDS,
     banner,
     choice,
+    choose,
     editor,
     field,
     from_capture,
@@ -76,15 +77,6 @@ def open_capture(page: Page, viewport: ViewportSize) -> None:
     stub_api_json(page, API, {"captures": [CAPTURE]}, method="GET")
     stub_api_json(page, f"{API}/{CAPTURE_ID}", CAPTURE, method="GET")
     page.goto(f"{CAPTURES_PATH}/{CAPTURE_ID}")
-
-
-def choose(page: Page, language: str, category: str, custom: str | None = None) -> None:
-    """Pick the text, Language and Category in the pane."""
-    if custom is not None:
-        pane(page).get_by_role("radio", name=CUSTOM_VALUE, exact=True).check()
-        pane(page).get_by_role("textbox", name=CUSTOM_VALUE).fill(custom)
-    choice(page, language).click()
-    choice(page, category).click()
 
 
 def write_blank_draft(page: Page, language: str, category: str, custom: str | None = None) -> str:

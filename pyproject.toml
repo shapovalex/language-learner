@@ -37,6 +37,10 @@ target-version = "py314"
 [tool.ruff.lint]
 select = ["E", "F", "W", "I", "B", "UP"]
 
+[tool.ruff.lint.isort]
+# Named, so a red-phase test importing a module that doesn't exist yet sorts as it will later
+known-first-party = ["language_lab", "tests"]
+
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 addopts = [
