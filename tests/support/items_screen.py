@@ -1,10 +1,18 @@
-"""The Make an Item pane and the Draft editor: copy, locators and the Save request, shared by
-the Item E2E tests (tests/e2e/test_make_an_item.py, tests/e2e/test_generate_draft.py).
+"""The Make an Item pane, the Draft editor, the duplicate sheet and Item detail: copy, locators
+and the requests, shared by the Item E2E tests (tests/e2e/test_make_an_item.py,
+tests/e2e/test_generate_draft.py, tests/e2e/test_duplicate_warning.py,
+tests/e2e/test_item_detail.py).
 
 The pane is a region named "Make an Item" in Capture detail; the Draft editor is a form named
 "Draft" at /captures/<captureId>/new. Its fields are found by the start of their label, so an
 "optional" note in the label doesn't matter. `item_part(request)` reads the `item` JSON part of
 a Save's multipart body.
+
+The duplicate sheet (S-Duplicate, story 4.3) is a dialog named by its title, over the Draft
+editor. `stub_duplicates(page, matches)` answers the duplicate read with `matches`, whatever its
+query string; the Item E2E tests stub it before every Save, since the live server's fake keeps
+the Items earlier tests saved. `duplicate_query(request)` is a check's query parameters. Item
+detail (S-ItemDetail) is at /<lang>/items/<itemId>.
 """
 
 import json
@@ -12,8 +20,9 @@ import re
 from email.parser import BytesParser
 from email.policy import HTTP
 from typing import Any
+from urllib.parse import parse_qsl, urlparse
 
-from playwright.sync_api import Locator, Page, Request
+from playwright.sync_api import Locator, Page, Request, Route
 
 from tests.support.captures_screen import main
 
@@ -148,3 +157,72 @@ def item_part(request: Request) -> dict[str, Any]:
         if part.get_param("name", header="content-disposition") == "item":
             return json.loads(part.get_payload(decode=True))
     raise AssertionError("the Save sent no item part")
+
+
+# The duplicate sheet (EXPERIENCE.md Key strings: Duplicate)
+DUPLICATE_TITLE = "You already have an Item with this text"
+DUPLICATE_BODY = "Nothing has been saved yet. You can still create a second Item."
+OPEN_EXISTING = "Open existing"
+CANCEL = "Cancel"
+CREATE_ANYWAY = "Create anyway"
+
+# Item detail (EXPERIENCE.md Key strings: Item detail; the Capture detail's not-in-Anki copy)
+ITEM_NOT_IN_ANKI = "This Item isn't in Anki."
+LOADING_ITEM = "Loading Item…"
+
+
+def duplicate_overline(language: str, category: str) -> str:
+    """The sheet's overline, by the Language's and Category's names (S-Duplicate)."""
+    return f"Possible duplicate · {language} · {category}"
+
+
+def duplicates_api(language: str = "en") -> str:
+    return f"/api/items/{language}/duplicates"
+
+
+def item_api(language: str, item_id: str) -> str:
+    return f"/api/items/{language}/{item_id}"
+
+
+def item_detail_path(language: str, item_id: str) -> str:
+    return f"/{language}/items/{item_id}"
+
+
+def items_back_link(language: str) -> str:
+    """Item detail's back link, by the Language's name (S-ItemDetail)."""
+    return f"‹ {language} Items"
+
+
+def duplicate_sheet(page: Page) -> Locator:
+    """The sheet, anywhere in the page: an overlay may sit outside `main`."""
+    return page.get_by_role("dialog", name=DUPLICATE_TITLE, exact=True)
+
+
+def sheet_button(page: Page, name: str) -> Locator:
+    return duplicate_sheet(page).get_by_role("button", name=name, exact=True)
+
+
+def is_duplicate_check(request: Request) -> bool:
+    return request.method == "GET" and urlparse(request.url).path.endswith("/duplicates")
+
+
+def duplicate_query(request: Request) -> dict[str, str]:
+    """A duplicate check's query parameters, decoded."""
+    return dict(parse_qsl(urlparse(request.url).query))
+
+
+def stub_duplicates(page: Page, matches: list[dict[str, Any]], language: str = "en") -> None:
+    """Answer every duplicate read of `language` with `{matches}`, whatever its query string.
+
+    A later stub wins over an earlier one (Playwright runs the newest route first).
+    """
+    pattern = re.compile(rf"/api/items/{language}/duplicates(\?.*)?$")
+
+    def handle(route: Route) -> None:
+        if route.request.method != "GET":
+            route.fallback()
+            return
+        body = json.dumps({"matches": matches})
+        route.fulfill(status=200, content_type="application/json", body=body)
+
+    page.route(pattern, handle)

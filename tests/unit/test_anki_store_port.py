@@ -3,7 +3,8 @@
 The tracer declared `reachable()` and `sync()`; story 2.6 adds `setup_preview()`, story 2.7
 `setup_apply()` and story 2.8 `setup_state()`; story 2.11 gives `setup_apply()` its `repairs`,
 story 3.1 adds `create_capture()`, story 3.2 `list_captures()` and `get_capture()`, story 3.3
-`delete_capture()`, and story 4.1 `save_item()`.
+`delete_capture()`, story 4.1 `save_item()`, and story 4.3 `item_candidates()` and
+`get_item()`.
 Later entries add methods to the port, the fake in tests/fakes/ and the AnkiConnect adapter
 together, and these tests keep them aligned.
 """
@@ -108,3 +109,31 @@ def test_anki_store_port_adds_create_capture_and_the_fake_matches() -> None:
     assert {"create_capture": fake.get("create_capture")} == port
     adapter = public_methods(AnkiConnectStore)
     assert {"create_capture": adapter.get("create_capture")} == port
+
+
+@pytest.mark.p1
+@pytest.mark.skip(reason="red phase (story 4.3): un-skip with item_candidates and get_item")
+def test_anki_store_port_adds_the_item_reads_and_the_fake_matches() -> None:
+    """AC-5: story 4.3 adds `item_candidates(language, category) -> list[Item]` and
+    `get_item(language, item_id) -> Item`; the fake and the adapter match. Story 2.6's test
+    above then lists both in the exact set of port methods.
+    """
+    from language_lab.domain.catalog import Category, Language
+    from language_lab.domain.items import Item
+
+    reads = {name: public_methods(AnkiStore).get(name) for name in ("item_candidates", "get_item")}
+
+    assert {name: public_methods(FakeAnkiStore).get(name) for name in reads} == reads
+    assert {name: public_methods(AnkiConnectStore).get(name) for name in reads} == reads
+    assert inspect.iscoroutinefunction(AnkiStore.item_candidates)
+    assert inspect.iscoroutinefunction(AnkiStore.get_item)
+    assert inspect.get_annotations(AnkiStore.item_candidates, eval_str=True) == {
+        "language": Language,
+        "category": Category,
+        "return": list[Item],
+    }
+    assert inspect.get_annotations(AnkiStore.get_item, eval_str=True) == {
+        "language": Language,
+        "item_id": str,
+        "return": Item,
+    }

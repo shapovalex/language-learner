@@ -56,6 +56,7 @@ from tests.support.items_screen import (
     new_item_path,
     pane,
     save_button,
+    stub_duplicates,
     write_it_myself,
 )
 from tests.support.navigation import path_pattern
@@ -72,10 +73,13 @@ WIDTHS = {"phone": viewports.PHONE, "desktop": viewports.DESKTOP}
 
 
 def open_capture(page: Page, viewport: ViewportSize) -> None:
-    """Capture detail for `CAPTURE`, with the list and detail stubbed (GET only)."""
+    """Capture detail for `CAPTURE`, with the list and detail stubbed (GET only), and no
+    duplicate for any Save (story 4.3: the live server's fake keeps earlier tests' Items).
+    """
     page.set_viewport_size(viewport)
     stub_api_json(page, API, {"captures": [CAPTURE]}, method="GET")
     stub_api_json(page, f"{API}/{CAPTURE_ID}", CAPTURE, method="GET")
+    stub_duplicates(page, [])
     page.goto(f"{CAPTURES_PATH}/{CAPTURE_ID}")
 
 
