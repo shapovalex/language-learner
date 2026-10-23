@@ -147,3 +147,19 @@ export function saveItem(lang, item) {
   body.append("item", JSON.stringify(item));
   return request(`/api/items/${encodeURIComponent(lang)}`, { method: "POST", body });
 }
+
+// The duplicate check before a Save (FR-19, AD-12): `{matches: [{itemId, ...ItemContent}]}`,
+// the Items of `lang` and `category` whose normalized Target equals `target`'s, without the
+// Draft's own `itemId`
+export function findDuplicates(lang, { category, target, itemId }) {
+  const params = new URLSearchParams({ category, target });
+  if (itemId) params.set("itemId", itemId);
+  const query = params.toString();
+  return request(`/api/items/${encodeURIComponent(lang)}/duplicates?${query}`);
+}
+
+// One Item as Anki holds it now (FR-22): `{itemId, ...ItemContent}`; 404 `not_found` when
+// that Language has no Item with the ItemId
+export function getItem(lang, itemId) {
+  return request(`/api/items/${encodeURIComponent(lang)}/${encodeURIComponent(itemId)}`);
+}

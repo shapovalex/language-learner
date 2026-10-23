@@ -5,9 +5,9 @@ from collections.abc import Collection
 from datetime import datetime
 
 from language_lab.domain.captures import Capture
-from language_lab.domain.catalog import Language
+from language_lab.domain.catalog import Category, Language
 from language_lab.domain.errors import AppError, ErrorCode
-from language_lab.domain.items import AudioIntent, ItemContent
+from language_lab.domain.items import AudioIntent, Item, ItemContent
 from language_lab.domain.setup import SetupPreview, SetupState
 from language_lab.domain.setup import plan_hash as _plan_hash
 from language_lab.domain.sync import SyncOutcome
@@ -42,6 +42,10 @@ class FakeAnkiStore:
 
     `save_item()` is create-or-update by ItemId over `items`, each held as `(Language,
     ItemContent)` (AD-20). It raises `anki_busy` or `anki_unavailable` as the other methods do.
+
+    `item_candidates()` returns the `items` of one Language and Category, in insertion order (as
+    the adapter returns note order). `get_item()` returns the one of that Language or raises
+    `not_found`. Both raise `anki_busy` or `anki_unavailable` as the other methods do.
     """
 
     def __init__(
@@ -164,6 +168,27 @@ class FakeAnkiStore:
         if not self.available:
             raise AppError(ErrorCode.ANKI_UNAVAILABLE)
         self.items[item_id] = (language, content)
+
+    async def item_candidates(self, language: Language, category: Category) -> list[Item]:
+        if self.busy:
+            raise AppError(ErrorCode.ANKI_BUSY)
+        if not self.available:
+            raise AppError(ErrorCode.ANKI_UNAVAILABLE)
+        return [
+            Item(item_id, content)
+            for item_id, (stored_language, content) in self.items.items()
+            if stored_language is language and content.category is category
+        ]
+
+    async def get_item(self, language: Language, item_id: str) -> Item:
+        if self.busy:
+            raise AppError(ErrorCode.ANKI_BUSY)
+        if not self.available:
+            raise AppError(ErrorCode.ANKI_UNAVAILABLE)
+        stored = self.items.get(item_id)
+        if stored is None or stored[0] is not language:
+            raise AppError(ErrorCode.NOT_FOUND)
+        return Item(item_id, stored[1])
 
     async def sync(self) -> SyncOutcome:
         self.sync_calls += 1

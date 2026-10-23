@@ -34,11 +34,6 @@ from tests.support.fixtures.logs import LogCapture
 from tests.support.fixtures.settings import SettingsFactory
 from tests.support.hosts import client_over
 
-pytestmark = pytest.mark.skip(
-    reason="red phase (story 4.3): un-skip with the duplicate read and the Item read in "
-    "features/items"
-)
-
 
 def duplicates_path(language: str = "en") -> str:
     return f"/api/items/{language}/duplicates"

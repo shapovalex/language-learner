@@ -29,8 +29,6 @@ from tests.support.items_screen import (
 from tests.support.navigation import screen_heading
 from tests.support.network import stub_api_error, stub_api_json
 
-pytestmark = pytest.mark.skip(reason="red phase (story 4.3): un-skip with the Item detail screen")
-
 ITEM_ID = "3f6b9c2d-1a4e-4b7c-9d8e-2c5a7f1b0e3d"
 
 VOCABULARY_ITEM = {

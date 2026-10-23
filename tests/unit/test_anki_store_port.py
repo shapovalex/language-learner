@@ -72,6 +72,8 @@ def test_anki_store_port_adds_the_setup_preview_read_and_the_fake_matches() -> N
         "get_capture",
         "delete_capture",
         "save_item",
+        "item_candidates",
+        "get_item",
     }
     assert inspect.iscoroutinefunction(AnkiStore.setup_preview)
     assert inspect.get_annotations(AnkiStore.setup_preview, eval_str=True)["return"] is SetupPreview
@@ -112,7 +114,6 @@ def test_anki_store_port_adds_create_capture_and_the_fake_matches() -> None:
 
 
 @pytest.mark.p1
-@pytest.mark.skip(reason="red phase (story 4.3): un-skip with item_candidates and get_item")
 def test_anki_store_port_adds_the_item_reads_and_the_fake_matches() -> None:
     """AC-5: story 4.3 adds `item_candidates(language, category) -> list[Item]` and
     `get_item(language, item_id) -> Item`; the fake and the adapter match. Story 2.6's test

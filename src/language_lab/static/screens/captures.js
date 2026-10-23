@@ -22,13 +22,17 @@
 // module's memory (AD-13), so that route with no Draft in memory (a reload, a direct visit) shows
 // the Capture instead, and the screen is dirty only once a Draft has values. Save to Anki is POST
 // /api/items/<lang>; it returns to the Capture with the success banner, and a failed Save keeps
-// the Draft and its ItemId, so Save again updates rather than duplicates (AD-20).
+// the Draft and its ItemId, so Save again updates rather than duplicates (AD-20). Save to Anki
+// first asks GET /api/items/<lang>/duplicates (story 4.3): a match opens the duplicate sheet,
+// whose Create anyway saves, Cancel returns to the editor, and Open existing goes, once the
+// router's unsaved alert allows, to the match's Item detail.
 
 import {
   blankDraft,
   createCapture,
   deleteCapture,
   errorMessage,
+  findDuplicates,
   generateDraft,
   getCapture,
   isApiError,
@@ -36,11 +40,12 @@ import {
   saveItem,
 } from "../api.js";
 import { element, skeleton } from "../dom.js";
-import { confirmDestructive, navigate, redirect, setDirty } from "../router.js";
+import { confirmDestructive, confirmLeave, navigate, redirect, setDirty } from "../router.js";
 import {
   blankValues,
   chosenText,
   draftEditor,
+  duplicateSheet,
   generatedValues,
   generatingScreen,
   itemPart,
@@ -222,6 +227,8 @@ export function mount(root, params = {}) {
   // while it's on screen. A generated one has `values` null and `generation` set until its reply
   let draft = null;
   let editing = false;
+  // The open duplicate sheet's <dialog>, over the Draft editor
+  let sheet = null;
 
   function withSaved(captures) {
     const ids = new Set(list.saved.map((c) => c.captureId));
@@ -463,6 +470,7 @@ export function mount(root, params = {}) {
   }
 
   function closeEditor() {
+    closeSheet();
     draft = null;
     editing = false;
     draftRoot.replaceChildren();
@@ -474,6 +482,8 @@ export function mount(root, params = {}) {
     detailPane.querySelector(".make-item-heading")?.focus();
   }
 
+  // Save to Anki: the duplicate check first (FR-19, decided 2026-10-22), then the Save. After
+  // Create anyway the check is skipped while the Target is the one the user accepted
   async function saveDraft() {
     const saving = draft;
     if (!saving || saving.busy) return;
@@ -481,6 +491,29 @@ export function mount(root, params = {}) {
     saving.error = null;
     renderEditor();
     const item = itemPart(saving);
+    if (saving.createdAnyway !== item.target) {
+      let matches;
+      try {
+        ({ matches } = await findDuplicates(saving.language, {
+          category: saving.category,
+          target: item.target,
+          itemId: saving.itemId,
+        }));
+      } catch (error) {
+        if (!mounted || draft !== saving) return;
+        saving.busy = false;
+        saving.error = error;
+        renderEditor({ focus: "save" });
+        return;
+      }
+      if (!mounted || draft !== saving) return;
+      if (matches.length > 0) {
+        saving.busy = false;
+        renderEditor();
+        openSheet(saving, matches);
+        return;
+      }
+    }
     try {
       await saveItem(saving.language, item);
     } catch (error) {
@@ -493,6 +526,41 @@ export function mount(root, params = {}) {
     if (!mounted || draft !== saving) return;
     setDirty(null);
     navigate(capturePath(saving.captureId), { flash: savedFlash(item.target) });
+  }
+
+  function openSheet(saving, matches) {
+    const built = duplicateSheet(saving, matches, {
+      onOpen: (match) => openExisting(saving, match),
+      onCancel: () => {
+        closeSheet();
+        draftRoot.querySelector('button[type="submit"]')?.focus();
+      },
+      onCreate: () => {
+        closeSheet();
+        saving.createdAnyway = saving.values.target;
+        saveDraft();
+      },
+    });
+    sheet = built.dialog;
+    root.append(sheet);
+    sheet.showModal();
+    built.primary.focus();
+  }
+
+  function closeSheet() {
+    if (!sheet) return;
+    if (sheet.open) sheet.close();
+    sheet.remove();
+    sheet = null;
+  }
+
+  // Open existing: the router asks about the Draft (AD-13); Keep editing leaves the sheet open
+  async function openExisting(saving, match) {
+    if (!(await confirmLeave())) return;
+    if (!mounted || draft !== saving) return;
+    closeSheet();
+    setDirty(null);
+    navigate(`/${saving.language}/items/${encodeURIComponent(match.itemId)}`);
   }
 
   function deleteButton(layout) {
@@ -681,6 +749,7 @@ export function mount(root, params = {}) {
   // The router's unmount, carrying `update` so the screen stays mounted within its routes
   const unmount = () => {
     mounted = false;
+    closeSheet();
     root.replaceChildren();
   };
   // The route moved within Captures: open another Capture, or none

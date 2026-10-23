@@ -23,6 +23,11 @@ type, and then either updates its fields or adds it in the AD-6 keep order: the 
 Pronunciation deck, then cards 0-2 to their Study decks. Every write goes through
 `client.invoke`, so the guard and the gate apply. A failed card move leaves the cards in the
 Pronunciation deck for Setup to report; a retry finds the note and updates it (AD-20).
+
+The Item reads (story 4.3) are reads through `client.invoke`, under one lock hold each, and not
+gated (AD-19). `item_candidates` sends only the exact scope of one Language/Category note type;
+`get_item` the scopes of both Categories of the Language, with the ItemId matched in Python
+(AD-4). Each note's fields are decoded through the codec, the alternatives split here (AD-10).
 """
 
 import asyncio
@@ -31,7 +36,12 @@ from datetime import UTC, datetime
 from typing import Any
 
 from language_lab.adapters.anki.client import AnkiConnectClient
-from language_lab.adapters.anki.codec import decode_field, encode_field, join_alternatives
+from language_lab.adapters.anki.codec import (
+    decode_field,
+    encode_field,
+    join_alternatives,
+    split_alternatives,
+)
 from language_lab.adapters.anki.guard import is_int
 from language_lab.adapters.anki.lock import AnkiLock
 from language_lab.adapters.anki.manifest import PRONOUNCE_ORD, STUDY_ORDS, Manifest
@@ -40,9 +50,15 @@ from language_lab.adapters.anki.query import note_query
 from language_lab.adapters.anki.setup_apply import run_plan, run_repairs
 from language_lab.adapters.anki.setup_gate import SCHEMA_VERSION_FIELD, SetupGate, read_preview
 from language_lab.domain.captures import Capture
-from language_lab.domain.catalog import Language
+from language_lab.domain.catalog import Category, Language
 from language_lab.domain.errors import AppError, ErrorCode
-from language_lab.domain.items import AudioIntent, ItemContent, VocabularyContent
+from language_lab.domain.items import (
+    AudioIntent,
+    Item,
+    ItemContent,
+    SentenceContent,
+    VocabularyContent,
+)
 from language_lab.domain.setup import PlanAction, SetupPreview, SetupState, checked_repairs
 from language_lab.domain.setup import plan_hash as _plan_hash
 from language_lab.domain.sync import SyncOutcome
@@ -103,6 +119,45 @@ def _content_fields(content: ItemContent) -> dict[str, str]:
     else:
         fields["Note"] = content.note
     return fields
+
+
+# The optional note fields of each Category, by ItemContent field name (manifest.py)
+_OPTIONAL_FIELDS = {
+    Category.VOCABULARY: {
+        "hint": "Hint",
+        "part_of_speech": "PartOfSpeech",
+        "grammar": "Grammar",
+        "example": "Example",
+        "example_russian": "ExampleRussian",
+        "mnemonic": "Mnemonic",
+    },
+    Category.SENTENCE: {"hint": "Hint", "note": "Note"},
+}
+
+
+def _optional(info: dict[str, Any], name: str) -> str:
+    """Field `name` of one `notesInfo` entry, decoded; `""` when the note lacks it."""
+    fields = info.get("fields")
+    if isinstance(fields, dict) and name not in fields:
+        return ""
+    return _field(info, name)
+
+
+def _stored_item(info: dict[str, Any], category: Category) -> Item:
+    """The Item a `notesInfo` entry holds: the inverse of `_content_fields`.
+
+    The content is built without validation: a note edited in Anki (a blank Russian meaning,
+    say) still reads back as it is, rather than failing the whole read.
+    """
+    model = VocabularyContent if category is Category.VOCABULARY else SentenceContent
+    content = model.model_construct(
+        category=category,
+        target=_field(info, "Target"),
+        russian=_field(info, "Russian"),
+        russian_alternatives=split_alternatives(_optional(info, "RussianAlternatives")),
+        **{key: _optional(info, name) for key, name in _OPTIONAL_FIELDS[category].items()},
+    )
+    return Item(_field(info, _ITEM_ID).strip(), content)
 
 
 def _encoded(fields: dict[str, str]) -> dict[str, str]:
@@ -329,6 +384,37 @@ class AnkiConnectStore:
                     await self._client.invoke(
                         "changeDeck", cards=[card_id], deck=manifest.card_deck(model, ord)
                     )
+
+    async def item_candidates(self, language: Language, category: Category) -> list[Item]:
+        """Every Item of the exact `language`/`category` note type scope, decoded, in note
+        order, under one lock hold. Raises `AppError(ANKI_UNAVAILABLE | ANKI_BUSY)`.
+        """
+        manifest = self._require_manifest()
+        model = manifest.item_note_type(language, category)
+        async with self._lock.hold():
+            infos = await self._note_infos(manifest, model)
+        return [_stored_item(info, category) for info in infos]
+
+    async def get_item(self, language: Language, item_id: str) -> Item:
+        """The Item of `language` whose decoded ItemId is `item_id` (matched in Python, AD-4),
+        from both Categories' exact scopes under one lock hold. Raises
+        `AppError(NOT_FOUND | ANKI_UNAVAILABLE | ANKI_BUSY)`.
+        """
+        manifest = self._require_manifest()
+        # Both scopes are always read, so the requests don't vary with where the Item is
+        async with self._lock.hold():
+            scopes = [
+                (
+                    category,
+                    await self._note_infos(manifest, manifest.item_note_type(language, category)),
+                )
+                for category in Category
+            ]
+        for category, infos in scopes:
+            for info in infos:
+                if _field(info, _ITEM_ID).strip() == item_id:
+                    return _stored_item(info, category)
+        raise AppError(ErrorCode.NOT_FOUND)
 
     async def _cards_by_ord(self, note_id: int) -> dict[int, int]:
         """Each card id of note `note_id` by its ord, from `notesInfo` and `cardsInfo`;

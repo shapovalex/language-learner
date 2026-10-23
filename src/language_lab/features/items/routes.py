@@ -1,14 +1,15 @@
-"""Items' HTTP routes, under /api/items."""
+"""Items' HTTP routes, under /api/items: Save, the duplicate read and the Item read."""
 
 import json
+import re
 from typing import Annotated, Any, Literal, TypedDict
 
-from fastapi import APIRouter, Form
+from fastapi import APIRouter, Form, Query
 from pydantic import BaseModel, Field, TypeAdapter, ValidationError
 
-from language_lab.domain.catalog import UUID4, Language
+from language_lab.domain.catalog import UUID4, Category, Language
 from language_lab.domain.errors import AppError, ErrorCode
-from language_lab.domain.items import AudioIntent, ItemContent
+from language_lab.domain.items import AudioIntent, Item, ItemContent
 from language_lab.features.items.service import ItemService
 
 _CONTENT = TypeAdapter(ItemContent)
@@ -38,6 +39,32 @@ def _parse(item: str) -> tuple[_SaveIntent, ItemContent]:
         raise AppError(ErrorCode.VALIDATION_FAILED) from None
 
 
+class MatchesBody(TypedDict):
+    matches: list[dict[str, Any]]
+
+
+def _body(item: Item) -> dict[str, Any]:
+    """An Item on the wire: `{itemId, ...ItemContent}`, flat like the Draft and the Save."""
+    return {"itemId": item.item_id, **item.content.model_dump(by_alias=True, mode="json")}
+
+
+def _duplicate_query(
+    category: str | None, target: str | None, item_id: str | None
+) -> tuple[Category, str, str | None]:
+    """The duplicate read's query as its Category, Target and ItemId (`itemId=` empty is none);
+    `VALIDATION_FAILED` when it isn't valid. No value is echoed (AD-15).
+    """
+    try:
+        parsed = Category(category or "")
+    except ValueError:
+        raise AppError(ErrorCode.VALIDATION_FAILED) from None
+    if target is None or not target.strip():
+        raise AppError(ErrorCode.VALIDATION_FAILED)
+    if item_id and re.fullmatch(UUID4, item_id) is None:
+        raise AppError(ErrorCode.VALIDATION_FAILED)
+    return parsed, target, item_id or None
+
+
 def items_router(service: ItemService) -> APIRouter:
     router = APIRouter(prefix="/api/items")
 
@@ -46,5 +73,24 @@ def items_router(service: ItemService) -> APIRouter:
         intent, content = _parse(item)
         await service.save(intent.item_id, lang, content, intent.audio)
         return {"itemId": intent.item_id}
+
+    # Declared before /{item_id}, which would otherwise take "duplicates" as an ItemId
+    @router.get("/{lang}/duplicates")
+    async def duplicates(
+        lang: Language,
+        category: str | None = None,
+        target: str | None = None,
+        item_id: Annotated[str | None, Query(alias="itemId")] = None,
+    ) -> MatchesBody:
+        parsed, text, own = _duplicate_query(category, target, item_id)
+        matches = await service.duplicates(lang, parsed, text, own)
+        return {"matches": [_body(item) for item in matches]}
+
+    @router.get("/{lang}/{item_id}")
+    async def get_item(lang: Language, item_id: str) -> dict[str, Any]:
+        # A malformed ItemId names no Item, so it never reaches the store
+        if re.fullmatch(UUID4, item_id) is None:
+            raise AppError(ErrorCode.NOT_FOUND)
+        return _body(await service.get(lang, item_id))
 
     return router

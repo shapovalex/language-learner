@@ -9,7 +9,7 @@
 // editor shows every field of the Category, editable, with the alternatives one per line, Clear
 // on a Vocabulary example, and Discard and Save to Anki (pinned to the bottom on the phone).
 // While the model writes, the generating screen shows the loading state, or the failure with
-// Try again.
+// Try again. Before a Save, a duplicate opens the duplicate sheet (S-Duplicate, story 4.3).
 
 import { element, skeleton } from "../dom.js";
 
@@ -28,6 +28,11 @@ const CUSTOM_REASON = "Enter the custom value.";
 const REQUIRED_REASON = "Enter the Target text and Russian meaning.";
 const COMMA_REASON = "An alternative can't contain a comma. Put each one on its own line.";
 const DRAFT_CHIP = "Draft — not saved yet";
+const DUPLICATE_TITLE = "You already have an Item with this text";
+const DUPLICATE_BODY = "Nothing has been saved yet. You can still create a second Item.";
+const OPEN_EXISTING = "Open existing";
+const CANCEL = "Cancel";
+const CREATE_ANYWAY = "Create anyway";
 const BACK = "‹ Capture";
 
 export const LANGUAGES = [
@@ -418,4 +423,74 @@ export function draftEditor(draft, { onEdit, onSave, onDiscard, alertFor }) {
 
   refresh();
   return { screen, title };
+}
+
+// The duplicate sheet (S-Duplicate; FR-19): a native modal <dialog>, a bottom sheet on the phone
+// and centered from tablet width up, naming the Draft's Language and Category and listing each
+// match. Open existing (the Primary, focused first) runs `onOpen(match)` with the first match;
+// Cancel, Esc and a tap on the backdrop run `onCancel()`; Create anyway runs `onCreate()`.
+// The caller shows it with `showModal()` and removes it.
+export function duplicateSheet(draft, matches, { onOpen, onCancel, onCreate }) {
+  const dialog = element("dialog", "duplicate-sheet");
+  const titleId = uniqueId("duplicate-title");
+  dialog.setAttribute("aria-labelledby", titleId);
+  const sheet = element("div", "duplicate-sheet-body");
+
+  const language = nameOf(LANGUAGES, draft.language);
+  const category = nameOf(CATEGORIES, draft.category);
+  const overline = element("p", "duplicate-overline", `Possible duplicate · ${language} · ${category}`);
+  const title = element("h2", "duplicate-title", DUPLICATE_TITLE);
+  title.id = titleId;
+
+  const list = element("ul", "duplicate-matches");
+  for (const match of matches) {
+    const card = element("li", "duplicate-match");
+    card.append(
+      element("p", "duplicate-match-target", match.target),
+      element("p", "duplicate-match-russian", match.russian),
+    );
+    list.append(card);
+  }
+
+  const actions = element("div", "duplicate-actions");
+  const open = element("button", "button button-primary", OPEN_EXISTING);
+  open.type = "button";
+  open.addEventListener("click", () => onOpen(matches[0]));
+  const cancel = element("button", "button button-secondary", CANCEL);
+  cancel.type = "button";
+  cancel.addEventListener("click", onCancel);
+  const create = element("button", "button-link duplicate-create", CREATE_ANYWAY);
+  create.type = "button";
+  create.addEventListener("click", onCreate);
+  actions.append(open, cancel, create);
+
+  sheet.append(
+    overline,
+    title,
+    list,
+    element("p", "duplicate-body", DUPLICATE_BODY),
+    actions,
+  );
+  dialog.append(sheet);
+  // Tab and Shift+Tab stay on the sheet's buttons: a modal <dialog> alone lets Tab reach the
+  // browser's own controls (EXPERIENCE.md Bottom sheet: focus trapped)
+  const buttons = [open, cancel, create];
+  dialog.addEventListener("keydown", (event) => {
+    if (event.key !== "Tab") return;
+    event.preventDefault();
+    const step = event.shiftKey ? -1 : 1;
+    const index = buttons.indexOf(document.activeElement);
+    const next = index === -1 ? 0 : (index + step + buttons.length) % buttons.length;
+    buttons[next].focus();
+  });
+  // Esc is Cancel
+  dialog.addEventListener("cancel", (event) => {
+    event.preventDefault();
+    onCancel();
+  });
+  // The body fills the dialog, so a click on the dialog itself is on the backdrop
+  dialog.addEventListener("click", (event) => {
+    if (event.target === dialog) onCancel();
+  });
+  return { dialog, primary: open };
 }

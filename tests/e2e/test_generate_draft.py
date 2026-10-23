@@ -69,7 +69,8 @@ def open_capture(page: Page, viewport: ViewportSize = viewports.DESKTOP) -> None
     page.set_viewport_size(viewport)
     stub_api_json(page, API, {"captures": [CAPTURE]}, method="GET")
     stub_api_json(page, f"{API}/{CAPTURE_ID}", CAPTURE, method="GET")
-    stub_duplicates(page, [])
+    for language in ("en", "fr"):
+        stub_duplicates(page, [], language)
     page.goto(f"{CAPTURES_PATH}/{CAPTURE_ID}")
 
 
