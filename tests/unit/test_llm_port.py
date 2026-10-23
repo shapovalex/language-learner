@@ -12,10 +12,6 @@ import pytest
 
 from tests.support.ports import public_methods
 
-pytestmark = pytest.mark.skip(
-    reason="red phase (story 4.2): un-skip with ports/llm.py, adapters/openrouter and the fake"
-)
-
 
 @pytest.mark.p1
 def test_the_llm_port_the_fake_and_the_openrouter_adapter_declare_generate() -> None:

@@ -51,10 +51,7 @@ from tests.support.items_screen import (
 )
 from tests.support.navigation import path_pattern
 from tests.support.network import HeldRoute, record_requests, stub_api_error, stub_api_json
-
-pytestmark = pytest.mark.skip(
-    reason="red phase (story 4.2): un-skip with Generate Draft in the Make an Item pane"
-)
+from tests.support.unsaved import unsaved_alert
 
 CAPTURE = capture("I'd rather not jump to conclusions.", "2026-10-22T21:14:00Z")
 CAPTURE_ID = CAPTURE["captureId"]
@@ -248,3 +245,60 @@ def test_the_generation_context_stays_in_the_screens_memory(page: Page) -> None:
     saved = item_part(sent.value)
     assert "generationContext" not in saved
     assert CONTEXT not in str(saved)
+
+
+@pytest.mark.p1
+def test_leaving_while_the_model_writes_asks_nothing_and_a_late_reply_opens_nothing(
+    page: Page,
+) -> None:
+    """AC-15: no Draft exists until the reply, so going back to the Capture while "Writing your
+    Draft…" shows raises no unsaved alert, and the reply that arrives after opens no editor.
+    """
+    open_capture(page)
+    held = HeldRoute(page, GENERATE_API, method="POST")
+    choose(page, "English", "Vocabulary")
+    generate_draft(page).click()
+    expect(main(page).get_by_role("status").filter(has_text=WRITING)).to_be_visible()
+
+    main(page).get_by_role("link", name="‹ Capture", exact=True).click()
+
+    expect(page).to_have_url(path_pattern(f"{CAPTURES_PATH}/{CAPTURE_ID}"))
+    expect(unsaved_alert(page)).to_have_count(0)
+    held.fulfill_json(draft_reply(), status=201)
+    expect(pane(page)).to_be_visible()
+    expect(editor(page)).to_have_count(0)
+    expect(page).to_have_url(path_pattern(f"{CAPTURES_PATH}/{CAPTURE_ID}"))
+
+
+@pytest.mark.p1
+def test_leaving_a_failed_generation_asks_nothing(page: Page) -> None:
+    """AC-17: a failed generation leaves no Draft, so going back to the Capture raises no
+    unsaved alert.
+    """
+    open_capture(page)
+    stub_api_error(page, GENERATE_API, status=502, code="llm_failed", method="POST")
+    choose(page, "English", "Vocabulary")
+    generate_draft(page).click()
+    expect(main(page).get_by_role("alert")).to_contain_text(GENERATION_FAILED["llm_failed"][0])
+
+    main(page).get_by_role("link", name="‹ Capture", exact=True).click()
+
+    expect(page).to_have_url(path_pattern(f"{CAPTURES_PATH}/{CAPTURE_ID}"))
+    expect(unsaved_alert(page)).to_have_count(0)
+    expect(pane(page)).to_be_visible()
+
+
+@pytest.mark.p1
+def test_the_generation_context_is_used_once(page: Page) -> None:
+    """AC-13: after the generated Draft is saved, the pane on the same Capture has an empty
+    Generation context, so the next Draft doesn't send it again.
+    """
+    open_capture(page)
+    stub_generated(page)
+    choose(page, "English", "Vocabulary")
+    generation_context(page).fill(CONTEXT)
+    generate_draft(page).click()
+    save_button(page).click()
+    expect(banner(page, TARGET)).to_be_visible()
+
+    expect(generation_context(page)).to_have_value("")

@@ -36,10 +36,6 @@ from tests.support.drafts import (
 from tests.support.fixtures.logs import LogCapture
 from tests.support.fixtures.settings import SettingsFactory
 
-pytestmark = pytest.mark.skip(
-    reason="red phase (story 4.2): un-skip with the generated Draft in features/drafts"
-)
-
 UUID4 = re.compile(r"[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}")
 
 DRAFTS = {
@@ -174,3 +170,28 @@ def test_the_generation_context_reaches_the_model_and_nothing_else(
     assert CONTEXT not in repr(store.items)
     assert CONTEXT not in log_capture.all_text
     assert VOCABULARY_TARGET not in log_capture.all_text
+
+
+@pytest.mark.p1
+def test_the_app_builds_the_openrouter_adapter_from_settings(
+    settings_factory: SettingsFactory, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """AC-10: with no Llm injected, `create_app` builds `OpenRouterLlm` from the OpenRouter key
+    and OPENROUTER_MODELS, in order.
+    """
+    import language_lab.app as app_module
+
+    built: list[tuple[str, list[str]]] = []
+
+    class Recording:
+        def __init__(self, api_key: str, models: list[str]) -> None:
+            built.append((api_key, list(models)))
+
+    monkeypatch.setattr(app_module, "OpenRouterLlm", Recording)
+    settings = settings_factory(
+        env={"OPENROUTER_API_KEY": "sk-or-test", "OPENROUTER_MODELS": "b/model, a/model"}
+    )
+
+    app_module.create_app(settings, anki_store=FakeAnkiStore())
+
+    assert built == [("sk-or-test", ["b/model", "a/model"])]

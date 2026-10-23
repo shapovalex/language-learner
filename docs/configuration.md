@@ -61,4 +61,30 @@ environment.
 
 This release reads and validates every key at startup. [Setup](setup.md) and Sync use the
 AnkiConnect endpoint. Setup's readiness checks only that the Azure key and region and the
-OpenRouter key are set. The features that call those services arrive in later releases.
+OpenRouter key are set. Generate Draft calls OpenRouter with `OPENROUTER_MODELS`; the features
+that call Azure arrive in later releases.
+
+## Evaluating a model
+
+Generate Draft sends every request to OpenRouter with `OPENROUTER_MODELS` as an ordered fallback
+list: the first model that answers writes the Draft. A model on the list must support
+strict JSON Schema output (OpenRouter's structured outputs), or no provider will take the
+request.
+
+Before you add a model to `OPENROUTER_MODELS`, or reorder the list so a different model comes
+first, evaluate that model against the fixtures below. Put it alone in `OPENROUTER_MODELS`,
+restart the app, and generate a Draft for each row from a Capture of its Target, with its
+Generation context. Keep the model only if every Draft passes; you can discard the Drafts
+without saving.
+
+| Language | Category | Target | Generation context | A good Draft has |
+| --- | --- | --- | --- | --- |
+| English | Vocabulary | jump to conclusions | Said about a hasty post-mortem of an outage. | One Russian meaning that fits the context, such as "делать поспешные выводы", not a list of dictionary senses; at most a few alternatives with no commas; one example sentence using the Target and its Russian translation; no mnemonic. |
+| English | Vocabulary | bank | The river overflowed its banks after the storm. | The Russian meaning of the riverside sense ("берег"), not the financial one. |
+| English | Sentence | I'd rather not jump to conclusions. | | A natural Russian translation of the whole sentence; no example; a note only if it says something useful about "I'd rather". |
+| French | Vocabulary | avoir du mal à | Heard in Montréal: "J'ai du mal à me réveiller." | One Russian meaning such as "с трудом удаётся", the grammar (avoir du mal à + infinitive), and a French example with its Russian translation. |
+| French | Sentence | Ne tirons pas de conclusions hâtives. | | A Russian translation of the whole sentence, and a hint in French that doesn't give the sentence away. |
+
+Every Russian meaning must be Russian, and every hint and example in the Target's Language. The
+model never writes the Target: the Draft keeps the text you chose. A model that fails any row,
+or answers "Couldn't generate a Draft" for one, stays out of the list.
