@@ -1,22 +1,17 @@
 """Drafts' HTTP routes, under /api/drafts."""
 
-from typing import Annotated, Any, TypedDict
+from typing import Any, TypedDict
 
 from fastapi import APIRouter
-from pydantic import AfterValidator, BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field
 
 from language_lab.domain.catalog import Category, Language
+from language_lab.domain.items import NonBlank
 from language_lab.features.drafts.service import DraftService
 
 
 class BlankBody(TypedDict):
     itemId: str
-
-
-def _not_blank(text: str) -> str:
-    if not text.strip():
-        raise ValueError("blank")
-    return text
 
 
 class GenerateRequest(BaseModel):
@@ -28,7 +23,7 @@ class GenerateRequest(BaseModel):
 
     language: Language = Field(strict=False)  # enums arrive as their JSON strings
     category: Category = Field(strict=False)
-    target: Annotated[str, AfterValidator(_not_blank)]
+    target: NonBlank
     generation_context: str = Field("", alias="generationContext")
 
 
@@ -42,10 +37,10 @@ def drafts_router(service: DraftService) -> APIRouter:
 
     @router.post("/generate", status_code=201)
     async def generate(body: GenerateRequest) -> dict[str, Any]:
-        item_id, content = await service.generate(
+        draft = await service.generate(
             body.language, body.category, body.target, body.generation_context
         )
         # Flat like the Save's `item` part: the ItemId beside ItemContent
-        return {"itemId": item_id, **content.model_dump(by_alias=True)}
+        return draft.wire()
 
     return router

@@ -9,7 +9,7 @@ from pydantic import BaseModel, Field, TypeAdapter, ValidationError
 
 from language_lab.domain.catalog import UUID4, Category, Language
 from language_lab.domain.errors import AppError, ErrorCode
-from language_lab.domain.items import AudioIntent, Item, ItemContent
+from language_lab.domain.items import AudioIntent, ItemContent
 from language_lab.features.items.service import ItemService
 
 _CONTENT = TypeAdapter(ItemContent)
@@ -41,11 +41,6 @@ def _parse(item: str) -> tuple[_SaveIntent, ItemContent]:
 
 class MatchesBody(TypedDict):
     matches: list[dict[str, Any]]
-
-
-def _body(item: Item) -> dict[str, Any]:
-    """An Item on the wire: `{itemId, ...ItemContent}`, flat like the Draft and the Save."""
-    return {"itemId": item.item_id, **item.content.model_dump(by_alias=True, mode="json")}
 
 
 def _duplicate_query(
@@ -84,13 +79,13 @@ def items_router(service: ItemService) -> APIRouter:
     ) -> MatchesBody:
         parsed, text, own = _duplicate_query(category, target, item_id)
         matches = await service.duplicates(lang, parsed, text, own)
-        return {"matches": [_body(item) for item in matches]}
+        return {"matches": [item.wire() for item in matches]}
 
     @router.get("/{lang}/{item_id}")
     async def get_item(lang: Language, item_id: str) -> dict[str, Any]:
         # A malformed ItemId names no Item, so it never reaches the store
         if re.fullmatch(UUID4, item_id) is None:
             raise AppError(ErrorCode.NOT_FOUND)
-        return _body(await service.get(lang, item_id))
+        return (await service.get(lang, item_id)).wire()
 
     return router

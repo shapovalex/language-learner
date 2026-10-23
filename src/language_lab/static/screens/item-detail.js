@@ -4,10 +4,9 @@
 // Category and each filled field; editing, regeneration and delete are epic-maintain-items'.
 
 import { errorMessage, getItem, isApiError } from "../api.js";
-import { element, skeleton } from "../dom.js";
+import { categoryName, languageName } from "../catalog.js";
+import { alertBox, element, skeleton, tryAgain } from "../dom.js";
 
-const LANGUAGE_NAMES = { en: "English", fr: "French" };
-const CATEGORY_NAMES = { vocabulary: "Vocabulary", sentence: "Sentence" };
 const LOADING = "Loading Item…";
 const NOT_IN_ANKI = "This Item isn't in Anki.";
 
@@ -44,7 +43,7 @@ function details(item) {
 export function mount(root, params) {
   let mounted = true;
   const screen = element("div", "item-detail");
-  const back = element("a", "back-link", `‹ ${LANGUAGE_NAMES[params.lang]} Items`);
+  const back = element("a", "back-link", `‹ ${languageName(params.lang)} Items`);
   back.href = `/${params.lang}/items`;
   const body = element("div", "item-detail-body");
   screen.append(back, body);
@@ -61,20 +60,20 @@ export function mount(root, params) {
         body.replaceChildren(element("p", "item-detail-empty", NOT_IN_ANKI));
         return;
       }
-      const alert = element("div", "inline-alert-error item-detail-alert");
-      alert.setAttribute("role", "alert");
-      const again = element("button", "button button-destructive", "Try again");
-      again.type = "button";
-      again.addEventListener("click", load);
-      alert.append(element("p", "item-detail-alert-body", errorMessage(error)), again);
-      body.replaceChildren(alert);
+      body.replaceChildren(
+        alertBox(
+          "item-detail-alert",
+          element("p", "item-detail-alert-body", errorMessage(error)),
+          tryAgain(load),
+        ),
+      );
       return;
     }
     if (!mounted) return;
     const header = element("div", "item-detail-header");
     header.append(
       element("h1", "item-detail-title", item.target),
-      element("span", "chip item-detail-category", CATEGORY_NAMES[item.category] ?? ""),
+      element("span", "chip item-detail-category", categoryName(item.category)),
     );
     body.replaceChildren(header, details(item));
   }

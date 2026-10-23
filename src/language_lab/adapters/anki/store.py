@@ -100,27 +100,6 @@ def _stored_capture(capture_id: str, info: dict[str, Any]) -> Capture:
     return Capture(capture_id, _field(info, _TEXT), created_at.replace(tzinfo=UTC))
 
 
-def _content_fields(content: ItemContent) -> dict[str, str]:
-    """The note fields `content` fills, as domain values (manifest.py names, AD-10)."""
-    fields = {
-        "Target": content.target,
-        "Russian": content.russian,
-        "RussianAlternatives": join_alternatives(content.russian_alternatives),
-        "Hint": content.hint,
-    }
-    if isinstance(content, VocabularyContent):
-        fields |= {
-            "PartOfSpeech": content.part_of_speech,
-            "Grammar": content.grammar,
-            "Example": content.example,
-            "ExampleRussian": content.example_russian,
-            "Mnemonic": content.mnemonic,
-        }
-    else:
-        fields["Note"] = content.note
-    return fields
-
-
 # The optional note fields of each Category, by ItemContent field name (manifest.py)
 _OPTIONAL_FIELDS = {
     Category.VOCABULARY: {
@@ -133,6 +112,16 @@ _OPTIONAL_FIELDS = {
     },
     Category.SENTENCE: {"hint": "Hint", "note": "Note"},
 }
+
+
+def _content_fields(content: ItemContent) -> dict[str, str]:
+    """The note fields `content` fills, as domain values (manifest.py names, AD-10)."""
+    return {
+        "Target": content.target,
+        "Russian": content.russian,
+        "RussianAlternatives": join_alternatives(content.russian_alternatives),
+        **{name: getattr(content, key) for key, name in _OPTIONAL_FIELDS[content.category].items()},
+    }
 
 
 def _optional(info: dict[str, Any], name: str) -> str:
@@ -169,9 +158,11 @@ def _capture_model(manifest: Manifest) -> str:
     return f"{manifest.prefix} Capture"
 
 
-def _matching(infos: list[dict[str, Any]], capture_id: str) -> Iterator[dict[str, Any]]:
-    """The `notesInfo` entries whose decoded CaptureId is `capture_id` (AD-4)."""
-    return (info for info in infos if _field(info, _CAPTURE_ID).strip() == capture_id)
+def _matching(infos: list[dict[str, Any]], name: str, value: str) -> Iterator[dict[str, Any]]:
+    """The `notesInfo` entries whose decoded field `name` is `value`: an id matched in Python,
+    never sent to Anki (AD-4).
+    """
+    return (info for info in infos if _field(info, name).strip() == value)
 
 
 def _failure_outcome(poll: dict[str, Any]) -> SyncOutcome:
@@ -280,19 +271,13 @@ class AnkiConnectStore:
                 note={
                     "deckName": manifest.card_deck(model, 0),
                     "modelName": model,
-                    "fields": {name: encode_field(value) for name, value in fields.items()},
+                    "fields": _encoded(fields),
                     "options": {"allowDuplicate": True},
                 },
             )
             if not is_int(note_id):
                 raise AppError(ErrorCode.ANKI_UNAVAILABLE)
-            infos = await self._client.invoke("notesInfo", notes=[note_id])
-            if not isinstance(infos, list) or len(infos) != 1 or not isinstance(infos[0], dict):
-                raise AppError(ErrorCode.ANKI_UNAVAILABLE)
-            cards = infos[0].get("cards")
-            if not isinstance(cards, list) or not cards:
-                raise AppError(ErrorCode.ANKI_UNAVAILABLE)
-            await self._client.invoke("suspend", cards=cards)
+            await self._client.invoke("suspend", cards=await self._note_cards(note_id))
         return Capture(capture_id, text, created_at)
 
     async def list_captures(self) -> list[Capture]:
@@ -326,7 +311,7 @@ class AnkiConnectStore:
         async with self._lock.hold():
             infos = await self._capture_infos(manifest)
             note_ids: list[int] = []
-            for info in _matching(infos, capture_id):
+            for info in _matching(infos, _CAPTURE_ID, capture_id):
                 note_id = info.get("noteId")
                 if not is_int(note_id):
                     raise AppError(ErrorCode.ANKI_UNAVAILABLE)
@@ -353,7 +338,7 @@ class AnkiConnectStore:
         fields = _content_fields(content)
         async with self._lock.hold():
             infos = await self._note_infos(manifest, model)
-            stored = next((i for i in infos if _field(i, _ITEM_ID).strip() == item_id), None)
+            stored = next(_matching(infos, _ITEM_ID, item_id), None)
             if stored is not None:
                 note_id = stored.get("noteId")
                 if not is_int(note_id):
@@ -411,21 +396,16 @@ class AnkiConnectStore:
                 for category in Category
             ]
         for category, infos in scopes:
-            for info in infos:
-                if _field(info, _ITEM_ID).strip() == item_id:
-                    return _stored_item(info, category)
+            info = next(_matching(infos, _ITEM_ID, item_id), None)
+            if info is not None:
+                return _stored_item(info, category)
         raise AppError(ErrorCode.NOT_FOUND)
 
     async def _cards_by_ord(self, note_id: int) -> dict[int, int]:
         """Each card id of note `note_id` by its ord, from `notesInfo` and `cardsInfo`;
         `ANKI_UNAVAILABLE` on a malformed reply.
         """
-        infos = await self._client.invoke("notesInfo", notes=[note_id])
-        if not isinstance(infos, list) or len(infos) != 1 or not isinstance(infos[0], dict):
-            raise AppError(ErrorCode.ANKI_UNAVAILABLE)
-        cards = infos[0].get("cards")
-        if not isinstance(cards, list) or not cards:
-            raise AppError(ErrorCode.ANKI_UNAVAILABLE)
+        cards = await self._note_cards(note_id)
         card_infos = await self._client.invoke("cardsInfo", cards=cards)
         if not isinstance(card_infos, list):
             raise AppError(ErrorCode.ANKI_UNAVAILABLE)
@@ -440,6 +420,18 @@ class AnkiConnectStore:
         if len(by_ord) != len(cards) or not set(STUDY_ORDS) <= set(by_ord):
             raise AppError(ErrorCode.ANKI_UNAVAILABLE)
         return by_ord
+
+    async def _note_cards(self, note_id: int) -> list[Any]:
+        """The card ids of note `note_id`, from `notesInfo`; `ANKI_UNAVAILABLE` on a malformed
+        reply or a note with no cards.
+        """
+        infos = await self._client.invoke("notesInfo", notes=[note_id])
+        if not isinstance(infos, list) or len(infos) != 1 or not isinstance(infos[0], dict):
+            raise AppError(ErrorCode.ANKI_UNAVAILABLE)
+        cards = infos[0].get("cards")
+        if not isinstance(cards, list) or not cards:
+            raise AppError(ErrorCode.ANKI_UNAVAILABLE)
+        return cards
 
     async def _capture_infos(self, manifest: Manifest) -> list[dict[str, Any]]:
         return await self._note_infos(manifest, _capture_model(manifest))
@@ -470,7 +462,7 @@ class AnkiConnectStore:
         """The stored Capture whose decoded CaptureId is `capture_id`, from the exact Capture
         scope's `findNotes` and `notesInfo`; None when there is none.
         """
-        info = next(_matching(await self._capture_infos(manifest), capture_id), None)
+        info = next(_matching(await self._capture_infos(manifest), _CAPTURE_ID, capture_id), None)
         return None if info is None else _stored_capture(capture_id, info)
 
     def _set_gate(self, preview: SetupPreview) -> None:
