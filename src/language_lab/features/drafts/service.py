@@ -8,7 +8,7 @@ never kept, returned or logged (FR-16, AD-15).
 import uuid
 
 from language_lab.domain.catalog import Category, Language
-from language_lab.domain.items import SentenceContent, VocabularyContent
+from language_lab.domain.items import Item
 from language_lab.ports.llm import Llm
 
 
@@ -22,10 +22,10 @@ class DraftService:
 
     async def generate(
         self, language: Language, category: Category, target: str, generation_context: str
-    ) -> tuple[str, VocabularyContent | SentenceContent]:
-        """A fresh ItemId and the Draft's content: the model's fields, with `target` as given.
+    ) -> Item:
+        """The Draft: a fresh ItemId and the model's fields, with `target` as given.
 
         Raises `AppError(LLM_FAILED | LLM_INVALID_OUTPUT)` from the model.
         """
         fields = await self._llm.generate(language, category, target, generation_context)
-        return self.blank(), fields.to_content(target)
+        return Item(self.blank(), fields.to_content(target))

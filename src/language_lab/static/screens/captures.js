@@ -39,7 +39,7 @@ import {
   listCaptures,
   saveItem,
 } from "../api.js";
-import { element, skeleton } from "../dom.js";
+import { alertBox, element, skeleton, tryAgain } from "../dom.js";
 import { confirmDestructive, confirmLeave, navigate, redirect, setDirty } from "../router.js";
 import {
   blankValues,
@@ -95,6 +95,20 @@ function freshChoice() {
   };
 }
 
+// A Draft of `capture` in `picked`'s Language and Category, with `fields` (its ItemId, values
+// and, for a generated one, its generation)
+function newDraft(capture, picked, fields) {
+  return {
+    captureId: capture.captureId,
+    captureText: capture.text,
+    language: picked.language,
+    category: picked.category,
+    busy: false,
+    error: null,
+    ...fields,
+  };
+}
+
 const TIME = new Intl.DateTimeFormat("en-US", {
   hour: "2-digit",
   minute: "2-digit",
@@ -138,19 +152,22 @@ export function detailTime(iso, now = new Date()) {
 }
 
 function loadError(error, onRetry) {
-  const alert = element("div", "inline-alert-error captures-load-alert");
-  alert.setAttribute("role", "alert");
-  const again = element("button", "button button-destructive", "Try again");
-  again.type = "button";
-  again.addEventListener("click", onRetry);
-  alert.append(element("p", "captures-load-alert-body", errorMessage(error)), again);
-  return alert;
+  return alertBox(
+    "captures-load-alert",
+    element("p", "captures-load-alert-body", errorMessage(error)),
+    tryAgain(onRetry),
+  );
 }
 
 // [title, body] of a failed Save or delete: `unreachable` when Anki is down, else `title` and
 // the envelope's message
 function failureCopy(error, unreachable, title) {
   return isApiError(error, "anki_unavailable") ? unreachable : [title, errorMessage(error)];
+}
+
+// [title, body] of a failed Save, of a Capture or an Item
+function saveFailure(error) {
+  return failureCopy(error, [UNREACHABLE_TITLE, UNREACHABLE_BODY], "Not saved");
 }
 
 // [title, body] of a failed generation (EXPERIENCE.md State Patterns)
@@ -163,13 +180,11 @@ function generationFailure(error) {
 // The failed delete's alert: no Try again, since Delete Capture is right there
 function deleteAlert(error) {
   const [title, body] = failureCopy(error, [NOT_DELETED_TITLE, NOT_DELETED_BODY], "Not deleted");
-  const alert = element("div", "inline-alert-error capture-delete-alert");
-  alert.setAttribute("role", "alert");
-  alert.append(
+  return alertBox(
+    "capture-delete-alert",
     element("p", "compose-alert-title", title),
     element("p", "capture-delete-alert-body", body),
   );
-  return alert;
 }
 
 export function mount(root, params = {}) {
@@ -257,7 +272,7 @@ export function mount(root, params = {}) {
     for (const capture of list.captures) {
       const item = element("li");
       const link = element("a", "list-row capture-row");
-      link.href = `/captures/${encodeURIComponent(capture.captureId)}`;
+      link.href = capturePath(capture.captureId);
       link.dataset.captureId = capture.captureId;
       const body = element("span", "capture-row-body");
       body.append(
@@ -329,11 +344,18 @@ export function mount(root, params = {}) {
     if (open.status === "shown") detailPane.append(makeItemPane(choice, { onGenerate, onWrite }));
   }
 
+  // The text a Draft of `capture` starts from, or null while the pane can't make one yet
+  function draftTarget(capture) {
+    const target = chosenText(choice, capture.text);
+    if (choice.busy || target === null || !choice.language || !choice.category) return null;
+    return target;
+  }
+
   // "Write it myself": a blank Draft of the chosen text, Language and Category
   async function onWrite() {
     const capture = open.capture;
-    const target = chosenText(choice, capture.text);
-    if (choice.busy || target === null || !choice.language || !choice.category) return;
+    const target = draftTarget(capture);
+    if (target === null) return;
     const picked = { ...choice };
     choice.busy = true;
     choice.error = null;
@@ -342,16 +364,7 @@ export function mount(root, params = {}) {
       const { itemId } = await blankDraft();
       if (!mounted || open.capture !== capture) return;
       choice.busy = false;
-      draft = {
-        captureId: capture.captureId,
-        captureText: capture.text,
-        language: picked.language,
-        category: picked.category,
-        itemId,
-        values: blankValues(picked.category, target),
-        busy: false,
-        error: null,
-      };
+      draft = newDraft(capture, picked, { itemId, values: blankValues(picked.category, target) });
       navigate(`${capturePath(capture.captureId)}/new`);
     } catch (error) {
       if (!mounted || open.capture !== capture) return;
@@ -364,18 +377,12 @@ export function mount(root, params = {}) {
   // "Generate Draft": open the Draft route at once, then ask the model
   async function onGenerate() {
     const capture = open.capture;
-    const target = chosenText(choice, capture.text);
-    if (choice.busy || target === null || !choice.language || !choice.category) return;
+    const target = draftTarget(capture);
+    if (target === null) return;
     choice.error = null;
-    draft = {
-      captureId: capture.captureId,
-      captureText: capture.text,
-      language: choice.language,
-      category: choice.category,
+    draft = newDraft(capture, choice, {
       itemId: null,
       values: null,
-      busy: false,
-      error: null,
       generation: {
         request: {
           language: choice.language,
@@ -386,7 +393,7 @@ export function mount(root, params = {}) {
         busy: true,
         error: null,
       },
-    };
+    });
     const pending = draft;
     await navigate(`${capturePath(capture.captureId)}/new`);
     // The route didn't open the editor (the leave was refused): there is no Draft to fill
@@ -454,7 +461,7 @@ export function mount(root, params = {}) {
       onSave: saveDraft,
       // The router asks about the Draft before it goes
       onDiscard: () => navigate(capturePath(draft.captureId)),
-      alertFor: (error) => failureCopy(error, [UNREACHABLE_TITLE, UNREACHABLE_BODY], "Not saved"),
+      alertFor: saveFailure,
     });
     draftRoot.replaceChildren(screen);
     if (focus === "title") title.focus();
@@ -683,22 +690,16 @@ export function mount(root, params = {}) {
       renderButtons();
       return;
     }
-    const [title, body] = failureCopy(
-      state.error,
-      [UNREACHABLE_TITLE, UNREACHABLE_BODY],
-      "Not saved",
+    const [title, body] = saveFailure(state.error);
+    again = tryAgain(submit);
+    alertSlot.replaceChildren(
+      alertBox(
+        "compose-alert",
+        element("p", "compose-alert-title", title),
+        element("p", "compose-alert-body", body),
+        again,
+      ),
     );
-    const alert = element("div", "inline-alert-error compose-alert");
-    alert.setAttribute("role", "alert");
-    again = element("button", "button button-destructive", "Try again");
-    again.type = "button";
-    again.addEventListener("click", submit);
-    alert.append(
-      element("p", "compose-alert-title", title),
-      element("p", "compose-alert-body", body),
-      again,
-    );
-    alertSlot.replaceChildren(alert);
     renderButtons();
   }
 

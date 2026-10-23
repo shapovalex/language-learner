@@ -27,18 +27,22 @@ _APOSTROPHES = str.maketrans(dict.fromkeys("’ʼ′‘", "'"))
 _WHITESPACE = re.compile(r"\s+")
 
 
+def _not_blank(text: str) -> str:
+    if not text.strip():
+        raise ValueError("blank")
+    return text  # stored exactly as typed
+
+
+# Non-blank text, kept as typed: an Item's Target and Russian, a Capture's text, a Draft's Target
+NonBlank = Annotated[str, AfterValidator(_not_blank)]
+
+
 class AudioIntent(StrEnum):
     """What Save does with the Item's `Audio` field (AD-6)."""
 
     KEEP = "keep"
     REPLACE = "replace"
     REMOVE = "remove"
-
-
-def _not_blank(text: str) -> str:
-    if not text.strip():
-        raise ValueError("blank")
-    return text  # stored exactly as typed
 
 
 def _alternatives(alternatives: list[str]) -> list[str]:
@@ -48,15 +52,14 @@ def _alternatives(alternatives: list[str]) -> list[str]:
     return alternatives
 
 
-_Required = Annotated[str, AfterValidator(_not_blank)]
 _Alternatives = Annotated[list[str], AfterValidator(_alternatives)]
 
 
 class _Content(BaseModel):
     model_config = ConfigDict(alias_generator=to_camel, validate_by_name=True, frozen=True)
 
-    target: _Required
-    russian: _Required
+    target: NonBlank
+    russian: NonBlank
     russian_alternatives: _Alternatives = []
     hint: str = ""
 
@@ -85,6 +88,10 @@ class Item:
     item_id: str
     content: VocabularyContent | SentenceContent
 
+    def wire(self) -> dict[str, Any]:
+        """The Item on the wire: `{itemId, ...ItemContent}`, flat like the Draft and the Save."""
+        return {"itemId": self.item_id, **self.content.model_dump(by_alias=True, mode="json")}
+
 
 class _Generated(BaseModel):
     # Every field required, none defaulted: the strict schema has no defaults (AD-11)
@@ -94,7 +101,7 @@ class _Generated(BaseModel):
     _content: ClassVar[type[VocabularyContent] | type[SentenceContent]]
     _category: ClassVar[Category]
 
-    russian: _Required
+    russian: NonBlank
     russian_alternatives: _Alternatives
     hint: str | None
 

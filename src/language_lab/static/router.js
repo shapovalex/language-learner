@@ -9,6 +9,8 @@
 // `confirmDestructive` is the delete confirmation (S-Delete, story 3.3): a sibling of the
 // unsaved alert that shares only its focus cycling, so Capture and Item delete both use it.
 
+import { languageName } from "./catalog.js";
+
 // A path segment, percent-decoded; kept as it is when it isn't valid percent-encoding
 function decoded(segment) {
   try {
@@ -29,7 +31,6 @@ const ROUTES = [
 ];
 
 const FALLBACK_PATH = "/captures";
-const LANGUAGE_NAMES = { en: "English", fr: "French" };
 const WIDE = "(min-width: 600px)";
 
 let main;
@@ -126,7 +127,7 @@ function renderLanguageNav(route) {
     languageNav = document.createElement("nav");
     languageNav.className = "segmented-control";
     languageNav.dataset.lang = lang;
-    languageNav.setAttribute("aria-label", LANGUAGE_NAMES[lang]);
+    languageNav.setAttribute("aria-label", languageName(lang));
     for (const [section, label] of [
       ["items", "Items"],
       ["pronunciation", "Pronunciation"],

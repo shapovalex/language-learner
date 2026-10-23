@@ -11,7 +11,8 @@
 // While the model writes, the generating screen shows the loading state, or the failure with
 // Try again. Before a Save, a duplicate opens the duplicate sheet (S-Duplicate, story 4.3).
 
-import { element, skeleton } from "../dom.js";
+import { CATEGORIES, LANGUAGES, categoryName, languageName } from "../catalog.js";
+import { alertBox, element, skeleton, tryAgain } from "../dom.js";
 
 const MAKE_AN_ITEM = "Make an Item";
 const USE_AS_IS = "Use as is";
@@ -21,7 +22,6 @@ const WRITE_IT_MYSELF = "Write it myself";
 const GENERATE_DRAFT = "Generate Draft";
 const GENERATION_CONTEXT = "Generation context · optional · used once, never saved";
 const WRITING = "Writing your Draft…";
-const TRY_AGAIN = "Try again";
 const CLEAR = "Clear";
 const CHOOSE_REASON = "Choose a Language and Category.";
 const CUSTOM_REASON = "Enter the custom value.";
@@ -34,15 +34,6 @@ const OPEN_EXISTING = "Open existing";
 const CANCEL = "Cancel";
 const CREATE_ANYWAY = "Create anyway";
 const BACK = "‹ Capture";
-
-export const LANGUAGES = [
-  ["en", "English"],
-  ["fr", "French"],
-];
-export const CATEGORIES = [
-  ["vocabulary", "Vocabulary"],
-  ["sentence", "Sentence"],
-];
 
 // Each Category's fields in order: [key, label, multiline, placeholder]. `alternatives` is the
 // textarea of `russianAlternatives`, one per line (decided 2026-10-22)
@@ -72,10 +63,6 @@ let ids = 0;
 function uniqueId(name) {
   ids += 1;
   return `${name}-${ids}`;
-}
-
-function nameOf(choices, key) {
-  return choices.find(([value]) => value === key)?.[1] ?? "";
 }
 
 // A blank Draft's field values: Target prefilled with the chosen text, every other one empty
@@ -240,10 +227,7 @@ export function makeItemPane(choice, { onGenerate, onWrite }) {
   actions.append(generate, write, reason);
   section.append(heading, text, languages, categories, contextGroup, actions);
   if (choice.error) {
-    const alert = element("div", "inline-alert-error make-item-alert");
-    alert.setAttribute("role", "alert");
-    alert.textContent = choice.error;
-    section.append(alert);
+    section.append(alertBox("make-item-alert", choice.error));
   }
 
   function refresh() {
@@ -280,11 +264,7 @@ function draftHeader(draft, target, { chip }) {
   title.tabIndex = -1;
   const meta = element("p", "draft-meta");
   meta.append(
-    element(
-      "span",
-      null,
-      `${nameOf(LANGUAGES, draft.language)} ${nameOf(CATEGORIES, draft.category)}`,
-    ),
+    element("span", null, `${languageName(draft.language)} ${categoryName(draft.category)}`),
   );
   if (chip) meta.append(element("span", "chip chip-accent", DRAFT_CHIP));
   header.append(
@@ -307,17 +287,15 @@ export function generatingScreen(draft, { onRetry, alertFor }) {
     body.append(skeleton(WRITING));
   } else {
     const [alertTitle, alertBody] = alertFor(draft.generation.error);
-    const alert = element("div", "inline-alert-error draft-alert");
-    alert.setAttribute("role", "alert");
-    again = element("button", "button button-secondary", TRY_AGAIN);
-    again.type = "button";
-    again.addEventListener("click", onRetry);
-    alert.append(
-      element("p", "compose-alert-title", alertTitle),
-      element("p", "draft-alert-body", alertBody),
-      again,
+    again = tryAgain(onRetry, "secondary");
+    body.append(
+      alertBox(
+        "draft-alert",
+        element("p", "compose-alert-title", alertTitle),
+        element("p", "draft-alert-body", alertBody),
+        again,
+      ),
     );
-    body.append(alert);
   }
   screen.append(backLink(draft, "draft-generating-back"), header, body);
   return { screen, title, retry: again };
@@ -388,13 +366,13 @@ export function draftEditor(draft, { onEdit, onSave, onDiscard, alertFor }) {
   const alertSlot = element("div", "draft-alert-slot");
   if (draft.error) {
     const [alertTitle, body] = alertFor(draft.error);
-    const alert = element("div", "inline-alert-error draft-alert");
-    alert.setAttribute("role", "alert");
-    alert.append(
-      element("p", "compose-alert-title", alertTitle),
-      element("p", "draft-alert-body", body),
+    alertSlot.append(
+      alertBox(
+        "draft-alert",
+        element("p", "compose-alert-title", alertTitle),
+        element("p", "draft-alert-body", body),
+      ),
     );
-    alertSlot.append(alert);
   }
 
   const actions = element("div", "draft-actions");
@@ -436,8 +414,8 @@ export function duplicateSheet(draft, matches, { onOpen, onCancel, onCreate }) {
   dialog.setAttribute("aria-labelledby", titleId);
   const sheet = element("div", "duplicate-sheet-body");
 
-  const language = nameOf(LANGUAGES, draft.language);
-  const category = nameOf(CATEGORIES, draft.category);
+  const language = languageName(draft.language);
+  const category = categoryName(draft.category);
   const overline = element("p", "duplicate-overline", `Possible duplicate · ${language} · ${category}`);
   const title = element("h2", "duplicate-title", DUPLICATE_TITLE);
   title.id = titleId;

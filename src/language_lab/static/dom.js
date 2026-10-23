@@ -17,3 +17,19 @@ export function skeleton(label) {
   node.append(element("div", "skeleton-label", label), bars);
   return node;
 }
+
+// An inline error alert, `inline-alert-error` plus `className`, announced as it appears
+export function alertBox(className, ...children) {
+  const node = element("div", `inline-alert-error ${className}`);
+  node.setAttribute("role", "alert");
+  node.append(...children);
+  return node;
+}
+
+// A "Try again" button in the `variant` button style ("destructive" or "secondary")
+export function tryAgain(onClick, variant = "destructive") {
+  const button = element("button", `button button-${variant}`, "Try again");
+  button.type = "button";
+  button.addEventListener("click", onClick);
+  return button;
+}
