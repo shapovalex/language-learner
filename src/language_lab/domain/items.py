@@ -83,10 +83,13 @@ ItemContent = Annotated[VocabularyContent | SentenceContent, Field(discriminator
 
 @dataclass(frozen=True)
 class Item:
-    """An Item as Anki holds it: its ItemId (AD-8) and its content (AD-11)."""
+    """An Item as Anki holds it: its ItemId (AD-8), its content (AD-11), and whether its
+    `Audio` field holds Reference audio: read-only list metadata, never part of the content.
+    """
 
     item_id: str
     content: VocabularyContent | SentenceContent
+    has_audio: bool = False
 
     def wire(self) -> dict[str, Any]:
         """The Item on the wire: `{itemId, ...ItemContent}`, flat like the Draft and the Save."""

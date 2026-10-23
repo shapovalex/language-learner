@@ -1,10 +1,10 @@
-"""Story 4.3: the view-only Item detail screen (S-ItemDetail, EXPERIENCE.md; FR-22; AD-13).
+"""Stories 4.3 and 5.1: the Item detail screen (S-ItemDetail, EXPERIENCE.md; FR-22; AD-13).
 
-Item detail is at /<lang>/items/<itemId>, which Open existing opens. On every mount it reads GET
-/api/items/<lang>/<itemId> (AD-13: no cross-screen cache, so a value edited in Anki shows the
-next time). It shows the Target as its heading, the Category, and each filled field under the
-Draft editor's labels, view-only: no textbox, and no Save changes, Delete or Regenerate (those
-are epic-maintain-items'). Its back link is "‹ English Items" or "‹ French Items".
+Item detail is at /<lang>/items/<itemId>, which Open existing and an Items row open. On every
+mount it reads GET /api/items/<lang>/<itemId> (AD-13: no cross-screen cache, so a value edited in
+Anki shows the next time). It shows the Target as its heading, the Category, and each field in
+the Draft editor's labelled fields, the alternatives one per line (editing is
+tests/e2e/test_item_edit.py's). Its back link is "‹ English Items" or "‹ French Items".
 
 An ItemId Anki doesn't hold shows "This Item isn't in Anki."; any other failed read shows an
 inline error alert with Try again, which reads again.
@@ -26,6 +26,7 @@ from tests.support.items_screen import (
     item_detail_path,
     items_back_link,
 )
+from tests.support.maintain_items_screen import edit_field
 from tests.support.navigation import screen_heading
 from tests.support.network import stub_api_error, stub_api_json
 
@@ -50,35 +51,37 @@ SENTENCE_ITEM = {
     "note": "hâtif, hâtive: agrees with the noun",
 }
 
-# Language code, its name, the Item, the Category's name, the values Item detail shows
+# Language code, its name, the Item, the Category's name, each field label and its value
 ITEMS = {
     "en-vocabulary": (
         "en",
         "English",
         VOCABULARY_ITEM,
         "Vocabulary",
-        [
-            VOCABULARY_ITEM["russian"],
-            *VOCABULARY_ITEM["russianAlternatives"],
-            VOCABULARY_ITEM["hint"],
-            VOCABULARY_ITEM["partOfSpeech"],
-            VOCABULARY_ITEM["grammar"],
-            VOCABULARY_ITEM["example"],
-            VOCABULARY_ITEM["exampleRussian"],
-            VOCABULARY_ITEM["mnemonic"],
-        ],
+        {
+            "Target": VOCABULARY_ITEM["target"],
+            "Russian meaning": VOCABULARY_ITEM["russian"],
+            "Alternatives": "\n".join(VOCABULARY_ITEM["russianAlternatives"]),
+            "Part of speech": VOCABULARY_ITEM["partOfSpeech"],
+            "Grammar": VOCABULARY_ITEM["grammar"],
+            "Hint": VOCABULARY_ITEM["hint"],
+            "Example": VOCABULARY_ITEM["example"],
+            "Example in Russian": VOCABULARY_ITEM["exampleRussian"],
+            "Mnemonic": VOCABULARY_ITEM["mnemonic"],
+        },
     ),
     "fr-sentence": (
         "fr",
         "French",
         SENTENCE_ITEM,
         "Sentence",
-        [
-            SENTENCE_ITEM["russian"],
-            *SENTENCE_ITEM["russianAlternatives"],
-            SENTENCE_ITEM["hint"],
-            SENTENCE_ITEM["note"],
-        ],
+        {
+            "Target": SENTENCE_ITEM["target"],
+            "Russian meaning": SENTENCE_ITEM["russian"],
+            "Alternatives": "\n".join(SENTENCE_ITEM["russianAlternatives"]),
+            "Hint": SENTENCE_ITEM["hint"],
+            "Note": SENTENCE_ITEM["note"],
+        },
     ),
 }
 
@@ -87,11 +90,16 @@ ITEMS = {
 @pytest.mark.parametrize(
     ("lang", "language", "wire", "category", "values"), ITEMS.values(), ids=ITEMS.keys()
 )
-def test_item_detail_shows_the_items_values_view_only(
-    page: Page, lang: str, language: str, wire: dict[str, Any], category: str, values: list[str]
+def test_item_detail_shows_the_items_values_in_its_fields(
+    page: Page,
+    lang: str,
+    language: str,
+    wire: dict[str, Any],
+    category: str,
+    values: dict[str, str],
 ) -> None:
     """AC-17: /<lang>/items/<itemId> reads the Item and shows the Target as its heading, the
-    Category and each field's value, with no editable field and the "‹ <Language> Items" link.
+    Category, each field's value in its labelled field, and the "‹ <Language> Items" link.
     """
     stub_api_json(page, item_api(lang, ITEM_ID), {"itemId": ITEM_ID, **wire}, method="GET")
     page.goto(item_detail_path(lang, ITEM_ID))
@@ -99,9 +107,9 @@ def test_item_detail_shows_the_items_values_view_only(
     expect(screen_heading(page)).to_have_text(wire["target"])
 
     expect(main(page)).to_contain_text(category)
-    for value in values:
-        expect(main(page)).to_contain_text(value)
-    expect(main(page).get_by_role("textbox")).to_have_count(0)
+    for label, value in values.items():
+        expect(edit_field(page, label)).to_have_value(value)
+    expect(main(page).get_by_role("textbox")).to_have_count(len(values))
     expect(
         main(page).get_by_role("link", name=items_back_link(language), exact=True)
     ).to_be_visible()

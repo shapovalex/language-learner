@@ -1407,48 +1407,116 @@ button.segment {
   }
 }
 
-/* Item detail, view-only (S-ItemDetail, story 4.3) */
+/* Items list and search (S-Items, story 5.1): full-width pill search, whole-row links */
+.items-title {
+  margin: var(--space-5) 0;
+}
+
+.items-search {
+  margin: 0 0 var(--space-5);
+}
+
+.items-search-field {
+  border-radius: var(--radius-full);
+  padding-inline: var(--space-9);
+}
+
+.items-count {
+  margin: 0 0 var(--space-4);
+  color: var(--color-ink-muted);
+  font-size: var(--font-size-body-sm);
+  font-weight: 600;
+}
+
+.items-list {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.item-row {
+  gap: var(--space-5);
+}
+
+.item-row::after {
+  flex: none;
+}
+
+.item-row-body {
+  display: flex;
+  flex: 1 1 auto;
+  flex-direction: column;
+  gap: var(--space-1);
+  min-width: 0;
+}
+
+.item-row-target {
+  overflow-wrap: anywhere;
+}
+
+.item-row-russian {
+  color: var(--color-ink-muted);
+  font-size: var(--font-size-body-sm);
+  font-weight: 500;
+  overflow-wrap: anywhere;
+}
+
+.item-row-meta {
+  display: flex;
+  flex: none;
+  align-items: center;
+  gap: var(--space-3);
+}
+
+.item-row-audio {
+  display: inline-flex;
+  color: var(--color-accent);
+}
+
+.item-row-audio svg {
+  width: 20px;
+  height: 20px;
+  fill: currentColor;
+}
+
+.items-empty-title {
+  margin: 0 0 var(--space-1);
+  font-weight: 600;
+}
+
+.items-empty-body {
+  margin: 0;
+  color: var(--color-ink-muted);
+}
+
+.items-alert-body {
+  margin: 0 0 var(--space-4);
+}
+
+/* Item detail, editable (S-ItemDetail, story 5.1): the Draft editor's fields and actions */
 .item-detail-header {
   display: flex;
   flex-wrap: wrap;
   align-items: center;
   gap: var(--space-3) var(--space-4);
-  margin: var(--space-5) 0;
+  margin: var(--space-5) 0 0;
 }
 
 .item-detail-title {
+  flex: 1 1 100%;
   margin: 0;
   overflow-wrap: anywhere;
 }
 
-.item-detail-fields {
-  display: grid;
-  gap: var(--space-2);
-  margin: 0;
-  padding: var(--space-card-pad-phone);
-  border-radius: var(--radius-card-lg);
-  background: var(--color-surface);
-}
-
-.item-detail-label {
-  margin-top: var(--space-4);
-  color: var(--color-ink-muted);
-  font-size: var(--font-size-label);
-  font-weight: var(--font-weight-label);
-}
-
-.item-detail-label:first-child {
-  margin-top: 0;
-}
-
-.item-detail-value {
-  margin: 0;
-  white-space: pre-line;
-  overflow-wrap: anywhere;
+.item-detail-alert-body {
+  margin: 0 0 var(--space-4);
 }
 
 @media (min-width: 600px) {
-  .item-detail-fields {
-    padding: var(--space-card-pad-tablet);
+  .item-detail-title {
+    flex: 0 1 auto;
   }
 }

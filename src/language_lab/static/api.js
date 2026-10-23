@@ -163,3 +163,12 @@ export function findDuplicates(lang, { category, target, itemId }) {
 export function getItem(lang, itemId) {
   return request(`/api/items/${encodeURIComponent(lang)}/${encodeURIComponent(itemId)}`);
 }
+
+// The Items of `lang`, both Categories (FR-22): `{items: [{itemId, ...ItemContent, hasAudio}]}`,
+// those whose normalized Target, Russian meaning or an alternative contains `query` (AD-12).
+// A blank `query` is not sent, and lists every Item
+export function listItems(lang, query = "") {
+  const path = `/api/items/${encodeURIComponent(lang)}`;
+  if (!query.trim()) return request(path);
+  return request(`${path}?${new URLSearchParams({ q: query })}`);
+}

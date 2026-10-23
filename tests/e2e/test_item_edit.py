@@ -4,10 +4,14 @@ Network doubles assert client transitions and requests. Existing adapter integra
 and released-wheel acceptance retain responsibility for actual Card/history preservation.
 """
 
+import re
+import uuid
+
 import pytest
 from playwright.sync_api import Page, expect
 
 from tests.support.captures_screen import main
+from tests.support.duplicates import on_wire, sentence
 from tests.support.items_screen import (
     CANCEL,
     CREATE_ANYWAY,
@@ -34,8 +38,6 @@ from tests.support.maintain_items_screen import (
 )
 from tests.support.navigation import path_pattern
 from tests.support.unsaved import discard_button, keep_editing_button, unsaved_alert
-
-pytestmark = pytest.mark.skip(reason="ATDD 5.1: activate the current task before implementation")
 
 
 def back_to_items(page: Page) -> None:
@@ -191,3 +193,49 @@ def test_failed_save_keeps_edits_and_leave_guard_then_retries_the_same_item(page
     back_to_items(page)
     expect(unsaved_alert(page)).to_have_count(0)
     expect(page).to_have_url(path_pattern("/en/items"))
+
+
+@pytest.mark.p1
+def test_a_french_sentence_saves_its_note_under_its_item_id(page: Page) -> None:
+    """[P1] AC-12 a Sentence edits its own fields, the Note included, and saves in French."""
+    row = {**on_wire(str(uuid.uuid4()), sentence()), "hasAudio": False}
+    api = EditableItemApi(page, row, lang="fr")
+    api.open(page)
+    edit_field(page, "Note").fill("hâtif, hâtive: s'accorde avec le nom")
+    edit_field(page, "Hint").fill("tirer des conclusions")
+
+    with page.expect_response(lambda response: is_item_save(response.request)) as saved:
+        save_changes(page).click()
+
+    payload = item_part(saved.value.request)
+    assert saved.value.request.url.endswith("/api/items/fr")
+    assert payload["itemId"] == row["itemId"]
+    assert payload["category"] == "sentence"
+    assert payload["audio"] == "keep"
+    assert payload["note"] == "hâtif, hâtive: s'accorde avec le nom"
+    assert payload["hint"] == "tirer des conclusions"
+    assert "example" not in payload
+    expect(main(page).get_by_text(re.compile("unsaved change"))).to_have_count(0)
+
+
+@pytest.mark.p1
+def test_returning_a_field_to_its_loaded_value_clears_the_unsaved_state(page: Page) -> None:
+    """[P1] AC-16 the unsaved chip counts changed fields; back to the loaded value is clean."""
+    row = stored_item()
+    api = EditableItemApi(page, row)
+    stub_items(page, [row])
+    api.open(page)
+    meaning = edit_field(page, "Russian meaning")
+    meaning.fill("другое значение")
+    edit_field(page, "Hint").fill("another hint")
+
+    expect(main(page).get_by_text("2 unsaved changes", exact=True)).to_be_visible()
+
+    meaning.fill(row["russian"])
+    expect(main(page).get_by_text("1 unsaved change", exact=True)).to_be_visible()
+    edit_field(page, "Hint").fill(row["hint"])
+    expect(main(page).get_by_text("1 unsaved change", exact=True)).to_have_count(0)
+    back_to_items(page)
+    expect(unsaved_alert(page)).to_have_count(0)
+    expect(page).to_have_url(path_pattern("/en/items"))
+    assert api.saved_payloads == []
