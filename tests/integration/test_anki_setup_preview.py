@@ -91,6 +91,53 @@ def _extra_card_template(c: Collection) -> None:
     c.models[SENTENCE].templates["Card 5"] = {"Front": "{{Target}}", "Back": "{{Russian}}"}
 
 
+# cards.css and an Understand front as v0.5.0 shipped them, before story 4.4's Studio look
+V0_5_0_CSS = (
+    "/* Working styles for the managed note types; "
+    "epic-capture-to-item owns the final look. */\n"
+    """.card {
+  font-family: -apple-system, "Segoe UI", Roboto, sans-serif;
+  font-size: 22px;
+  line-height: 1.4;
+  text-align: center;
+  color: #1f1f1f;
+  background-color: #ffffff;
+}
+
+.card.nightMode,
+.nightMode .card {
+  color: #e8e8e8;
+  background-color: #1f1f1f;
+}
+
+.prompt {
+  font-size: 28px;
+}
+
+.hint,
+.meta,
+.note {
+  font-size: 16px;
+  opacity: 0.75;
+}
+
+.example {
+  margin-top: 12px;
+  font-style: italic;
+}
+"""
+)
+V0_5_0_UNDERSTAND_FRONT = '<div class="prompt">{{Target}}</div>\n{{Audio}}\n'
+
+
+def _v0_5_0_templates(c: Collection) -> None:
+    for nt in MANIFEST.note_types:
+        model = c.models[nt.name]
+        model.css = V0_5_0_CSS
+        if "Understand" in model.templates:
+            model.templates["Understand"]["Front"] = V0_5_0_UNDERSTAND_FRONT
+
+
 def _dev_prefix_set_up(c: Collection) -> None:
     apply_manifest(c, build_manifest(DEV))
 
@@ -137,6 +184,11 @@ CASES |= {
         ("field-added", _field_added, {("migrate", "noteType", SENTENCE)}),
         ("fields-reordered", _fields_reordered, {("migrate", "noteType", VOCABULARY)}),
         ("extra-card-template", _extra_card_template, {("repair", "templates", SENTENCE)}),
+        (
+            "v0.5.0-templates",
+            _v0_5_0_templates,
+            {("repair", "templates", nt.name) for nt in MANIFEST.note_types},
+        ),
         ("user-deck-options", user_options, set()),
         ("dev-prefix-beside", _dev_prefix_set_up, set()),
     ]

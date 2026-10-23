@@ -267,6 +267,51 @@ def test_card_templates_and_css_come_from_template_files_and_render_only_shown_f
         assert "Target" in _field_refs(pronounce.front)
 
 
+STUDIO_HEXES = (
+    "#FFF8F1",
+    "#FFFFFF",
+    "#221E2E",
+    "#5C5669",
+    "#5A45C8",
+    "#ECE8FB",
+    "#F0EAE2",
+    "#E2DACF",
+)
+
+
+@pytest.mark.p1
+def test_study_templates_place_russian_and_audio_per_fr21_and_css_uses_the_studio_tokens() -> None:
+    """Story 4.4 (FR-21, AD-10): fronts, backs and audio placement; no script or IPA; Studio CSS."""
+    manifest = build_manifest(RELEASE)
+    capture, *items = manifest.note_types
+
+    for nt in items:
+        understand, produce, write, _pronounce = nt.templates
+        assert "Audio" in _field_refs(understand.front), nt.name
+        for t in (produce, write):
+            front = _field_refs(t.front)
+            assert "Russian" in front, (nt.name, t.name)
+            assert not {"RussianAlternatives", "Audio"} & front, (nt.name, t.name)
+        for t in (understand, produce, write):
+            on_back = t.back + (t.front if "{{FrontSide}}" in t.back else "")
+            assert on_back.count("{{Audio}}") == 1, (nt.name, t.name)
+            assert "{{#Audio}}" in on_back, (nt.name, t.name)  # an empty Audio renders no player
+            assert "Russian" in _field_refs(on_back), (nt.name, t.name)
+    for nt in manifest.note_types:
+        for t in nt.templates:
+            for text in (t.front, t.back):
+                assert "<script" not in text.lower(), (nt.name, t.name)
+                assert "ipa" not in text.lower(), (nt.name, t.name)
+    css = capture.css
+    assert all(nt.css == css for nt in items)
+    assert [h for h in STUDIO_HEXES if h.lower() not in css.lower()] == []
+    assert ".nightMode" in css
+    assert "Figtree" in css
+    assert "@font-face" not in css and "url(" not in css  # the font is not embedded
+    for old in (".prompt", ".hint", ".meta", ".note", ".example"):
+        assert old in css, old
+
+
 @pytest.mark.p2
 @pytest.mark.parametrize("prefix", ["Bad Prefix", "Lang::Lab", 'Lang"Lab', "", "1Lab"])
 def test_build_manifest_rejects_a_prefix_outside_the_pattern(prefix: str) -> None:
