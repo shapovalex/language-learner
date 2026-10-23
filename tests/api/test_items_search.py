@@ -4,9 +4,8 @@ Proposed list wire contract: GET /api/items/<lang>?q= returns
 {items: [{itemId, ...ItemContent, hasAudio: bool}]}. Empty or missing q lists all
 Items of that Language. hasAudio is list metadata, not an editable content field.
 
-Activate only the current task's skip marker to observe RED before implementation.
-The first four cases use the port fake; the last two drive the real Anki adapter
-through HTTP over the recorded-shape collection replay, without contacting Anki.
+The port-fake cases come first; the adapter cases drive the real Anki adapter through HTTP
+over the recorded-shape collection replay, without contacting Anki.
 """
 
 import copy
@@ -27,8 +26,6 @@ from tests.support.duplicates import sentence, store_with_items, vocabulary
 from tests.support.fixtures.settings import SettingsFactory
 from tests.support.hosts import client_over
 from tests.support.items import note_type_of, stored_fields
-
-pytestmark = pytest.mark.skip(reason="ATDD 5.1: Item search and list metadata are not implemented")
 
 
 @pytest.mark.p0
@@ -217,3 +214,51 @@ def test_item_list_reports_stored_audio_presence_without_writing(
     assert {k: v for k, v in rows[silent].items() if k not in ("itemId", "hasAudio")} == silent_wire
     assert sent_writes(replay.sent) == []
     assert collection == before
+
+
+@pytest.mark.p1
+@pytest.mark.parametrize("params", [{}, {"q": ""}, {"q": "   "}, {"q": " «…» !? "}], ids=str)
+def test_a_blank_or_punctuation_only_query_lists_every_item(
+    settings_factory: SettingsFactory, params: dict[str, str]
+) -> None:
+    """[P1] AC-4 A query that normalizes to nothing lists every Item, Vocabulary first."""
+    phrase, vocab, french = (str(uuid.uuid4()) for _ in range(3))
+    store = store_with_items(
+        (phrase, "en", sentence("Don't jump to conclusions.")),
+        (vocab, "en", vocabulary("notwithstanding")),
+        (french, "fr", vocabulary("tirer des conclusions")),
+    )
+    client = client_over(settings_factory, store)
+
+    response = client.get("/api/items/en", params=params)
+
+    assert response.status_code == 200
+    assert [row["itemId"] for row in response.json()["items"]] == [vocab, phrase]
+
+
+@pytest.mark.p1
+def test_french_search_returns_only_french_items(settings_factory: SettingsFactory) -> None:
+    """[P1] AC-4 French search matches French Items and leaves English ones out."""
+    french, english = str(uuid.uuid4()), str(uuid.uuid4())
+    store = store_with_items(
+        (french, "fr", sentence("Ne tirons pas de conclusions hâtives.")),
+        (english, "en", vocabulary("hâtives conclusions")),
+    )
+    client = client_over(settings_factory, store)
+
+    response = client.get("/api/items/fr", params={"q": "HÂTIVES"})
+
+    assert response.status_code == 200
+    assert [row["itemId"] for row in response.json()["items"]] == [french]
+    assert response.json()["items"][0]["hasAudio"] is False
+
+
+@pytest.mark.p1
+def test_an_unknown_language_is_validation_failed(settings_factory: SettingsFactory) -> None:
+    """[P1] An unknown Language is 422 `validation_failed` in the AD-15 envelope."""
+    client = client_over(settings_factory, store_with_items())
+
+    response = client.get("/api/items/de", params={"q": "x"})
+
+    assert response.status_code == 422
+    assert response.json()["error"]["code"] == "validation_failed"

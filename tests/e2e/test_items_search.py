@@ -1,7 +1,8 @@
-"""Story 5.1: Items list/search acceptance scaffolds. Activate only while implementing 5.1.
+"""Story 5.1: the Items list and live search (S-Items; FR-22).
 
-Exactly one leaf per AC. UI contracts come from EXPERIENCE.md; list wire defaults are in the
-ATDD checklist. Search normalization is asserted at the API level, not reimplemented here.
+One primary leaf per AC, then secondary cases. UI contracts come from EXPERIENCE.md; list wire
+defaults are in the ATDD checklist. Search normalization is asserted at the API level, not
+reimplemented here.
 """
 
 import re
@@ -24,8 +25,6 @@ from tests.support.maintain_items_screen import (
 )
 from tests.support.navigation import path_pattern, screen_heading
 from tests.support.network import HeldRoute, stub_api_error
-
-pytestmark = pytest.mark.skip(reason="ATDD 5.1: activate the current task before implementation")
 
 
 @pytest.mark.p0
@@ -161,3 +160,35 @@ def test_failed_list_retry_replaces_the_error_with_items(page: Page) -> None:
     expect(item_row(page, row["target"])).to_be_visible()
 
     expect(alert).to_have_count(0)
+
+
+@pytest.mark.p1
+def test_french_items_use_french_labels_and_paths(page: Page) -> None:
+    """[P1] AC-7 the French list is named for French and its rows open French Item detail."""
+    row = stored_item(target="tirer des conclusions", russian="делать выводы")
+    stub_items(page, [row], lang="fr")
+    page.goto("/fr/items")
+
+    expect(screen_heading(page)).to_have_text("French Items")
+    expect(search_box(page, "French")).to_have_attribute("placeholder", "Search English or Russian")
+    expect(item_row(page, row["target"])).to_have_attribute(
+        "href", item_detail_path("fr", row["itemId"])
+    )
+    stub_items(page, [], lang="fr")
+    page.goto("/fr/items")
+    expect(main(page).get_by_text("No French Items yet", exact=True)).to_be_visible()
+
+
+@pytest.mark.p1
+def test_a_row_opens_from_the_keyboard(page: Page) -> None:
+    """[P1] AC-7 a row is a link: focusing it and pressing Enter opens the Item."""
+    row = stored_item()
+    stub_items(page, [row])
+    stub_item_detail(page, row)
+    page.goto("/en/items")
+    item_row(page, row["target"]).focus()
+
+    page.keyboard.press("Enter")
+
+    expect(page).to_have_url(path_pattern(item_detail_path("en", row["itemId"])))
+    expect(screen_heading(page)).to_have_text(row["target"])

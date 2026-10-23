@@ -26,6 +26,7 @@ acceptance run checks them. `language_lab.domain.items` doesn't exist yet, so `L
 from domain/catalog.py and ItemContent through tests/support/items.py.
 """
 
+import copy
 import uuid
 from typing import Any
 
@@ -274,3 +275,29 @@ def test_a_failing_card_move_is_anki_unavailable_and_a_retry_updates_the_note() 
     save(retry_store, item_id, "en", VOCABULARY)
     assert sent_writes(retry_replay.sent) == ["updateNoteFields"]
     assert list(notes_of(collection, note_type)) == [note_id]
+
+
+@pytest.mark.p0
+@pytest.mark.parametrize("wire", [VOCABULARY, SENTENCE], ids=["vocabulary", "sentence"])
+def test_a_rejected_update_leaves_the_stored_item_unchanged(wire: dict[str, Any]) -> None:
+    """NFR-3 (story 5.1): an `updateNoteFields` that Anki rejects is `anki_unavailable`, and the
+    collection is as it was: the same note and Card ids, the prior fields and the Audio.
+    """
+    collection = managed_collection(MANIFEST)
+    item_id = str(uuid.uuid4())
+    note_type = note_type_of("en", wire)
+    stored = {**stored_fields(wire, item_id), "Russian": "прежнее", "Audio": "[sound:a.mp3]"}
+    note_id = item_note(collection, MANIFEST, note_type, item_id, stored)
+    cards_before = {i for i, card in collection.cards.items() if card.note == note_id}
+    before = copy.deepcopy(collection)
+    store, replay = wired(collection, replies={"updateNoteFields": _anki_error})
+
+    outcome = save(store, item_id, "en", {**wire, "russian": "изменённое"})
+
+    assert code_of(outcome) == "anki_unavailable"
+    assert sent_writes(replay.sent) == ["updateNoteFields"]
+    assert collection == before
+    assert list(notes_of(collection, note_type)) == [note_id]
+    assert {i for i, card in collection.cards.items() if card.note == note_id} == cards_before
+    assert collection.notes[note_id].fields["Audio"] == "[sound:a.mp3]"
+    assert collection.notes[note_id].fields["Russian"] == "прежнее"

@@ -1,4 +1,5 @@
-"""Items' HTTP routes, under /api/items: Save, the duplicate read and the Item read."""
+"""Items' HTTP routes, under /api/items: Save, the list/search, the duplicate read and the Item
+read."""
 
 import json
 import re
@@ -39,6 +40,10 @@ def _parse(item: str) -> tuple[_SaveIntent, ItemContent]:
         raise AppError(ErrorCode.VALIDATION_FAILED) from None
 
 
+class ItemsBody(TypedDict):
+    items: list[dict[str, Any]]
+
+
 class MatchesBody(TypedDict):
     matches: list[dict[str, Any]]
 
@@ -68,6 +73,11 @@ def items_router(service: ItemService) -> APIRouter:
         intent, content = _parse(item)
         await service.save(intent.item_id, lang, content, intent.audio)
         return {"itemId": intent.item_id}
+
+    @router.get("/{lang}")
+    async def search(lang: Language, q: str | None = None) -> ItemsBody:
+        items = await service.search(lang, q or "")
+        return {"items": [{**item.wire(), "hasAudio": item.has_audio} for item in items]}
 
     # Declared before /{item_id}, which would otherwise take "duplicates" as an ItemId
     @router.get("/{lang}/duplicates")

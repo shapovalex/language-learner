@@ -50,13 +50,11 @@ import {
   generatingScreen,
   itemPart,
   makeItemPane,
+  saveFailure,
 } from "./make-item.js";
 
 const LABEL = "New Capture";
 const PLACEHOLDER = "Paste or type a word, phrase or sentence";
-const UNREACHABLE_TITLE = "Not saved — Anki isn't reachable";
-const UNREACHABLE_BODY =
-  "Make sure Anki Desktop is open on the Mac mini, then try again. Your text is still here.";
 const LOADING = "Loading Captures…";
 const EMPTY = "No Captures yet.";
 const NEWEST_FIRST = "Newest first";
@@ -163,11 +161,6 @@ function loadError(error, onRetry) {
 // the envelope's message
 function failureCopy(error, unreachable, title) {
   return isApiError(error, "anki_unavailable") ? unreachable : [title, errorMessage(error)];
-}
-
-// [title, body] of a failed Save, of a Capture or an Item
-function saveFailure(error) {
-  return failureCopy(error, [UNREACHABLE_TITLE, UNREACHABLE_BODY], "Not saved");
 }
 
 // [title, body] of a failed generation (EXPERIENCE.md State Patterns)

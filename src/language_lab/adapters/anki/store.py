@@ -146,7 +146,8 @@ def _stored_item(info: dict[str, Any], category: Category) -> Item:
         russian_alternatives=split_alternatives(_optional(info, "RussianAlternatives")),
         **{key: _optional(info, name) for key, name in _OPTIONAL_FIELDS[category].items()},
     )
-    return Item(_field(info, _ITEM_ID).strip(), content)
+    has_audio = bool(_optional(info, _AUDIO).strip())
+    return Item(_field(info, _ITEM_ID).strip(), content, has_audio)
 
 
 def _encoded(fields: dict[str, str]) -> dict[str, str]:

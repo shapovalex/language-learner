@@ -12,6 +12,7 @@
 // Try again. Before a Save, a duplicate opens the duplicate sheet (S-Duplicate, story 4.3).
 
 import { CATEGORIES, LANGUAGES, categoryName, languageName } from "../catalog.js";
+import { errorMessage, isApiError } from "../api.js";
 import { alertBox, element, skeleton, tryAgain } from "../dom.js";
 
 const MAKE_AN_ITEM = "Make an Item";
@@ -34,6 +35,9 @@ const OPEN_EXISTING = "Open existing";
 const CANCEL = "Cancel";
 const CREATE_ANYWAY = "Create anyway";
 const BACK = "‹ Capture";
+const UNREACHABLE_TITLE = "Not saved — Anki isn't reachable";
+const UNREACHABLE_BODY =
+  "Make sure Anki Desktop is open on the Mac mini, then try again. Your text is still here.";
 
 // Each Category's fields in order: [key, label, multiline, placeholder]. `alternatives` is the
 // textarea of `russianAlternatives`, one per line (decided 2026-10-22)
@@ -92,6 +96,12 @@ function alternativeLines(text) {
     .filter(Boolean);
 }
 
+// [title, body] of a failed Save, of a Capture, a Draft or an Item (EXPERIENCE.md State Patterns)
+export function saveFailure(error) {
+  if (isApiError(error, "anki_unavailable")) return [UNREACHABLE_TITLE, UNREACHABLE_BODY];
+  return ["Not saved", errorMessage(error)];
+}
+
 // The Save's `item` part (Consistency Conventions): ItemContent, the ItemId and `audio: "keep"`
 export function itemPart(draft) {
   const item = { category: draft.category, itemId: draft.itemId, audio: "keep" };
@@ -105,8 +115,8 @@ export function itemPart(draft) {
   return item;
 }
 
-// Why the Draft can't be saved yet, or null
-function saveBlocker(values) {
+// Why the Draft or Item can't be saved yet, or null
+export function saveBlocker(values) {
   if (!values.target.trim() || !values.russian.trim()) return REQUIRED_REASON;
   if (alternativeLines(values.alternatives).some((line) => line.includes(","))) {
     return COMMA_REASON;
@@ -301,6 +311,57 @@ export function generatingScreen(draft, { onRetry, alertFor }) {
   return { screen, title, retry: again };
 }
 
+// The editable fields of a Category, shared by the Draft editor and Item detail: one labelled
+// input per field in `FIELDS` order, the alternatives one per line, and Clear on a Vocabulary
+// example. Edits go into `values`, then `onChange(key)` runs; while `busy` nothing is editable,
+// since an edit typed while the Save is in flight would never be sent
+export function editorFields(category, values, { busy, onChange }) {
+  const fields = element("div", "draft-fields");
+  const inputs = {};
+  for (const [key, label, multiline, placeholder] of FIELDS[category]) {
+    const id = uniqueId(`draft-${key}`);
+    const wrap = element("div", "draft-field");
+    const caption = element("label", "compose-label", label);
+    caption.htmlFor = id;
+    const input = element(multiline ? "textarea" : "input", "compose-field");
+    if (multiline) {
+      input.rows = key === "alternatives" ? 2 : 3;
+    } else {
+      input.type = "text";
+    }
+    input.id = id;
+    input.value = values[key];
+    input.readOnly = busy;
+    if (placeholder) input.placeholder = placeholder;
+    input.addEventListener("input", () => {
+      values[key] = input.value;
+      onChange(key);
+    });
+    inputs[key] = input;
+    if (key === "example") {
+      // Clear removes the example and its translation together (FR-14)
+      const row = element("div", "draft-field-row");
+      const clear = element("button", "button-link", CLEAR);
+      clear.type = "button";
+      clear.disabled = busy;
+      clear.addEventListener("click", () => {
+        for (const cleared of ["example", "exampleRussian"]) {
+          values[cleared] = "";
+          inputs[cleared].value = "";
+        }
+        onChange("example");
+        inputs.example.focus();
+      });
+      row.append(caption, clear);
+      wrap.append(row, input);
+    } else {
+      wrap.append(caption, input);
+    }
+    fields.append(wrap);
+  }
+  return { fields, inputs };
+}
+
 // The Draft editor. `draft` is {captureId, captureText, language, category, itemId, values,
 // busy, error}; edits go into `draft.values` and `onEdit()` runs after each. `onSave()` and
 // `onDiscard()` run on Save to Anki and Discard; `alertFor(error)` gives a failed Save's
@@ -315,53 +376,14 @@ export function draftEditor(draft, { onEdit, onSave, onDiscard, alertFor }) {
 
   const { header, title } = draftHeader(draft, draft.values.target, { chip: true });
 
-  const fields = element("div", "draft-fields");
-  const inputs = {};
-  for (const [key, label, multiline, placeholder] of FIELDS[draft.category]) {
-    const id = uniqueId(`draft-${key}`);
-    const wrap = element("div", "draft-field");
-    const caption = element("label", "compose-label", label);
-    caption.htmlFor = id;
-    const input = element(multiline ? "textarea" : "input", "compose-field");
-    if (multiline) {
-      input.rows = key === "alternatives" ? 2 : 3;
-    } else {
-      input.type = "text";
-    }
-    input.id = id;
-    input.value = draft.values[key];
-    // An edit typed while the Save is in flight would never be sent
-    input.readOnly = draft.busy;
-    if (placeholder) input.placeholder = placeholder;
-    input.addEventListener("input", () => {
-      draft.values[key] = input.value;
-      if (key === "target") title.textContent = input.value;
+  const { fields } = editorFields(draft.category, draft.values, {
+    busy: draft.busy,
+    onChange: (key) => {
+      if (key === "target") title.textContent = draft.values.target;
       refresh();
       onEdit();
-    });
-    inputs[key] = input;
-    if (key === "example") {
-      // Clear removes the example and its translation together (FR-14)
-      const row = element("div", "draft-field-row");
-      const clear = element("button", "button-link", CLEAR);
-      clear.type = "button";
-      clear.disabled = draft.busy;
-      clear.addEventListener("click", () => {
-        for (const cleared of ["example", "exampleRussian"]) {
-          draft.values[cleared] = "";
-          inputs[cleared].value = "";
-        }
-        refresh();
-        onEdit();
-        inputs.example.focus();
-      });
-      row.append(caption, clear);
-      wrap.append(row, input);
-    } else {
-      wrap.append(caption, input);
-    }
-    fields.append(wrap);
-  }
+    },
+  });
 
   const alertSlot = element("div", "draft-alert-slot");
   if (draft.error) {
