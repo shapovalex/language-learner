@@ -3,7 +3,7 @@ title: 'Card templates and acceptance on the released wheel'
 type: 'feature'
 ticket: '4'
 created: '2026-10-23'
-status: 'built'
+status: 'done'
 baseline_revision: '6d4becc665a77dc94ee00ba8833cf4cf694091f8'
 route: 'full'
 route_source: 'auto'
@@ -46,7 +46,8 @@ context: []
 - The runbook follows `captures-acceptance-3-4.md`: a header block, `WHEEL`/`ac()` helpers, lettered Do/Expect tables, CI evidence, Results, Findings.
   - It uses the released wheel with entries 1–4 (`v0.6.0`, cut by the user), release mode, and `ANKI_PREFIX=LanguageLabDev`, reached over Tailscale Serve.
   - Every verify clause is a step: DW1–DW5, the templates Repair, a test clip stored in Anki (`LanguageLabDev_`-named) shown in Desktop and AnkiMobile, R-03 on the dirty Draft editor (iPhone and iPad), a `notesInfo` of a Hint edited with blank lines, the `/api/setup/plan` timing with real cards, and real `changeDeck`/`updateNoteFields`/`cardsInfo` replies.
-- No step is marked pass without the user's reported result. Each finding names a commit in this story or a `deferred-work.md` entry.
+- No step is marked pass without the user's reported result.
+  Decision (2026-10-23, human): the user reported the whole run as passing ("everything looks ok") with no pastes and closed the story; the `decode_field`, `read_leftovers` and reply-fixture checks move to `deferred-work.md`. Each finding names a commit in this story or a `deferred-work.md` entry.
 - The repo is public: no tailnet name, login, account, address, or non-`LanguageLabDev` resource is committed.
 
 **Never:**
@@ -93,9 +94,9 @@ context: []
   - I: `time curl /api/setup/plan`.
   - J: record `changeDeck`/`updateNoteFields`/`cardsInfo`.
   - Then CI evidence, Results, Findings.
-- [ ] HITL: the user merges, cuts `v0.6.0`, runs the runbook, and reports each result with pastes
-- [ ] `tests/fixtures/anki/{changeDeck,updateNoteFields,cardsInfo}.json`, `tests/fixtures/README.md`, `tests/integration/test_anki_item_save.py`, `tests/support/anki_state.py` -- write the recorded exchanges, test that the simulator answers the same shape, and replace the hand-built notes -- verify "fixtures against real replies"
-- [ ] Findings -- fix each, or append it to `deferred-work.md`. Fill in Results and the deferred outcomes.
+- [x] HITL: the user merges, cuts `v0.6.0`, runs the runbook, and reports each result with pastes (reported as a group, no pastes)
+- [ ] (deferred: no replies pasted) `tests/fixtures/anki/{changeDeck,updateNoteFields,cardsInfo}.json`, `tests/fixtures/README.md`, `tests/integration/test_anki_item_save.py`, `tests/support/anki_state.py` -- write the recorded exchanges, test that the simulator answers the same shape, and replace the hand-built notes -- verify "fixtures against real replies"
+- [x] Findings -- fix each, or append it to `deferred-work.md`. Fill in Results and the deferred outcomes.
 
 **Acceptance Criteria:**
 - Given the new templates, when `pytest tests/unit/test_anki_manifest.py` runs, then it passes and fails if a Produce/Write front reads `RussianAlternatives` or `Audio`.
