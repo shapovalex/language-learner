@@ -1,5 +1,5 @@
-"""Items' content type and its generated-fields models (AD-11), the Save audio intent (AD-6),
-and text normalization (AD-12).
+"""Items' content type and its generated-fields models (AD-11), a stored Item, the Save audio
+intent (AD-6), and text normalization (AD-12).
 
 `ItemContent` is one flat union discriminated by `category`, camelCase on the wire, used
 unchanged by Draft responses, Save requests and Item reads. `russian` is the primary meaning and
@@ -14,6 +14,7 @@ same model validates the reply.
 
 import re
 import unicodedata
+from dataclasses import dataclass
 from enum import StrEnum
 from typing import Annotated, Any, ClassVar, Literal
 
@@ -75,6 +76,14 @@ class SentenceContent(_Content):
 
 
 ItemContent = Annotated[VocabularyContent | SentenceContent, Field(discriminator="category")]
+
+
+@dataclass(frozen=True)
+class Item:
+    """An Item as Anki holds it: its ItemId (AD-8) and its content (AD-11)."""
+
+    item_id: str
+    content: VocabularyContent | SentenceContent
 
 
 class _Generated(BaseModel):

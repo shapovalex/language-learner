@@ -37,10 +37,6 @@ from tests.support.captures import DEV_MANIFEST, GATED_STATES, MANIFEST, code_of
 from tests.support.duplicates import sentence, vocabulary
 from tests.support.items import content, note_type_of, stored_fields
 
-pytestmark = pytest.mark.skip(
-    reason="red phase (story 4.3): un-skip with item_candidates and get_item in the Anki adapter"
-)
-
 # Stored in Anki's editor: inline markup and an NBSP in the Target, alternatives hand-joined
 EDITED_FIELDS = {
     "Target": "<b>Jump</b>&nbsp;to conclusions",

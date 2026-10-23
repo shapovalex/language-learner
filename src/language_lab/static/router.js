@@ -23,6 +23,7 @@ const ROUTES = [
   [/^\/captures\/([^/]+)$/, "captures", (m) => ({ captureId: decoded(m[1]) })],
   [/^\/captures\/([^/]+)\/new$/, "captures", (m) => ({ captureId: decoded(m[1]), draft: true })],
   [/^\/(en|fr)\/items$/, "items", (m) => ({ lang: m[1] })],
+  [/^\/(en|fr)\/items\/([^/]+)$/, "item-detail", (m) => ({ lang: m[1], itemId: decoded(m[2]) })],
   [/^\/(en|fr)\/pronunciation$/, "pronunciation", (m) => ({ lang: m[1] })],
   [/^\/setup$/, "setup", () => ({})],
 ];
@@ -112,9 +113,10 @@ function cycleFocus(event, items) {
   items[next].focus();
 }
 
+// A detail screen (Item detail) has its back link instead (S-ItemDetail)
 function renderLanguageNav(route) {
   const { lang } = route.params;
-  if (!lang) {
+  if (!lang || route.name === "item-detail") {
     languageNav?.remove();
     languageNav = null;
     return;

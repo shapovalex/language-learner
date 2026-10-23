@@ -22,7 +22,7 @@ import pytest
 from playwright.sync_api import Page, Request, ViewportSize, expect
 
 from tests.support import viewports
-from tests.support.captures_screen import API, CAPTURES_PATH, capture
+from tests.support.captures_screen import API, CAPTURES_PATH, capture, horizontal_overflow
 from tests.support.drafts import GENERATED_VOCABULARY, drafted
 from tests.support.items_screen import (
     CANCEL,
@@ -52,10 +52,6 @@ from tests.support.items_screen import (
 from tests.support.navigation import path_pattern, screen_heading
 from tests.support.network import stub_api_error, stub_api_json
 from tests.support.unsaved import discard_button, unsaved_alert
-
-pytestmark = pytest.mark.skip(
-    reason="red phase (story 4.3): un-skip with the duplicate check at Save and the sheet"
-)
 
 CAPTURE = capture("I'd rather not jump to conclusions.", "2026-10-22T21:14:00Z")
 CAPTURE_ID = CAPTURE["captureId"]
@@ -240,3 +236,34 @@ def test_a_retried_save_after_create_anyway_asks_no_second_check(page: Page) -> 
 
     assert item_part(retried.value)["itemId"] == ITEM_ID
     assert checks == []
+
+
+@pytest.mark.p1
+def test_on_the_phone_the_sheet_sits_at_the_bottom_with_no_horizontal_overflow(page: Page) -> None:
+    """AC-13: at phone width the sheet is a bottom sheet: its bottom edge is the viewport's, it
+    spans the width, and the page doesn't scroll sideways (EXPERIENCE.md Bottom sheet).
+    """
+    open_sheet(page, viewports.PHONE)
+    expect(duplicate_sheet(page)).to_be_visible()
+
+    box = duplicate_sheet(page).bounding_box()
+
+    assert box is not None
+    assert box["y"] + box["height"] == pytest.approx(viewports.PHONE["height"], abs=1)
+    assert box["width"] == pytest.approx(viewports.PHONE["width"], abs=1)
+    assert horizontal_overflow(page) <= 0
+
+
+@pytest.mark.p1
+def test_focus_starts_on_open_existing_and_stays_on_the_sheet(page: Page) -> None:
+    """AC-13: focus starts on Open existing, and Tab and Shift+Tab cycle the sheet's three
+    buttons without leaving it (EXPERIENCE.md Bottom sheet).
+    """
+    open_sheet(page)
+    expect(sheet_button(page, OPEN_EXISTING)).to_be_focused()
+
+    for name in (CANCEL, CREATE_ANYWAY, OPEN_EXISTING):
+        page.keyboard.press("Tab")
+        expect(sheet_button(page, name)).to_be_focused()
+    page.keyboard.press("Shift+Tab")
+    expect(sheet_button(page, CREATE_ANYWAY)).to_be_focused()

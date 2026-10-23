@@ -1287,3 +1287,168 @@ button.segment {
     display: none;
   }
 }
+
+/* Duplicate sheet (S-Duplicate, story 4.3): a native modal <dialog>, a bottom sheet on the phone
+   and a centered dialog from tablet width up. The body fills it, so a click on the dialog itself
+   is on the backdrop. */
+.duplicate-sheet {
+  width: 100%;
+  max-width: none;
+  margin: auto 0 0;
+  padding: 0;
+  border: 0;
+  border-radius: var(--radius-card-lg) var(--radius-card-lg) 0 0;
+  background: var(--color-ground);
+  color: var(--color-ink);
+}
+
+.duplicate-sheet::backdrop {
+  background: #221e2e6b;
+  background: var(--color-scrim, #221e2e6b);
+}
+
+.duplicate-sheet-body {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+  padding: var(--space-5) var(--space-gutter-phone)
+    calc(var(--space-9) + env(safe-area-inset-bottom));
+}
+
+/* Handle, as on the Menu sheet */
+.duplicate-sheet-body::before {
+  content: "";
+  align-self: center;
+  width: 40px;
+  height: 5px;
+  border-radius: var(--radius-full);
+  background: var(--color-border);
+}
+
+.duplicate-overline {
+  margin: var(--space-3) 0 0;
+  color: var(--color-on-feedback-fair);
+  font-size: var(--font-size-label);
+  font-weight: var(--font-weight-label);
+}
+
+.duplicate-title {
+  margin: 0;
+  font-size: var(--font-size-dialog-title);
+  font-weight: var(--font-weight-dialog-title);
+  line-height: var(--line-height-dialog-title);
+}
+
+.duplicate-matches {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.duplicate-match {
+  padding: var(--space-5) var(--space-6);
+  border: 2px solid var(--color-feedback-fair);
+  border-radius: var(--radius-row);
+  background: var(--color-surface);
+  overflow-wrap: anywhere;
+}
+
+.duplicate-match-target,
+.duplicate-match-russian {
+  margin: 0;
+}
+
+.duplicate-match-target {
+  font-weight: var(--font-weight-label);
+}
+
+.duplicate-match-russian {
+  color: var(--color-ink-muted);
+}
+
+.duplicate-body {
+  margin: 0;
+  color: var(--color-ink-muted);
+}
+
+.duplicate-actions {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+  margin-top: var(--space-5);
+}
+
+.duplicate-actions .button {
+  width: 100%;
+}
+
+.duplicate-create {
+  align-self: center;
+  min-height: var(--space-target-min);
+}
+
+@media (min-width: 600px) {
+  .duplicate-sheet {
+    width: calc(100% - 2 * var(--space-gutter-tablet));
+    max-width: 480px;
+    margin: auto;
+    border-radius: var(--radius-card-lg);
+  }
+
+  .duplicate-sheet-body {
+    padding: var(--space-card-pad-tablet);
+  }
+
+  .duplicate-sheet-body::before {
+    display: none;
+  }
+}
+
+/* Item detail, view-only (S-ItemDetail, story 4.3) */
+.item-detail-header {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-3) var(--space-4);
+  margin: var(--space-5) 0;
+}
+
+.item-detail-title {
+  margin: 0;
+  overflow-wrap: anywhere;
+}
+
+.item-detail-fields {
+  display: grid;
+  gap: var(--space-2);
+  margin: 0;
+  padding: var(--space-card-pad-phone);
+  border-radius: var(--radius-card-lg);
+  background: var(--color-surface);
+}
+
+.item-detail-label {
+  margin-top: var(--space-4);
+  color: var(--color-ink-muted);
+  font-size: var(--font-size-label);
+  font-weight: var(--font-weight-label);
+}
+
+.item-detail-label:first-child {
+  margin-top: 0;
+}
+
+.item-detail-value {
+  margin: 0;
+  white-space: pre-line;
+  overflow-wrap: anywhere;
+}
+
+@media (min-width: 600px) {
+  .item-detail-fields {
+    padding: var(--space-card-pad-tablet);
+  }
+}
