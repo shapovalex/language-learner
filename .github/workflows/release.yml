@@ -72,7 +72,7 @@ jobs:
         # as the test path, skip testpaths, and never load tests/conftest.py, which adds --wheel.
         run: |
           wheel=$(echo dist/language_lab-*.whl)
-          uv run pytest --browser chromium --browser webkit --wheel="$wheel" --junitxml=test-results/junit-release.xml
+          uv run pytest -n auto --dist loadgroup --browser chromium --browser webkit --wheel="$wheel" --junitxml=test-results/junit-release.xml
 
       - name: Upload wheel
         uses: actions/upload-artifact@v4

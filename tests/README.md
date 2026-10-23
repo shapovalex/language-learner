@@ -6,7 +6,7 @@ There is no Node here (NFR-11), so Playwright runs from Python against the real 
 ## Setup
 
 ```bash
-uv sync                 # dev group: pytest, pytest-playwright, pytest-cov, ruff
+uv sync                 # dev group: pytest, pytest-playwright, pytest-cov, pytest-xdist, ruff
 make browsers           # uv run playwright install chromium webkit (once per Playwright version)
 ```
 
@@ -14,7 +14,7 @@ make browsers           # uv run playwright install chromium webkit (once per Pl
 
 | Command | What it runs |
 | --- | --- |
-| `make test` / `uv run pytest` | Everything; E2E on Chromium |
+| `make test` | Everything; E2E on Chromium, in parallel (pytest-xdist, one worker per CPU). Bare `uv run pytest` runs the same serially |
 | `make test-fast` | Everything except E2E (no browser) |
 | `make test-e2e` | E2E only |
 | `make test-webkit` | E2E on Chromium and WebKit (covered by release.yml's tag run; iPhone/iPad Safari proxy) |
@@ -92,7 +92,7 @@ Write the function first, then the fixture.
 ### Markers
 
 The level markers `unit`, `integration`, `api` and `e2e` are applied from the directory, so don't add them by hand.
-Priority markers come from the test design: `smoke`, `p0` to `p3`. Within a run, smoke tests go first, then P0 to P3, then unmarked tests.
+Priority markers come from the test design: `smoke`, `p0` to `p3`. Within a run, smoke tests are queued first, then P0 to P3, then unmarked tests. Under xdist (every `make` target) workers run them at the same time, so the order is a queue order, not a guarantee that smoke finishes first.
 `live_anki` tests are skipped unless you pass `--live-anki`.
 `--strict-markers` is on, so register any new marker in `pyproject.toml`.
 
@@ -124,14 +124,14 @@ Tag runs are `.github/workflows/release.yml` only (see Release below).
 | Trigger | Jobs |
 | --- | --- |
 | Push to `main` | lint → test (Chromium) → report |
-| Pull request to `main` | lint → test → burn-in (E2E ×10) → report |
+| Pull request to `main` | lint → test and burn-in (E2E ×3) side by side → report |
 
 - **Lint:** `ruff check` and `ruff format --check`. Findings show as PR annotations.
-- **Test:** `make test-ci`. Afterwards the job checks that the JUnit report holds every collected test, so a suite that silently stops running part of itself fails.
-- **Burn-in:** `make burn-in` runs the E2E suite 10 times, and one failure fails the job. Nothing is retried: a flaky test should fail here, not be rerun into green.
+- **Test:** `make test-ci`, spread over the runner's CPUs by pytest-xdist (`-n auto`); each worker starts its own live server on a free port, and `--dist loadgroup` keeps the wheel tests (`xdist_group("release_wheel")`) on one worker so the wheel is built once. Afterwards the job checks that the JUnit report holds every collected test, so a suite that silently stops running part of itself fails.
+- **Burn-in:** `make burn-in` runs the E2E suite 3 times (also under xdist), and one failure fails the job. It starts with the test job, not after it. Nothing is retried: a flaky test should fail here, not be rerun into green.
 - **Gates:** every test must pass, so P0 is 100% and P1 is held to 100%, stricter than the ≥95% in the design. The report job fails if any job failed or was cancelled.
 - **Artifacts:** `test-results-chromium` is always uploaded: JUnit, plus a trace, screenshot and video for failed E2E tests. `burn-in-failures` is uploaded on failure. Each is kept 30 days and linked from the run summary.
-- **Caching:** uv's cache keyed on `uv.lock`, and Playwright browsers in `~/.cache/ms-playwright`.
+- **Caching:** uv's cache keyed on `uv.lock`, and Playwright browsers in `~/.cache/ms-playwright`. Push/PR jobs install only the Chromium headless shell, without `--with-deps`: the runner image has its system libraries, and apt can take minutes.
 - **Secrets:** none. Tests never reach real externals.
 - **Notifications:** GitHub's default emails for failed runs on your own pushes and PRs.
 

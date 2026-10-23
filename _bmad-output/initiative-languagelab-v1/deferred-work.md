@@ -38,3 +38,6 @@
 - source_plan: `_bmad-output/initiative-languagelab-v1/epic-capture-to-item/story-card-templates-and-acceptance-on-the-released-wheel-plan.md`
   summary: Record the real AnkiConnect `changeDeck`, `updateNoteFields` and `cardsInfo` replies as `tests/fixtures/anki/` exchanges and test the simulator in `tests/support/anki_state.py` against them.
   evidence: Story 4.4's run (part J of the 4.4 acceptance file) was reported passing with no replies pasted, so the hand-built replies noted in `tests/support/anki_state.py` and `tests/integration/test_anki_item_save.py` are still unchecked.
+- source_plan: `_bmad-output/initiative-languagelab-v1/plan-ci-test-speed.md`
+  summary: Make `closed_port()` and `released_app` port allocation race-free now that tests run in parallel under pytest-xdist.
+  evidence: maybe-false, unverified medium. Both free a bound port before using it, so a concurrent xdist worker could take it. A burn-in or CI failure that names a refused-connection or released-app bind test would prove it.

@@ -24,6 +24,9 @@ from tests.support.release import (
     uv_cache_dir,
 )
 
+# One xdist worker builds the wheel once, as in a serial run (Makefile passes --dist loadgroup)
+pytestmark = pytest.mark.xdist_group("release_wheel")
+
 VERSION = pyproject_version()
 DEEP_CLIENT_PATH = "/any/deep/path"
 SERVING_ON = "Uvicorn running on http://127.0.0.1:"  # uvicorn's line: the socket it bound
