@@ -29,3 +29,12 @@
 - source_plan: `_bmad-output/initiative-languagelab-v1/epic-captures/story-acceptance-on-the-released-wheel-from-the-iphone-plan.md`
   summary: Record the real AnkiConnect `suspend` (unsuspended and already-suspended card) and `deleteNotes` (present and missing note) replies as `tests/fixtures/anki/` exchanges and test the simulator in `tests/support/anki_state.py` against them.
   evidence: In story 3.4's run (part H of `_bmad-output/test-artifacts/acceptance/captures-acceptance-3-4.md`) the user reported H3–H6 passing but pasted no replies, and chose to finish without them, so the hand-built replies are still unchecked against real Anki. The adapter ignores both results (`adapters/anki/store.py` `create_capture`, `delete_capture`), so only an error reply would change behavior.
+- source_plan: `_bmad-output/initiative-languagelab-v1/epic-capture-to-item/story-card-templates-and-acceptance-on-the-released-wheel-plan.md`
+  summary: Record a `notesInfo` of a Hint edited with blank lines in the Mac Mini Anki and settle how `decode_field` reads it (AC-11 row).
+  evidence: Story 4.4's run (part H of `_bmad-output/test-artifacts/acceptance/capture-to-item-acceptance-4-4.md`) was reported passing with no `notesInfo` pasted, so the stored markup is still unrecorded.
+- source_plan: `_bmad-output/initiative-languagelab-v1/epic-capture-to-item/story-card-templates-and-acceptance-on-the-released-wheel-plan.md`
+  summary: Measure the Setup preview's `read_leftovers` cost (`/api/setup/plan` timing and card count) on the Mac Mini with real LanguageLab cards.
+  evidence: Story 4.4's run (part I of the 4.4 acceptance file) was reported passing with no timings or card count pasted.
+- source_plan: `_bmad-output/initiative-languagelab-v1/epic-capture-to-item/story-card-templates-and-acceptance-on-the-released-wheel-plan.md`
+  summary: Record the real AnkiConnect `changeDeck`, `updateNoteFields` and `cardsInfo` replies as `tests/fixtures/anki/` exchanges and test the simulator in `tests/support/anki_state.py` against them.
+  evidence: Story 4.4's run (part J of the 4.4 acceptance file) was reported passing with no replies pasted, so the hand-built replies noted in `tests/support/anki_state.py` and `tests/integration/test_anki_item_save.py` are still unchecked.

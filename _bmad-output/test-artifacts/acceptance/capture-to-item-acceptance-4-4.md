@@ -12,7 +12,7 @@ have so far hand-built.
 - **Release under test:** `v0.6.0`, the first release with entries 1 to 4 of the epic
 - **Prefix under test:** `LanguageLabDev`, set as an environment override. Never `LanguageLab`.
 - **Mode:** release (no `LANGUAGE_LAB_DEV`)
-- **Run on:** _(date of the run)_
+- **Run on:** 2026-10-23
 - **Devices:** Mac Mini (host, with Anki Desktop, AnkiConnect and Tailscale Serve), iPhone
   Safari and AnkiMobile, iPad Safari, desktop browser on another computer
 
@@ -191,59 +191,60 @@ A step marked "not run" has no recorded result. It is not a pass.
 
 | Step | Result | Notes |
 | --- | --- | --- |
-| A1 release `v0.6.0` | not run | Waiting for the user's run. |
-| A2 no `LANGUAGE_LAB_DEV` | not run | Waiting for the user's run. |
-| A3 Tailscale Serve to 8787 | not run | Waiting for the user's run. |
-| B1 starts, tailnet line, Sync ok | not run | Waiting for the user's run. |
-| B2 health `0.6.0` | not run | Waiting for the user's run. |
-| B3 Item notes before | not run | Waiting for the user's run. |
-| B4 five templates Repair rows | not run | Waiting for the user's run. |
-| B5 Apply setup verified | not run | Waiting for the user's run. |
-| B6 Nothing to change | not run | Waiting for the user's run. |
-| B7 new templates in Anki | not run | Waiting for the user's run. |
-| C1 Make an Item pane | not run | Waiting for the user's run. |
-| C2 Generate Draft, no Mnemonic | not run | Waiting for the user's run. |
-| C3 Example cleared, saved | not run | Waiting for the user's run. |
-| C4 Vocabulary note | not run | Waiting for the user's run. |
-| C5 Generation context absent | not run | Waiting for the user's run. |
-| C6 French Sentence saved | not run | Waiting for the user's run. |
-| C7 Sentence note | not run | Waiting for the user's run. |
-| C8 four cards each in their decks | not run | Waiting for the user's run. |
-| C9 independent schedules | not run | Waiting for the user's run. |
-| D1 duplicate sheet | not run | Waiting for the user's run. |
-| D2 Cancel keeps the Draft | not run | Waiting for the user's run. |
-| D3 Open existing → Item detail | not run | Waiting for the user's run. |
-| D4 other Language or Category not shown | not run | Waiting for the user's run. |
-| E1 the stored Item as a Save | not run | Waiting for the user's run. |
-| E2 retried Save `200` | not run | Waiting for the user's run. |
-| E3 no second note | not run | Waiting for the user's run. |
-| F1 clip stored | not run | Waiting for the user's run. |
-| F2 Audio and optional fields set | not run | Waiting for the user's run. |
-| F3 Vocabulary faces in Desktop | not run | Waiting for the user's run. |
-| F4 Example in Russian alone in the panel | not run | Waiting for the user's run. |
-| F5 Sentence faces, no player | not run | Waiting for the user's run. |
-| F6 night mode readable | not run | Waiting for the user's run. |
-| F7 AnkiMobile after Sync | not run | Waiting for the user's run. |
-| G1–G6 iPhone | not run | Waiting for the user's run. |
-| G1–G6 iPad | not run | Waiting for the user's run. |
-| H1 Hint with blank lines | not run | Waiting for the user's run. |
-| H2 `notesInfo` Hint value | not run | Waiting for the user's run. |
-| H3 Item read Hint value | not run | Waiting for the user's run. |
-| I1 cards under the Prefix | not run | Waiting for the user's run. |
-| I2 `/api/setup/plan` timings | not run | Waiting for the user's run. |
-| J1 `changeDeck` reply | not run | Waiting for the user's run. |
-| J2 `updateNoteFields` reply | not run | Waiting for the user's run. |
-| J3 `cardsInfo` reply | not run | Waiting for the user's run. |
+| A1 release `v0.6.0` | pass | Reported by the user as a group ("everything looks ok"), no output pasted. |
+| A2 no `LANGUAGE_LAB_DEV` | pass | Reported by the user as a group ("everything looks ok"), no output pasted. |
+| A3 Tailscale Serve to 8787 | pass | Reported by the user as a group ("everything looks ok"), no output pasted. |
+| B1 starts, tailnet line, Sync ok | pass | Reported by the user as a group ("everything looks ok"), no output pasted. |
+| B2 health `0.6.0` | pass | Reported by the user as a group ("everything looks ok"), no output pasted. |
+| B3 Item notes before | pass | Reported by the user as a group ("everything looks ok"), no output pasted. |
+| B4 five templates Repair rows | pass | Reported by the user as a group ("everything looks ok"), no output pasted. |
+| B5 Apply setup verified | pass | Reported by the user as a group ("everything looks ok"), no output pasted. |
+| B6 Nothing to change | pass | Reported by the user as a group ("everything looks ok"), no output pasted. |
+| B7 new templates in Anki | pass | Reported by the user as a group ("everything looks ok"), no output pasted. |
+| C1 Make an Item pane | pass | Reported by the user as a group ("everything looks ok"), no output pasted. |
+| C2 Generate Draft, no Mnemonic | pass | Reported by the user as a group ("everything looks ok"), no output pasted. |
+| C3 Example cleared, saved | pass | Reported by the user as a group ("everything looks ok"), no output pasted. |
+| C4 Vocabulary note | pass | Reported by the user as a group ("everything looks ok"), no output pasted. |
+| C5 Generation context absent | pass | Reported by the user as a group ("everything looks ok"), no output pasted. |
+| C6 French Sentence saved | pass | Reported by the user as a group ("everything looks ok"), no output pasted. |
+| C7 Sentence note | pass | Reported by the user as a group ("everything looks ok"), no output pasted. |
+| C8 four cards each in their decks | pass | Reported by the user as a group ("everything looks ok"), no output pasted. |
+| C9 independent schedules | pass | Reported by the user as a group ("everything looks ok"), no output pasted. |
+| D1 duplicate sheet | pass | Reported by the user as a group ("everything looks ok"), no output pasted. |
+| D2 Cancel keeps the Draft | pass | Reported by the user as a group ("everything looks ok"), no output pasted. |
+| D3 Open existing → Item detail | pass | Reported by the user as a group ("everything looks ok"), no output pasted. |
+| D4 other Language or Category not shown | pass | Reported by the user as a group ("everything looks ok"), no output pasted. |
+| E1 the stored Item as a Save | pass | Reported by the user as a group ("everything looks ok"), no output pasted. |
+| E2 retried Save `200` | pass | Reported by the user as a group ("everything looks ok"), no output pasted. |
+| E3 no second note | pass | Reported by the user as a group ("everything looks ok"), no output pasted. |
+| F1 clip stored | pass | Reported by the user as a group ("everything looks ok"), no output pasted. |
+| F2 Audio and optional fields set | pass | Reported by the user as a group ("everything looks ok"), no output pasted. |
+| F3 Vocabulary faces in Desktop | pass | Reported by the user as a group ("everything looks ok"), no output pasted. |
+| F4 Example in Russian alone in the panel | pass | Reported by the user as a group ("everything looks ok"), no output pasted. |
+| F5 Sentence faces, no player | pass | Reported by the user as a group ("everything looks ok"), no output pasted. |
+| F6 night mode readable | pass | Reported by the user as a group ("everything looks ok"), no output pasted. |
+| F7 AnkiMobile after Sync | pass | Reported by the user as a group ("everything looks ok"), no output pasted. |
+| G1–G6 iPhone | pass | Reported by the user as a group ("everything looks ok"), no output pasted. |
+| G1–G6 iPad | pass | Reported by the user as a group ("everything looks ok"), no output pasted. |
+| H1 Hint with blank lines | pass | Reported by the user as a group ("everything looks ok"), no output pasted. |
+| H2 `notesInfo` Hint value | pass | Reported by the user as a group ("everything looks ok"), no output pasted. |
+| H3 Item read Hint value | pass | Reported by the user as a group ("everything looks ok"), no output pasted. |
+| I1 cards under the Prefix | pass | Reported by the user as a group ("everything looks ok"), no output pasted. |
+| I2 `/api/setup/plan` timings | pass | Reported by the user as a group ("everything looks ok"), no output pasted. |
+| J1 `changeDeck` reply | pass | Reported by the user as a group ("everything looks ok"), no output pasted. |
+| J2 `updateNoteFields` reply | pass | Reported by the user as a group ("everything looks ok"), no output pasted. |
+| J3 `cardsInfo` reply | pass | Reported by the user as a group ("everything looks ok"), no output pasted. |
 | DW2 one retry then `llm_invalid_output`; model order through `.env` | CI only | No device step: proved in CI by `tests/integration/test_openrouter_llm.py::test_an_invalid_reply_is_retried_once_then_llm_invalid_output`, `::test_a_valid_retry_is_the_generated_draft`, `::test_generate_asks_openrouter_with_the_configured_models_and_a_strict_schema` and `tests/unit/test_settings_load.py::test_openrouter_models_parse_in_order` (see [CI evidence](#ci-evidence)). C2–C4 cover the rest of DW2 on the device. |
 
-**Deferred outcomes** (filled in after the run):
+**Deferred outcomes:**
 
-- R-03 on the Draft editor (`deferred-work.md`, story 1.10 entry): _pending G1–G6._
-- `decode_field` and blank lines (story 2.4 entry): _pending H2–H3._
-- `read_leftovers` cost (stories 2.11 and 2.13 entries): _pending I1–I2._
-- Hand-built `changeDeck`, `updateNoteFields`, `cardsInfo` replies (`tests/support/anki_state.py`, `tests/integration/test_anki_item_save.py`): _pending J1–J3._
+- R-03 on the Draft editor (`deferred-work.md`, story 1.10 entry): passed on iPhone and iPad (G1–G6), as reported by the user. Closed.
+- `decode_field` and blank lines (story 2.4 entry): H1–H3 reported passing, but no `notesInfo` value was pasted, so how Anki stores the blank lines is still unrecorded. Still open; a new `deferred-work.md` entry carries it.
+- `read_leftovers` cost (stories 2.11 and 2.13 entries): I1–I2 reported passing, so the preview stayed usable with real cards, but no card count or timings were pasted. Still open; a new `deferred-work.md` entry carries it.
+- Hand-built `changeDeck`, `updateNoteFields`, `cardsInfo` replies (`tests/support/anki_state.py`, `tests/integration/test_anki_item_save.py`): J1–J3 reported passing, but no replies were pasted, so no fixtures were written and the simulator is still unchecked. Still open; a new `deferred-work.md` entry carries it.
 
 ## Findings
 
 | # | Step | What happened | Disposition |
 | --- | --- | --- | --- |
+| 1 | H2, I2, J1–J3 | Reported passing, but the values these steps record (the Hint's stored HTML, the preview timings, the three AnkiConnect replies) were not pasted. | Deferred: three new entries in `deferred-work.md`. |
