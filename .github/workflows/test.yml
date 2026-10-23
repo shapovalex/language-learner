@@ -3,9 +3,10 @@
 #
 # Shape follows the Epic 1 test design (_bmad-output/test-artifacts/test-design/test-design-epic-1.md):
 #   - push to main / PR: lint, then the whole suite in one job on Chromium (`make test-ci`)
-#   - PR: E2E burn-in loop for flaky detection
-# No Node (NFR-11), no sharding (the suite is seconds long), no retries (dev deps are pinned;
-# a flaky test should fail burn-in, not be retried into green).
+#   - PR: E2E burn-in loop for flaky detection, started beside the test job, not after it
+# No Node (NFR-11), no sharding across jobs: pytest-xdist (`-n auto`) spreads the suite over the
+# runner's CPUs instead. No retries (dev deps are pinned; a flaky test should fail burn-in, not
+# be retried into green).
 
 name: Test Pipeline
 
@@ -72,10 +73,12 @@ jobs:
         uses: actions/cache@v4
         with:
           path: ~/.cache/ms-playwright
-          key: ${{ runner.os }}-playwright-chromium-${{ hashFiles('uv.lock') }}
+          key: ${{ runner.os }}-playwright-chromium-shell-${{ hashFiles('uv.lock') }}
 
+      # Headless runs only need the Chromium headless shell. No --with-deps: the runner image
+      # already has Chrome's system libraries, and apt from its mirrors can take minutes.
       - name: Install Playwright browser
-        run: uv run playwright install --with-deps chromium
+        run: uv run playwright install --only-shell chromium
 
       - name: Run tests
         run: make test-ci
@@ -106,7 +109,7 @@ jobs:
     name: Burn-In (E2E flaky detection)
     runs-on: ubuntu-latest
     timeout-minutes: 20
-    needs: test
+    needs: lint # not test: the two run side by side, and the report job gates on both
     if: github.event_name == 'pull_request'
 
     env:
@@ -128,10 +131,12 @@ jobs:
         uses: actions/cache@v4
         with:
           path: ~/.cache/ms-playwright
-          key: ${{ runner.os }}-playwright-chromium-${{ hashFiles('uv.lock') }}
+          key: ${{ runner.os }}-playwright-chromium-shell-${{ hashFiles('uv.lock') }}
 
+      # Headless runs only need the Chromium headless shell. No --with-deps: the runner image
+      # already has Chrome's system libraries, and apt from its mirrors can take minutes.
       - name: Install Playwright browser
-        run: uv run playwright install --with-deps chromium
+        run: uv run playwright install --only-shell chromium
 
       # Burn-in targets UI flakiness (races, selector instability, timing). One failure in
       # any iteration fails the job: a test that passes 9/10 is not stable.

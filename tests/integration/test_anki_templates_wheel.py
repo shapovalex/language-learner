@@ -16,6 +16,9 @@ import language_lab.adapters.anki
 from language_lab.adapters.anki.manifest import build_manifest
 from tests.support.release import REPO_ROOT, run_python_from_wheel
 
+# One xdist worker builds the wheel once, as in a serial run (Makefile passes --dist loadgroup)
+pytestmark = pytest.mark.xdist_group("release_wheel")
+
 SRC_ROOT = REPO_ROOT / "src"
 TEMPLATES_DIR = Path(language_lab.adapters.anki.__file__).parent / "templates"
 
