@@ -34,13 +34,16 @@ from language_lab.adapters.anki.manifest import build_manifest
 from language_lab.adapters.anki.migrations import build_migrations
 from language_lab.adapters.anki.setup_gate import SetupGate
 from language_lab.adapters.anki.store import AnkiConnectStore
+from language_lab.adapters.azure import AzureSpeech
 from language_lab.adapters.openrouter import OpenRouterLlm
 from language_lab.domain.errors import AppError, ErrorCode, error_envelope
+from language_lab.features.audio.routes import audio_router
+from language_lab.features.audio.service import AudioService
 from language_lab.features.captures.routes import captures_router
 from language_lab.features.captures.service import CaptureService
 from language_lab.features.drafts.routes import drafts_router
 from language_lab.features.drafts.service import DraftService
-from language_lab.features.items.routes import items_router
+from language_lab.features.items.routes import items_router, media_router
 from language_lab.features.items.service import ItemService
 from language_lab.features.setup.routes import setup_router
 from language_lab.features.setup.service import SetupService
@@ -48,6 +51,7 @@ from language_lab.features.sync.scheduler import Clock, SyncScheduler
 from language_lab.features.sync.service import SyncService
 from language_lab.ports.anki_store import AnkiStore
 from language_lab.ports.llm import Llm
+from language_lab.ports.speech import Speech
 from language_lab.settings import (
     NECESSARY_KEYS,
     ConfigError,
@@ -132,6 +136,8 @@ _APP_ERROR_STATUS = {
     ErrorCode.SYNC_REQUIRED: 409,
     ErrorCode.NOT_FOUND: 404,
     ErrorCode.LLM_FAILED: 502,
+    ErrorCode.TTS_FAILED: 502,
+    ErrorCode.PAYLOAD_TOO_LARGE: 413,
     ErrorCode.LLM_INVALID_OUTPUT: 502,
 }
 
@@ -289,9 +295,10 @@ def create_app(
     anki_store: AnkiStore | None = None,
     llm: Llm | None = None,
     clock: Clock | None = None,
+    speech: Speech | None = None,
 ) -> FastAPI:
     """The app. Builds the AnkiConnect adapter from settings unless `anki_store` is given, and
-    the OpenRouter adapter unless `llm` is given.
+    the OpenRouter adapter unless `llm` is given, and Azure unless `speech` is given.
 
     `clock` times the Sync schedule (real time unless given). Dev mode never Syncs.
     """
@@ -320,6 +327,13 @@ def create_app(
         )
         llm = openrouter
 
+    azure: AzureSpeech | None = None
+    if speech is None:
+        azure = AzureSpeech(
+            settings.azure_speech_key.get_secret_value(), settings.azure_speech_region
+        )
+        speech = azure
+
     # Features take `sync` as the SyncRequester port (Setup below); none imports it (AD-1, AD-13)
     sync = SyncService(anki_store, enabled=not settings.dev)
     scheduler = SyncScheduler(sync, clock, enabled=not settings.dev)
@@ -340,8 +354,12 @@ def create_app(
                     if anki_client is not None:
                         await anki_client.aclose()
                 finally:
-                    if openrouter is not None:
-                        await openrouter.aclose()
+                    try:
+                        if openrouter is not None:
+                            await openrouter.aclose()
+                    finally:
+                        if azure is not None:
+                            await azure.aclose()
 
     app = FastAPI(
         title="LanguageLab",
@@ -374,8 +392,10 @@ def create_app(
     )
     app.include_router(setup_router(setup))
     app.include_router(captures_router(CaptureService(anki_store)))
+    app.include_router(audio_router(AudioService(speech)))
     app.include_router(drafts_router(DraftService(llm)))
     app.include_router(items_router(ItemService(anki_store)))
+    app.include_router(media_router(ItemService(anki_store)))
 
     app.mount(f"/static/{version}", StaticFiles(directory=str(_STATIC)), name="static")
 

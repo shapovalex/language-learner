@@ -90,6 +90,7 @@ class Item:
     item_id: str
     content: VocabularyContent | SentenceContent
     has_audio: bool = False
+    audio: str | None = None
 
     def wire(self) -> dict[str, Any]:
         """The Item on the wire: `{itemId, ...ItemContent}`, flat like the Draft and the Save."""

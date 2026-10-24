@@ -35,6 +35,10 @@ Every write is guarded and gated; any failure stops the sequence for a later ret
 """
 
 import asyncio
+import base64
+import binascii
+import hashlib
+import re
 from collections.abc import Collection, Iterator
 from datetime import UTC, datetime
 from typing import Any
@@ -53,6 +57,7 @@ from language_lab.adapters.anki.migrations import Migration, run_migrations
 from language_lab.adapters.anki.query import note_query
 from language_lab.adapters.anki.setup_apply import run_plan, run_repairs
 from language_lab.adapters.anki.setup_gate import SCHEMA_VERSION_FIELD, SetupGate, read_preview
+from language_lab.domain.audio import validate_mp3
 from language_lab.domain.captures import Capture
 from language_lab.domain.catalog import Category, Language
 from language_lab.domain.errors import AppError, ErrorCode
@@ -136,7 +141,7 @@ def _optional(info: dict[str, Any], name: str) -> str:
     return _field(info, name)
 
 
-def _stored_item(info: dict[str, Any], category: Category) -> Item:
+def _stored_item(info: dict[str, Any], category: Category, prefix: str) -> Item:
     """The Item a `notesInfo` entry holds: the inverse of `_content_fields`.
 
     The content is built without validation: a note edited in Anki (a blank Russian meaning,
@@ -151,7 +156,14 @@ def _stored_item(info: dict[str, Any], category: Category) -> Item:
         **{key: _optional(info, name) for key, name in _OPTIONAL_FIELDS[category].items()},
     )
     has_audio = bool(_optional(info, _AUDIO).strip())
-    return Item(_field(info, _ITEM_ID).strip(), content, has_audio)
+    audio = _audio_name(_optional(info, _AUDIO), prefix)
+    return Item(_field(info, _ITEM_ID).strip(), content, has_audio, audio)
+
+
+def _audio_name(value: str, prefix: str) -> str | None:
+    match = re.fullmatch(r"\[sound:([^\]]+)\]", value)
+    name = match.group(1) if match else None
+    return name if name and media_pattern(prefix).fullmatch(name) else None
 
 
 def _encoded(fields: dict[str, str]) -> dict[str, str]:
@@ -330,50 +342,87 @@ class AnkiConnectStore:
         language: Language,
         content: ItemContent,
         audio: AudioIntent = AudioIntent.KEEP,
+        *,
+        audio_bytes: bytes | None = None,
     ) -> None:
         """Update the note whose decoded ItemId is `item_id` (matched in Python, AD-4), or add
         it to its Pronunciation deck and move cards 0-2 to their Study decks (AD-6), under one
-        lock hold. Only `keep` is built. Raises
+        lock hold. Replacement stores media first and cleans old managed media last. Raises
         `AppError(SETUP_REQUIRED | ANKI_UNAVAILABLE | ANKI_BUSY)`.
         """
-        if audio is not AudioIntent.KEEP:
-            raise NotImplementedError(f"audio={audio} is epic-reference-audio's")
+        if audio not in (AudioIntent.KEEP, AudioIntent.REPLACE):
+            raise AppError(ErrorCode.VALIDATION_FAILED)
+        if audio is AudioIntent.REPLACE:
+            if audio_bytes is None:
+                raise AppError(ErrorCode.VALIDATION_FAILED)
+            validate_mp3(audio_bytes)
+        elif audio_bytes is not None:
+            raise AppError(ErrorCode.VALIDATION_FAILED)
         manifest = self._require_manifest()
         model = manifest.item_note_type(language, content.category)
         fields = _content_fields(content)
         async with self._lock.hold():
             infos = await self._note_infos(manifest, model)
             stored = next(_matching(infos, _ITEM_ID, item_id), None)
+            old_name = _audio_name(_optional(stored, _AUDIO), manifest.prefix) if stored else None
+            name = None
+            if audio_bytes is not None:
+                digest = hashlib.sha256(audio_bytes).hexdigest()[:12]
+                name = f"{manifest.prefix}_{item_id}_{digest}.mp3"
+                result = await self._client.invoke(
+                    "storeMediaFile",
+                    filename=name,
+                    data=base64.b64encode(audio_bytes).decode("ascii"),
+                )
+                if result != name:
+                    raise AppError(ErrorCode.ANKI_UNAVAILABLE)
+                fields[_AUDIO] = f"[sound:{name}]"
             if stored is not None:
                 note_id = stored.get("noteId")
                 if not is_int(note_id):
                     raise AppError(ErrorCode.ANKI_UNAVAILABLE)
-                # keep: Audio isn't sent, and SchemaVersion is the gate's to check
                 await self._client.invoke(
                     "updateNoteFields", note={"id": note_id, "fields": _encoded(fields)}
                 )
-                return
-            fields |= {
-                _AUDIO: "",
-                _ITEM_ID: item_id,
-                SCHEMA_VERSION_FIELD: str(manifest.schema_version),
-            }
-            note_id = await self._client.invoke(
-                "addNote",
-                note={
-                    "deckName": manifest.card_deck(model, PRONOUNCE_ORD),
-                    "modelName": model,
-                    "fields": _encoded(fields),
-                    "options": {"allowDuplicate": True},
-                },
-            )
-            if not is_int(note_id):
+            else:
+                fields |= {
+                    _AUDIO: fields.get(_AUDIO, ""),
+                    _ITEM_ID: item_id,
+                    SCHEMA_VERSION_FIELD: str(manifest.schema_version),
+                }
+                note_id = await self._client.invoke(
+                    "addNote",
+                    note={
+                        "deckName": manifest.card_deck(model, PRONOUNCE_ORD),
+                        "modelName": model,
+                        "fields": _encoded(fields),
+                        "options": {"allowDuplicate": True},
+                    },
+                )
+                if not is_int(note_id):
+                    raise AppError(ErrorCode.ANKI_UNAVAILABLE)
+                for ord, card_id in (await self._cards_by_ord(note_id)).items():
+                    if ord in STUDY_ORDS:
+                        await self._client.invoke(
+                            "changeDeck", cards=[card_id], deck=manifest.card_deck(model, ord)
+                        )
+            if name and old_name and name != old_name:
+                await self._client.invoke("deleteMediaFile", filename=old_name)
+
+    async def get_media(self, name: str) -> bytes:
+        manifest = self._require_manifest()
+        if not media_pattern(manifest.prefix).fullmatch(name):
+            raise AppError(ErrorCode.NOT_FOUND)
+        async with self._lock.hold():
+            result = await self._client.invoke("retrieveMediaFile", filename=name)
+            if result is False:
+                raise AppError(ErrorCode.NOT_FOUND)
+            if not isinstance(result, str):
                 raise AppError(ErrorCode.ANKI_UNAVAILABLE)
-            for ord, card_id in (await self._cards_by_ord(note_id)).items():
-                if ord in STUDY_ORDS:
-                    await self._client.invoke(
-                        "changeDeck", cards=[card_id], deck=manifest.card_deck(model, ord)
-                    )
+            try:
+                return base64.b64decode(result, validate=True)
+            except ValueError, binascii.Error:
+                raise AppError(ErrorCode.ANKI_UNAVAILABLE) from None
 
     async def item_candidates(self, language: Language, category: Category) -> list[Item]:
         """Every Item of the exact `language`/`category` note type scope, decoded, in note
@@ -383,7 +432,7 @@ class AnkiConnectStore:
         model = manifest.item_note_type(language, category)
         async with self._lock.hold():
             infos = await self._note_infos(manifest, model)
-        return [_stored_item(info, category) for info in infos]
+        return [_stored_item(info, category, manifest.prefix) for info in infos]
 
     async def get_item(self, language: Language, item_id: str) -> Item:
         """The Item of `language` whose decoded ItemId is `item_id` (matched in Python, AD-4),
@@ -403,7 +452,7 @@ class AnkiConnectStore:
         for category, infos in scopes:
             info = next(_matching(infos, _ITEM_ID, item_id), None)
             if info is not None:
-                return _stored_item(info, category)
+                return _stored_item(info, category, manifest.prefix)
         raise AppError(ErrorCode.NOT_FOUND)
 
     async def delete_item(self, language: Language, item_id: str) -> None:

@@ -35,8 +35,6 @@ from tests.support.fixtures.settings import SettingsFactory
 from tests.support.item_delete import action_bodies
 from tests.support.items import VOCABULARY, note_type_of, stored_fields
 
-pytestmark = pytest.mark.skip(reason="ATDD RED scaffold until story 6.1 audio API implementation")
-
 
 def _settings(settings_factory: SettingsFactory):
     return settings_factory(
@@ -216,3 +214,131 @@ class TestReferenceAudio:
             assert sentinel not in exposed
         assert MP3 not in response.content
         assert sent_writes(rig.replay.sent) == []
+
+
+@pytest.mark.p1
+@pytest.mark.parametrize("locale", ["en-CA", "fr-FR", "en", ""])
+def test_voice_catalog_rejects_unsupported_locales(settings_factory, locale):
+    speech = FakeSpeech()
+    rig = MediaRig(managed_collection(MANIFEST))
+    client = audio_client(_settings(settings_factory), rig.store, speech)
+    response = client.get(VOICES_API, params={"locale": locale})
+    assert response.status_code == 422
+    assert response.json()["error"]["code"] == "validation_failed"
+    assert speech.voice_requests == []
+
+
+@pytest.mark.p1
+@pytest.mark.parametrize(
+    "overrides",
+    [
+        {"language": "de"},
+        {"voice": ""},
+        {"voice": "en-US-RetiredNeural"},
+        {"voice": "fr-CA-SylvieNeural"},
+        {"target": " \n\t"},
+    ],
+)
+def test_invalid_preview_never_synthesizes_or_writes(settings_factory, overrides):
+    speech = FakeSpeech()
+    rig = MediaRig(managed_collection(MANIFEST))
+    response = audio_client(_settings(settings_factory), rig.store, speech).post(
+        PREVIEW_API, json=preview_body(**overrides)
+    )
+    assert response.status_code == 422
+    assert speech.requests == []
+    assert rig.replay.sent == []
+
+
+@pytest.mark.p0
+@pytest.mark.parametrize(
+    "data",
+    [
+        b"",
+        b"not MP3",
+        b"ID3bad",
+        MP3[:-1],
+        pytest.param(b"\xff\xfb\x90\x02" + b"\xff" * 413, id="reserved-emphasis"),
+    ],
+)
+def test_invalid_audio_upload_stops_before_anki(settings_factory, data):
+    rig = MediaRig(managed_collection(MANIFEST))
+    client = audio_client(_settings(settings_factory), rig.store, FakeSpeech())
+    response = client.post("/api/items/en", files=replace_parts(str(uuid.uuid4()), data))
+    assert response.status_code == 422
+    assert response.json()["error"]["code"] == "validation_failed"
+    assert rig.replay.sent == []
+
+
+@pytest.mark.p0
+def test_audio_larger_than_five_megabytes_returns_413(settings_factory):
+    rig = MediaRig(managed_collection(MANIFEST))
+    client = audio_client(_settings(settings_factory), rig.store, FakeSpeech())
+    response = client.post(
+        "/api/items/en", files=replace_parts(str(uuid.uuid4()), b"x" * (5 * 1024 * 1024 + 1))
+    )
+    assert response.status_code == 413
+    assert response.json()["error"]["code"] == "payload_too_large"
+    assert rig.replay.sent == []
+
+
+@pytest.mark.p0
+@pytest.mark.parametrize(
+    "intent,file_present", [("keep", True), ("replace", False), ("remove", False)]
+)
+def test_inconsistent_audio_parts_are_rejected(settings_factory, intent, file_present):
+    rig = MediaRig(managed_collection(MANIFEST))
+    parts = replace_parts(str(uuid.uuid4()), audio=intent)
+    if not file_present:
+        parts.pop("audioFile")
+    client = audio_client(_settings(settings_factory), rig.store, FakeSpeech())
+    response = client.post("/api/items/en", files=parts)
+    assert response.status_code == 422
+    assert rig.replay.sent == []
+
+
+@pytest.mark.p0
+@pytest.mark.parametrize("state", ["needs_setup", "needs_migration", "newer_schema"])
+def test_replace_is_setup_gated_but_media_reads_remain_available(settings_factory, state):
+    name = managed_name(str(uuid.uuid4()))
+    rig = MediaRig(managed_collection(MANIFEST), state=state, media={name: MP3})
+    client = audio_client(_settings(settings_factory), rig.store, FakeSpeech())
+    saved = client.post("/api/items/en", files=replace_parts(str(uuid.uuid4())))
+    assert saved.status_code == 409
+    assert saved.json()["error"]["code"] == "setup_required"
+    assert sent_writes(rig.replay.sent) == []
+    assert client.get(f"/api/media/{name}").content == MP3
+
+
+@pytest.mark.p0
+@pytest.mark.parametrize("value,status", [(False, 404), ("not base64!", 503), (None, 503)])
+def test_missing_or_malformed_anki_media_fails_safely(settings_factory, value, status):
+    name = managed_name(str(uuid.uuid4()))
+    rig = MediaRig(
+        managed_collection(MANIFEST),
+        replies={"retrieveMediaFile": {"result": value, "error": None}},
+    )
+    response = audio_client(_settings(settings_factory), rig.store, FakeSpeech()).get(
+        f"/api/media/{name}"
+    )
+    assert response.status_code == status
+    assert "error" in response.json()
+    assert rig.lock.holds == 1
+
+
+@pytest.mark.p1
+def test_voice_provider_failure_uses_safe_retryable_envelope(settings_factory, monkeypatch):
+    from language_lab.domain.errors import AppError
+
+    async def fail(locale):
+        raise AppError(ErrorCode.TTS_FAILED)
+
+    speech = FakeSpeech()
+    monkeypatch.setattr(speech, "voices", fail)
+    rig = MediaRig(managed_collection(MANIFEST))
+    response = audio_client(_settings(settings_factory), rig.store, speech).get(
+        VOICES_API, params={"locale": "en-US"}
+    )
+    assert response.status_code == 502
+    assert response.json()["error"]["code"] == "tts_failed"
+    assert rig.replay.sent == []

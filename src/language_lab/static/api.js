@@ -48,15 +48,15 @@ async function toApiError(response) {
   });
 }
 
-export async function request(path, options = {}) {
+export async function request(path, options = {}, binary = false) {
   const headers = new Headers(options.headers);
-  headers.set("Accept", "application/json");
+  headers.set("Accept", binary ? "audio/mpeg" : "application/json");
   const response = await fetch(path, { ...options, headers });
   if (!response.ok) {
     throw await toApiError(response);
   }
   if (response.status === 204) return null; // No Content: nothing to parse
-  return response.json();
+  return binary ? response.blob() : response.json();
 }
 
 export function getHealth() {
@@ -153,9 +153,10 @@ export function regenerateContent(body) {
 // Save an Item (FR-20): `multipart/form-data` with the `item` JSON part, ItemContent plus
 // `itemId` and `audio` (Consistency Conventions). 200 `{itemId}`; a retry with the same ItemId
 // updates the Item (AD-20). The part is a string field: a Blob would arrive as a file
-export function saveItem(lang, item) {
+export function saveItem(lang, item, audioBlob = null) {
   const body = new FormData();
   body.append("item", JSON.stringify(item));
+  if (audioBlob) body.append("audioFile", audioBlob, "preview.mp3");
   return request(`/api/items/${encodeURIComponent(lang)}`, { method: "POST", body });
 }
 
@@ -189,4 +190,16 @@ export function listItems(lang, query = "") {
   const path = `/api/items/${encodeURIComponent(lang)}`;
   if (!query.trim()) return request(path);
   return request(`${path}?${new URLSearchParams({ q: query })}`);
+}
+
+export function getVoices(locale) {
+  return request(`/api/audio/voices?${new URLSearchParams({ locale })}`);
+}
+
+export function previewAudio(body) {
+  return request("/api/audio/preview", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(body),
+  }, true);
 }

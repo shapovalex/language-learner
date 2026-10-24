@@ -75,6 +75,7 @@ def test_anki_store_port_adds_the_setup_preview_read_and_the_fake_matches() -> N
         "item_candidates",
         "get_item",
         "delete_item",
+        "get_media",
     }
     assert inspect.iscoroutinefunction(AnkiStore.setup_preview)
     assert inspect.get_annotations(AnkiStore.setup_preview, eval_str=True)["return"] is SetupPreview
@@ -139,3 +140,18 @@ def test_anki_store_port_adds_the_item_reads_and_the_fake_matches() -> None:
         "item_id": str,
         "return": Item,
     }
+
+
+@pytest.mark.p1
+def test_audio_save_and_media_read_have_matching_port_fake_adapter_signatures():
+    from language_lab.domain.items import AudioIntent
+
+    port = public_methods(AnkiStore)
+    for cls in (FakeAnkiStore, AnkiConnectStore):
+        methods = public_methods(cls)
+        assert methods["save_item"] == port["save_item"]
+        assert methods["get_media"] == port["get_media"]
+    parameters = port["save_item"].parameters
+    assert parameters["audio"].default is AudioIntent.KEEP
+    assert parameters["audio_bytes"].default is None
+    assert parameters["audio_bytes"].kind is inspect.Parameter.KEYWORD_ONLY
