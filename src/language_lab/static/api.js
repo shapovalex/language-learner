@@ -139,6 +139,17 @@ export function generateDraft(body) {
   });
 }
 
+// An Item's regenerated content, for its Preview (FR-24, AD-11): `{language, category, target,
+// generationContext}` in, 200 ItemContent out, the Category's full generated model with no
+// `itemId`; `llm_failed` or `llm_invalid_output` when the model fails
+export function regenerateContent(body) {
+  return request("/api/drafts/regenerate", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(body),
+  });
+}
+
 // Save an Item (FR-20): `multipart/form-data` with the `item` JSON part, ItemContent plus
 // `itemId` and `audio` (Consistency Conventions). 200 `{itemId}`; a retry with the same ItemId
 // updates the Item (AD-20). The part is a string field: a Blob would arrive as a file

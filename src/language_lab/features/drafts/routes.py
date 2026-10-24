@@ -43,4 +43,12 @@ def drafts_router(service: DraftService) -> APIRouter:
         # Flat like the Save's `item` part: the ItemId beside ItemContent
         return draft.wire()
 
+    @router.post("/regenerate")
+    async def regenerate(body: GenerateRequest) -> dict[str, Any]:
+        # An Item's Preview (FR-24, AD-11): nothing is created, so 200 and no ItemId
+        content = await service.regenerate(
+            body.language, body.category, body.target, body.generation_context
+        )
+        return content.model_dump(by_alias=True, mode="json")
+
     return router

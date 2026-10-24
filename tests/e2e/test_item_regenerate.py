@@ -6,15 +6,16 @@ edit buffer; Save changes alone writes, under the loaded ItemId with audio=keep.
 """
 
 import pytest
-from playwright.sync_api import Page, expect
+from playwright.sync_api import Page, Route, expect
 
 from tests.support.captures_screen import main
-from tests.support.items_screen import is_item_save, item_detail_path, item_part
+from tests.support.items_screen import is_item_save, item_detail_path, item_part, items_back_link
 from tests.support.maintain_items_screen import (
     EditableItemApi,
     edit_field,
     save_changes,
     stored_item,
+    stub_items,
 )
 from tests.support.navigation import path_pattern
 from tests.support.regenerate_screen import (
@@ -23,6 +24,7 @@ from tests.support.regenerate_screen import (
     PREVIEW_NOT_SAVED,
     PREVIEW_SENTENCE,
     PREVIEW_VOCABULARY,
+    REGENERATE_API,
     USE_PREVIEW,
     RegenerateApi,
     compare_pair,
@@ -31,10 +33,13 @@ from tests.support.regenerate_screen import (
     stored_sentence,
     unsaved_chip,
 )
-
-pytestmark = pytest.mark.skip(reason="ATDD 5.2: activate the current task before implementation")
+from tests.support.unsaved import discard_button, keep_editing_button, unsaved_alert
 
 UNRELATED_EDIT = "my own memory aid, not saved yet"
+
+
+def back_to_items(page: Page) -> None:
+    main(page).get_by_role("link", name=items_back_link("English"), exact=True).click()
 
 
 @pytest.mark.p0
@@ -196,3 +201,226 @@ def test_save_changes_alone_commits_the_accepted_preview_under_the_same_item_id(
     assert writes_before_save == 0
     assert len(api.saved_payloads) == 1
     expect(main(page).get_by_text("unsaved change")).to_have_count(0)
+
+
+@pytest.mark.p1
+def test_the_edited_target_is_the_one_sent(page: Page) -> None:
+    """[P1] AC-3 the request carries the edit buffer's Target, not the loaded one."""
+    row = stored_item()
+    api = EditableItemApi(page, row)
+    regenerate = RegenerateApi(page, PREVIEW_VOCABULARY)
+    api.open(page)
+    edit_field(page, "Target").fill("jump the gun")
+
+    regenerate_button(page, "Regenerate Russian meaning").click()
+
+    expect(compare_pair(page, "Russian meaning")).to_be_visible()
+    [sent] = regenerate.requests
+    assert sent["target"] == "jump the gun"
+    assert "itemId" not in sent
+    expect(edit_field(page, "Target")).to_have_value("jump the gun")
+
+
+@pytest.mark.p1
+def test_a_blank_target_disables_regenerate(page: Page) -> None:
+    """[P1] AC-3 no Target, nothing to regenerate from: the buttons are disabled."""
+    row = stored_item()
+    api = EditableItemApi(page, row)
+    regenerate = RegenerateApi(page, PREVIEW_VOCABULARY)
+    api.open(page)
+    edit_field(page, "Target").fill("  ")
+
+    expect(regenerate_button(page, "Regenerate Russian meaning")).to_be_disabled()
+    expect(regenerate_button(page, "Regenerate example")).to_be_disabled()
+    assert regenerate.requests == []
+
+
+@pytest.mark.p1
+def test_an_open_preview_is_one_unsaved_change_and_guards_leaving(page: Page) -> None:
+    """[P1] AC-6 an unaccepted Preview counts once; Keep editing keeps it, Discard leaves."""
+    row = stored_item()
+    api = EditableItemApi(page, row)
+    stub_items(page, [row])
+    RegenerateApi(page, PREVIEW_VOCABULARY)
+    api.open(page)
+
+    regenerate_button(page, "Regenerate example").click()
+    pair = compare_pair(page, "Example")
+    expect(pair).to_be_visible()
+    expect(unsaved_chip(page, 1)).to_be_visible()
+
+    back_to_items(page)
+    expect(unsaved_alert(page)).to_be_visible()
+    keep_editing_button(page).click()
+    expect(page).to_have_url(path_pattern(item_detail_path("en", row["itemId"])))
+    expect(pair.get_by_text(PREVIEW_VOCABULARY["example"])).to_be_visible()
+    expect(unsaved_chip(page, 1)).to_be_visible()
+
+    back_to_items(page)
+    discard_button(page).click()
+    expect(page).to_have_url(path_pattern("/en/items"))
+    assert api.saved_payloads == []
+
+
+@pytest.mark.p0
+def test_save_with_an_unaccepted_preview_sends_the_current_values(page: Page) -> None:
+    """[P0] AC-8 an open Preview is never sent by Save; it stays open afterwards."""
+    row = stored_item()
+    api = EditableItemApi(page, row)
+    RegenerateApi(page, PREVIEW_VOCABULARY)
+    api.open(page)
+    edit_field(page, "Mnemonic").fill(UNRELATED_EDIT)
+    regenerate_button(page, "Regenerate Russian meaning").click()
+    expect(compare_pair(page, "Russian meaning")).to_be_visible()
+    expect(unsaved_chip(page, 2)).to_be_visible()
+
+    with page.expect_response(lambda response: is_item_save(response.request)) as saved:
+        save_changes(page).click()
+    payload = item_part(saved.value.request)
+
+    assert payload["russian"] == row["russian"]
+    assert payload["russianAlternatives"] == row["russianAlternatives"]
+    assert payload["mnemonic"] == UNRELATED_EDIT
+    assert payload["itemId"] == row["itemId"]
+    expect(compare_pair(page, "Russian meaning")).to_be_visible()
+    expect(unsaved_chip(page, 1)).to_be_visible()
+
+
+@pytest.mark.p1
+def test_use_preview_on_the_russian_meaning_takes_the_alternatives_one_per_line(
+    page: Page,
+) -> None:
+    """[P1] AC-4 the Russian meaning group: the meaning and its alternatives, one per line."""
+    row = stored_item()
+    api = EditableItemApi(page, row)
+    RegenerateApi(page, PREVIEW_VOCABULARY)
+    api.open(page)
+
+    regenerate_button(page, "Regenerate Russian meaning").click()
+    pair_button(compare_pair(page, "Russian meaning"), USE_PREVIEW).click()
+
+    expect(edit_field(page, "Russian meaning")).to_have_value(PREVIEW_VOCABULARY["russian"])
+    expect(edit_field(page, "Alternatives")).to_have_value(
+        "\n".join(PREVIEW_VOCABULARY["russianAlternatives"])
+    )
+    expect(edit_field(page, "Example")).to_have_value(row["example"])
+    expect(regenerate_button(page, "Regenerate Russian meaning")).to_be_focused()
+    assert api.saved_payloads == []
+
+
+@pytest.mark.p1
+def test_vocabulary_has_no_regenerate_note_and_sentence_no_regenerate_example(
+    page: Page,
+) -> None:
+    """[P1] AC-5 the button matrix: Vocabulary regenerates its example, a Sentence its Note."""
+    row = stored_item()
+    EditableItemApi(page, row).open(page)
+
+    expect(regenerate_button(page, "Regenerate Russian meaning")).to_be_visible()
+    expect(regenerate_button(page, "Regenerate example")).to_be_visible()
+    expect(regenerate_button(page, "Regenerate Note")).to_have_count(0)
+
+    sentence_row = stored_sentence()
+    EditableItemApi(page, sentence_row, lang="fr").open(page)
+    expect(regenerate_button(page, "Regenerate Russian meaning")).to_be_visible()
+    expect(regenerate_button(page, "Regenerate Note")).to_be_visible()
+    expect(regenerate_button(page, "Regenerate example")).to_have_count(0)
+
+
+@pytest.mark.p1
+def test_invalid_output_twice_shows_its_copy_and_keeps_the_buffer(page: Page) -> None:
+    """[P1] AC-7 llm_invalid_output: "Couldn't regenerate" with the Item-unchanged body."""
+    row = stored_item()
+    api = EditableItemApi(page, row)
+    RegenerateApi(page, PREVIEW_VOCABULARY, error="llm_invalid_output")
+    api.open(page)
+
+    regenerate_button(page, "Regenerate Russian meaning").click()
+    alert = main(page).get_by_role("alert").filter(has_text="Couldn't regenerate")
+
+    expect(alert).to_contain_text(
+        "The model's answer failed the checks twice. Your Item is unchanged."
+    )
+    expect(alert.get_by_role("button", name="Try again", exact=True)).to_be_focused()
+    expect(edit_field(page, "Russian meaning")).to_have_value(row["russian"])
+    expect(compare_pair(page, "Russian meaning")).to_have_count(0)
+    expect(main(page).get_by_text("unsaved change")).to_have_count(0)
+
+
+@pytest.mark.p1
+def test_a_model_failure_shows_the_unreachable_copy(page: Page) -> None:
+    """[P1] AC-7 llm_failed: "Couldn't reach the model" / "Your Item is unchanged."."""
+    row = stored_item()
+    api = EditableItemApi(page, row)
+    RegenerateApi(page, PREVIEW_VOCABULARY, error="llm_failed")
+    api.open(page)
+
+    regenerate_button(page, "Regenerate example").click()
+    alert = main(page).get_by_role("alert").filter(has_text="Couldn't reach the model")
+
+    expect(alert).to_contain_text("Your Item is unchanged.")
+
+
+@pytest.mark.p1
+def test_a_reply_after_leaving_opens_nothing(page: Page) -> None:
+    """[P1] AC-7 a regeneration still in flight when the user leaves opens no Preview."""
+    row = stored_item()
+    api = EditableItemApi(page, row)
+    stub_items(page, [row])
+    held: list[Route] = []
+
+    def hold(route: Route) -> None:
+        if route.request.method != "POST":
+            route.fallback()
+            return
+        held.append(route)
+
+    page.route(f"**{REGENERATE_API}", hold)
+    api.open(page)
+    regenerate_button(page, "Regenerate example").click()
+    expect(main(page).get_by_role("status").filter(has_text="Writing a Preview")).to_be_visible()
+    expect(regenerate_button(page, "Regenerate example")).to_be_disabled()
+    expect(regenerate_button(page, "Regenerate example")).to_be_focused()
+    expect(regenerate_button(page, "Regenerate Russian meaning")).to_be_disabled()
+    assert len(held) == 1
+
+    back_to_items(page)
+    expect(page).to_have_url(path_pattern("/en/items"))
+    held[0].fulfill(json=PREVIEW_VOCABULARY)
+
+    expect(main(page).get_by_role("link").filter(has_text=row["target"])).to_be_visible()
+    expect(compare_pair(page, "Example")).to_have_count(0)
+    expect(unsaved_alert(page)).to_have_count(0)
+    assert api.saved_payloads == []
+
+
+@pytest.mark.p1
+def test_the_pair_buttons_are_disabled_while_a_save_is_in_flight(page: Page) -> None:
+    """[P1] AC-8 Keep current / Use preview wait for the Save, so no choice is lost."""
+    row = stored_item()
+    api = EditableItemApi(page, row)
+    RegenerateApi(page, PREVIEW_VOCABULARY)
+    held: list[Route] = []
+
+    def hold(route: Route) -> None:
+        if route.request.method != "POST":
+            route.fallback()
+            return
+        held.append(route)
+
+    page.route("**/api/items/en", hold)
+    api.open(page)
+    edit_field(page, "Mnemonic").fill(UNRELATED_EDIT)
+    regenerate_button(page, "Regenerate example").click()
+    pair = compare_pair(page, "Example")
+    expect(pair).to_be_visible()
+
+    save_changes(page).click()
+    expect(pair_button(pair, KEEP_CURRENT)).to_be_disabled()
+    expect(pair_button(pair, USE_PREVIEW)).to_be_disabled()
+    assert len(held) == 1
+
+    held[0].fallback()
+    expect(pair_button(pair, USE_PREVIEW)).to_be_enabled()
+    expect(unsaved_chip(page, 1)).to_be_visible()
+    assert len(api.saved_payloads) == 1

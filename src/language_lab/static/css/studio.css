@@ -251,6 +251,12 @@ main h1 {
   color: var(--color-on-accent);
 }
 
+/* Soft: "Use preview" (DESIGN.md accent-soft) */
+.button-soft {
+  background: var(--color-accent-soft);
+  color: var(--color-on-accent-soft);
+}
+
 /* Disabled: border fill, muted text, label unchanged; a muted reason sits to its left */
 .button-disabled,
 .button:disabled {
@@ -1519,4 +1525,98 @@ button.segment {
   .item-detail-title {
     flex: 0 1 auto;
   }
+}
+
+/* Regenerate and its compare pair (S-ItemDetail, story 5.2; DESIGN.md compare-current and
+   compare-preview). Panes stack on the phone and sit side by side when 2x300px fit. */
+.regenerate-slot {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-5);
+}
+
+.regenerate-row {
+  display: flex;
+  justify-content: flex-end;
+  margin-top: calc(-1 * var(--space-3));
+}
+
+.regenerate-alert {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: var(--space-3);
+}
+
+.compare-pair {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-6);
+}
+
+.compare-title {
+  margin: 0;
+  font-size: var(--font-size-section-title);
+  font-weight: var(--font-weight-section-title);
+}
+
+.compare-panes {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-5);
+}
+
+.compare-pane {
+  display: flex;
+  flex: 1 1 300px;
+  flex-direction: column;
+  gap: var(--space-2);
+  min-width: 0;
+  padding: var(--space-6) var(--space-7);
+  border: 2px solid var(--color-border);
+  border-radius: var(--radius-inner);
+  overflow-wrap: anywhere;
+}
+
+.compare-preview {
+  border-color: var(--color-accent);
+  background: var(--color-accent-tint);
+}
+
+.compare-label {
+  color: var(--color-ink-muted);
+  font-size: var(--font-size-overline);
+  font-weight: var(--font-weight-overline);
+  letter-spacing: var(--letter-spacing-overline);
+  text-transform: uppercase;
+}
+
+.compare-preview .compare-label {
+  color: var(--color-accent);
+}
+
+.compare-main {
+  margin: 0;
+  font-size: var(--font-size-body);
+  font-weight: var(--font-weight-body);
+}
+
+.compare-secondary {
+  margin: 0;
+  color: var(--color-ink-muted);
+  font-size: var(--font-size-label);
+  font-weight: 400;
+}
+
+.compare-actions {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: var(--space-3);
+}
+
+.compare-actions .button {
+  padding: 0 var(--space-8);
+  font-size: var(--font-size-button-sm);
+  font-weight: var(--font-weight-button-sm);
 }

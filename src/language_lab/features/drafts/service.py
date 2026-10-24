@@ -1,14 +1,15 @@
 """Drafts: the blank Draft, which only issues the ItemId the Draft carries until Save (AD-8), and
-the generated one, which also asks the Llm port for the Category's fields (AD-11).
+the generated one, which also asks the Llm port for the Category's fields (AD-11). Regeneration,
+for an Item's Preview (FR-24), is the same generation without an ItemId: the Item keeps its own.
 
-Neither touches Anki (FR-18). The Generation context is passed to the model and dropped: it is
+None touches Anki (FR-18). The Generation context is passed to the model and dropped: it is
 never kept, returned or logged (FR-16, AD-15).
 """
 
 import uuid
 
 from language_lab.domain.catalog import Category, Language
-from language_lab.domain.items import Item
+from language_lab.domain.items import Item, SentenceContent, VocabularyContent
 from language_lab.ports.llm import Llm
 
 
@@ -29,3 +30,13 @@ class DraftService:
         """
         fields = await self._llm.generate(language, category, target, generation_context)
         return Item(self.blank(), fields.to_content(target))
+
+    async def regenerate(
+        self, language: Language, category: Category, target: str, generation_context: str = ""
+    ) -> VocabularyContent | SentenceContent:
+        """The Category's full generated model as ItemContent, `target` as given, no ItemId.
+
+        Raises `AppError(LLM_FAILED | LLM_INVALID_OUTPUT)` from the model.
+        """
+        fields = await self._llm.generate(language, category, target, generation_context)
+        return fields.to_content(target)
