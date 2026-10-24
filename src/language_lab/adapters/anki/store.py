@@ -28,6 +28,10 @@ The Item reads (story 4.3) are reads through `client.invoke`, under one lock hol
 gated (AD-19). `item_candidates` sends only the exact scope of one Language/Category note type;
 `get_item` the scopes of both Categories of the Language, with the ItemId matched in Python
 (AD-4). Each note's fields are decoded through the codec, the alternatives split here (AD-10).
+
+Delete Item (story 5.3) resolves both Language/Category scopes under the same lock, deletes
+matching notes, then cleans matching managed media, including leftovers when notes are absent.
+Every write is guarded and gated; any failure stops the sequence for a later retry.
 """
 
 import asyncio
@@ -42,7 +46,7 @@ from language_lab.adapters.anki.codec import (
     join_alternatives,
     split_alternatives,
 )
-from language_lab.adapters.anki.guard import is_int
+from language_lab.adapters.anki.guard import is_int, media_pattern
 from language_lab.adapters.anki.lock import AnkiLock
 from language_lab.adapters.anki.manifest import PRONOUNCE_ORD, STUDY_ORDS, Manifest
 from language_lab.adapters.anki.migrations import Migration, run_migrations
@@ -402,6 +406,49 @@ class AnkiConnectStore:
                 return _stored_item(info, category)
         raise AppError(ErrorCode.NOT_FOUND)
 
+    async def delete_item(self, language: Language, item_id: str) -> None:
+        """Delete matching notes before their managed media, stopping at the first failure.
+
+        Both exact Category scopes are resolved before any write, with the decoded ItemId
+        matched in Python. Absent-note cleanup is retryable, but preserves media when another
+        Language still owns the ItemId. All reads and guarded, Setup-gated writes share this
+        one lock hold.
+        """
+        manifest = self._require_manifest()
+        async with self._lock.hold():
+            note_ids: list[int] = []
+            for category in Category:
+                infos = await self._note_infos(
+                    manifest, manifest.item_note_type(language, category)
+                )
+                for info in _matching(infos, _ITEM_ID, item_id):
+                    note_id = info.get("noteId")
+                    if not is_int(note_id):
+                        raise AppError(ErrorCode.ANKI_UNAVAILABLE)
+                    note_ids.append(note_id)
+            if note_ids:
+                await self._client.invoke("deleteNotes", notes=note_ids)
+            else:
+                # Media names contain no Language: an absent Item in this Language must not
+                # turn a wrong-Language request into cleanup of another Language's Item.
+                for other_language in Language:
+                    if other_language is language:
+                        continue
+                    for category in Category:
+                        infos = await self._note_infos(
+                            manifest, manifest.item_note_type(other_language, category)
+                        )
+                        if next(_matching(infos, _ITEM_ID, item_id), None) is not None:
+                            return
+            stem = f"{manifest.prefix}_{item_id}_"
+            names = await self._client.invoke("getMediaFilesNames", pattern=f"{stem}*")
+            if not isinstance(names, list) or not all(isinstance(name, str) for name in names):
+                raise AppError(ErrorCode.ANKI_UNAVAILABLE)
+            managed = media_pattern(manifest.prefix)
+            for name in sorted(set(names)):
+                if name.startswith(stem) and managed.fullmatch(name):
+                    await self._client.invoke("deleteMediaFile", filename=name)
+
     async def _cards_by_ord(self, note_id: int) -> dict[int, int]:
         """Each card id of note `note_id` by its ord, from `notesInfo` and `cardsInfo`;
         `ANKI_UNAVAILABLE` on a malformed reply.
@@ -443,7 +490,7 @@ class AnkiConnectStore:
         """
         query = note_query(manifest, model)
         ids = await self._client.invoke("findNotes", query=query)
-        if not isinstance(ids, list):
+        if not isinstance(ids, list) or not all(is_int(note_id) for note_id in ids):
             raise AppError(ErrorCode.ANKI_UNAVAILABLE)
         if not ids:
             return []

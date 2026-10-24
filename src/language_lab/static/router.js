@@ -291,7 +291,8 @@ function ask(trigger) {
 export function confirmDestructive({ title, body, confirmLabel, trigger = null, action }) {
   if (confirmState) return Promise.resolve(false);
   confirmTitle.textContent = title;
-  confirmBody.textContent = body;
+  // Strings stay plain text; structured content is built by the caller with safe DOM APIs.
+  confirmBody.replaceChildren(body);
   confirmButton.textContent = confirmLabel;
   return new Promise((resolve, reject) => {
     confirmState = { resolve, reject, trigger, action, busy: false };
@@ -391,6 +392,8 @@ export function redirect(path) {
 }
 
 async function go(path, { flash, trigger } = {}) {
+  if (confirmState?.busy) return;
+  cancelConfirm();
   if (path === location.pathname) return;
   if (losesDirty(path)) {
     const seq = ++leaveSeq;

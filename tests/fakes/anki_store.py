@@ -46,6 +46,9 @@ class FakeAnkiStore:
     `item_candidates()` returns the `items` of one Language and Category, in insertion order (as
     the adapter returns note order). `get_item()` returns the one of that Language or raises
     `not_found`. Both raise `anki_busy` or `anki_unavailable` as the other methods do.
+
+    `delete_item()` removes only the matching Language's Item, tolerates an absent Item, and
+    refuses writes when unavailable, busy or Setup is not ready. Media belongs to adapter tests.
     """
 
     def __init__(
@@ -189,6 +192,17 @@ class FakeAnkiStore:
         if stored is None or stored[0] is not language:
             raise AppError(ErrorCode.NOT_FOUND)
         return Item(item_id, stored[1])
+
+    async def delete_item(self, language: Language, item_id: str) -> None:
+        if self.busy:
+            raise AppError(ErrorCode.ANKI_BUSY)
+        if not self.available:
+            raise AppError(ErrorCode.ANKI_UNAVAILABLE)
+        stored = self.items.get(item_id)
+        if stored is not None and stored[0] is language:
+            if self.preview.state is not SetupState.READY:
+                raise AppError(ErrorCode.SETUP_REQUIRED)
+            del self.items[item_id]
 
     async def sync(self) -> SyncOutcome:
         self.sync_calls += 1
