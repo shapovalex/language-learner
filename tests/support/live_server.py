@@ -13,6 +13,7 @@ from language_lab.app import create_app
 from language_lab.settings import Settings
 from tests.fakes.anki_store import FakeAnkiStore
 from tests.fakes.llm import FakeLlm
+from tests.fakes.speech import FakeSpeech
 
 STARTUP_TIMEOUT_S = 10.0
 
@@ -57,7 +58,7 @@ def run_live_server(settings: Settings, sock: socket.socket) -> Iterator[LiveSer
     if sock.getsockname()[1] != settings.port:
         raise ValueError("settings.port must match the bound socket")
     config = uvicorn.Config(
-        create_app(settings, anki_store=FakeAnkiStore(), llm=FakeLlm()),
+        create_app(settings, anki_store=FakeAnkiStore(), llm=FakeLlm(), speech=FakeSpeech()),
         log_config=None,
         access_log=False,
     )

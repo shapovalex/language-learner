@@ -14,10 +14,6 @@ from tests.support.aio import settle
 from tests.support.audio import AZURE_KEY, EN_VOICE, FR_VOICE, MP3
 from tests.support.azure import AzureReplay, catalog, synthesize, voice_transition
 
-pytestmark = pytest.mark.skip(
-    reason="ATDD RED scaffold until story 6.1 Speech/Azure implementation"
-)
-
 
 class TestAzureSpeech:
     @pytest.mark.p1
@@ -82,3 +78,54 @@ class TestAzureSpeech:
         assert all(
             request.headers["ocp-apim-subscription-key"] == AZURE_KEY for request in replay.sent
         )
+
+
+@pytest.mark.p1
+@pytest.mark.parametrize(
+    "response",
+    [
+        httpx.Response(401, text="secret credential or target"),
+        httpx.Response(429, text="private response"),
+        httpx.Response(200, content=b"invalid MP3"),
+    ],
+)
+def test_synthesis_upstream_failures_have_only_the_fixed_error(response):
+    from language_lab.domain.errors import AppError, ErrorCode
+
+    replay = AzureReplay([response])
+    result = settle(synthesize(replay, "private input"))
+    assert isinstance(result, AppError)
+    assert result.code is ErrorCode.TTS_FAILED
+    assert str(result) == "Speech synthesis failed."
+
+
+@pytest.mark.p1
+def test_catalog_excludes_non_neural_and_non_exact_locales():
+    rows = catalog()
+    en = next(row for row in rows if row["Locale"] == "en-US")
+    rows += [{**en, "VoiceType": "Standard"}, {**en, "Locale": "en-CA"}]
+    replay = AzureReplay([httpx.Response(200, json=rows), httpx.Response(200, json=rows)])
+    result = settle(voice_transition(replay, "en-US"))
+    assert [voice.name for voice in result[0]] == [EN_VOICE]
+    assert all(0 < request.extensions["timeout"]["read"] <= 30 for request in replay.sent)
+
+
+@pytest.mark.p1
+def test_transport_timeout_is_tts_failed_without_the_upstream_message():
+    from language_lab.adapters.azure import AzureSpeech
+    from language_lab.domain.errors import AppError, ErrorCode
+
+    def fail(request):
+        raise httpx.ReadTimeout("secret provider response", request=request)
+
+    async def run():
+        speech = AzureSpeech(AZURE_KEY, "eastus", transport=httpx.MockTransport(fail))
+        try:
+            return await speech.voices("en-US")
+        finally:
+            await speech.aclose()
+
+    result = settle(run())
+    assert isinstance(result, AppError)
+    assert result.code is ErrorCode.TTS_FAILED
+    assert str(result) == "Speech synthesis failed."

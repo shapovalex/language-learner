@@ -12,10 +12,6 @@ from tests.support.captures import MANIFEST, code_of
 from tests.support.item_delete import action_bodies
 from tests.support.items import VOCABULARY, note_type_of, stored_fields
 
-pytestmark = pytest.mark.skip(
-    reason="ATDD RED scaffold until story 6.1 audio=replace implementation"
-)
-
 
 class TestAudioSave:
     @pytest.mark.p0
@@ -89,3 +85,84 @@ class TestAudioSave:
         assert rig.lock.holds == 1
         assert rig.lock.depth == 0
         assert set(rig.lock.request_depths) == {1}
+
+
+@pytest.mark.p0
+def test_media_store_failure_stops_before_note_or_card_write():
+    collection = managed_collection(MANIFEST)
+    rig = MediaRig(collection, replies={"storeMediaFile": {"result": None, "error": "failed"}})
+    result = settle(replace_audio(rig.store, str(uuid.uuid4())))
+    assert code_of(result) == "anki_unavailable"
+    assert sent_writes(rig.replay.sent) == ["storeMediaFile"]
+    assert collection.notes == {}
+    assert collection.cards == {}
+
+
+@pytest.mark.p0
+def test_replacement_cleans_superseded_media_only_after_successful_note_write():
+    collection = managed_collection(MANIFEST)
+    item_id = str(uuid.uuid4())
+    old_name = managed_name(item_id, SECOND_MP3)
+    fields = {**stored_fields(VOCABULARY, item_id), "Audio": f"[sound:{old_name}]"}
+    item_note(collection, MANIFEST, note_type_of("en", VOCABULARY), item_id, fields)
+    rig = MediaRig(collection, media={old_name: SECOND_MP3})
+    assert settle(replace_audio(rig.store, item_id)) is None
+    assert sent_writes(rig.replay.sent) == ["storeMediaFile", "updateNoteFields", "deleteMediaFile"]
+    assert rig.media == {managed_name(item_id): MP3}
+    assert len(collection.notes) == 1
+    assert rig.lock.holds == 1
+
+
+@pytest.mark.p0
+def test_same_item_id_retry_keeps_same_hash_media_and_does_not_duplicate_note():
+    collection = managed_collection(MANIFEST)
+    rig = MediaRig(collection)
+    item_id = str(uuid.uuid4())
+    assert settle(replace_audio(rig.store, item_id)) is None
+    assert settle(replace_audio(rig.store, item_id)) is None
+    assert len(collection.notes) == 1
+    assert rig.media == {managed_name(item_id): MP3}
+    assert "deleteMediaFile" not in sent_writes(rig.replay.sent)
+
+
+@pytest.mark.p0
+@pytest.mark.parametrize("language", ["en", "fr"])
+@pytest.mark.parametrize("category", ["vocabulary", "sentence"])
+def test_replacement_bytes_and_four_decks_for_each_language_and_category(language, category):
+    from language_lab.domain.catalog import Language
+    from language_lab.domain.items import AudioIntent
+    from tests.integration.test_anki_item_save import expected_decks
+    from tests.support.items import SENTENCE, content
+
+    wire = VOCABULARY if category == "vocabulary" else SENTENCE
+    collection = managed_collection(MANIFEST)
+    rig = MediaRig(collection)
+    item_id = str(uuid.uuid4())
+    result = settle(
+        rig.store.save_item(
+            item_id, Language(language), content(wire), AudioIntent.REPLACE, audio_bytes=MP3
+        )
+    )
+    assert result is None
+    assert rig.media == {managed_name(item_id): MP3}
+    assert len(collection.notes) == 1
+    assert {card.ord: card.deck for card in collection.cards.values()} == expected_decks(
+        language, wire
+    )
+
+
+@pytest.mark.p0
+@pytest.mark.parametrize("action", ["storeMediaFile", "retrieveMediaFile"])
+def test_prefix_guard_refuses_foreign_audio_before_transport(action):
+    from language_lab.adapters.anki.client import AnkiConnectClient
+    from language_lab.adapters.anki.guard import PrefixGuard, PrefixViolation
+    from tests.support.anki_connect import ANKI_URL, AnkiConnectReplay
+
+    replay = AnkiConnectReplay()
+    client = AnkiConnectClient(ANKI_URL, guard=PrefixGuard(MANIFEST), transport=replay.transport)
+    params = {"filename": managed_name(str(uuid.uuid4()), prefix="Foreign")}
+    if action == "storeMediaFile":
+        params["data"] = ""
+    result = settle(client.invoke(action, **params))
+    assert isinstance(result, PrefixViolation)
+    assert replay.sent == []

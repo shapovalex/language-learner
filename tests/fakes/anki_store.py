@@ -1,16 +1,21 @@
 """Fake AnkiStore: the port in memory, kept in step with `ports/anki_store.py` (AD-1)."""
 
 import asyncio
+import hashlib
+import re
 from collections.abc import Collection
 from datetime import datetime
 
+from language_lab.domain.audio import validate_mp3
 from language_lab.domain.captures import Capture
-from language_lab.domain.catalog import Category, Language
+from language_lab.domain.catalog import UUID4, Category, Language
 from language_lab.domain.errors import AppError, ErrorCode
 from language_lab.domain.items import AudioIntent, Item, ItemContent
 from language_lab.domain.setup import SetupPreview, SetupState
 from language_lab.domain.setup import plan_hash as _plan_hash
 from language_lab.domain.sync import SyncOutcome
+
+_MEDIA = re.compile(r"LanguageLab_" + UUID4[1:-1] + r"_[0-9a-f]{12}\.mp3")
 
 
 class FakeAnkiStore:
@@ -48,7 +53,7 @@ class FakeAnkiStore:
     `not_found`. Both raise `anki_busy` or `anki_unavailable` as the other methods do.
 
     `delete_item()` removes only the matching Language's Item, tolerates an absent Item, and
-    refuses writes when unavailable, busy or Setup is not ready. Media belongs to adapter tests.
+    refuses writes when unavailable, busy or Setup is not ready, and removes matching audio.
     """
 
     def __init__(
@@ -80,6 +85,8 @@ class FakeAnkiStore:
         self._apply_gates: list[asyncio.Future[ErrorCode | None]] = []
         self.captures: dict[str, Capture] = {}
         self.items: dict[str, tuple[Language, ItemContent]] = {}
+        self.media: dict[str, bytes] = {}
+        self.audio: dict[str, str] = {}
 
     async def reachable(self) -> bool:
         if self.busy:
@@ -165,12 +172,39 @@ class FakeAnkiStore:
         language: Language,
         content: ItemContent,
         audio: AudioIntent = AudioIntent.KEEP,
+        *,
+        audio_bytes: bytes | None = None,
     ) -> None:
         if self.busy:
             raise AppError(ErrorCode.ANKI_BUSY)
         if not self.available:
             raise AppError(ErrorCode.ANKI_UNAVAILABLE)
+        if self.preview.state is not SetupState.READY:
+            raise AppError(ErrorCode.SETUP_REQUIRED)
+        if audio is AudioIntent.REPLACE:
+            if audio_bytes is None:
+                raise AppError(ErrorCode.VALIDATION_FAILED)
+            validate_mp3(audio_bytes)
+            name = f"LanguageLab_{item_id}_{hashlib.sha256(audio_bytes).hexdigest()[:12]}.mp3"
+            self.media[name] = audio_bytes
+            old = self.audio.get(item_id)
+            self.audio[item_id] = name
+            if old and old != name:
+                self.media.pop(old, None)
+        elif audio is not AudioIntent.KEEP or audio_bytes is not None:
+            raise AppError(ErrorCode.VALIDATION_FAILED)
         self.items[item_id] = (language, content)
+
+    async def get_media(self, name: str) -> bytes:
+        if not _MEDIA.fullmatch(name):
+            raise AppError(ErrorCode.NOT_FOUND)
+        if self.busy:
+            raise AppError(ErrorCode.ANKI_BUSY)
+        if not self.available:
+            raise AppError(ErrorCode.ANKI_UNAVAILABLE)
+        if name not in self.media:
+            raise AppError(ErrorCode.NOT_FOUND)
+        return self.media[name]
 
     async def item_candidates(self, language: Language, category: Category) -> list[Item]:
         if self.busy:
@@ -178,7 +212,7 @@ class FakeAnkiStore:
         if not self.available:
             raise AppError(ErrorCode.ANKI_UNAVAILABLE)
         return [
-            Item(item_id, content)
+            Item(item_id, content, item_id in self.audio, self.audio.get(item_id))
             for item_id, (stored_language, content) in self.items.items()
             if stored_language is language and content.category is category
         ]
@@ -191,7 +225,7 @@ class FakeAnkiStore:
         stored = self.items.get(item_id)
         if stored is None or stored[0] is not language:
             raise AppError(ErrorCode.NOT_FOUND)
-        return Item(item_id, stored[1])
+        return Item(item_id, stored[1], item_id in self.audio, self.audio.get(item_id))
 
     async def delete_item(self, language: Language, item_id: str) -> None:
         if self.busy:
@@ -199,10 +233,19 @@ class FakeAnkiStore:
         if not self.available:
             raise AppError(ErrorCode.ANKI_UNAVAILABLE)
         stored = self.items.get(item_id)
-        if stored is not None and stored[0] is language:
-            if self.preview.state is not SetupState.READY:
-                raise AppError(ErrorCode.SETUP_REQUIRED)
-            del self.items[item_id]
+        if stored is not None and stored[0] is not language:
+            return
+        names = [
+            name
+            for name in self.media
+            if name.startswith(f"LanguageLab_{item_id}_") and _MEDIA.fullmatch(name)
+        ]
+        if (stored is not None or names) and self.preview.state is not SetupState.READY:
+            raise AppError(ErrorCode.SETUP_REQUIRED)
+        self.items.pop(item_id, None)
+        self.audio.pop(item_id, None)
+        for name in names:
+            self.media.pop(name, None)
 
     async def sync(self) -> SyncOutcome:
         self.sync_calls += 1

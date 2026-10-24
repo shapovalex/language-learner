@@ -154,6 +154,25 @@ class DraftAudioApi:
         self.voice_requests: list[str] = []
         self.preview_requests: list[dict[str, Any]] = []
         self.saves: list[AudioSave] = []
+        self._form_data: list[dict[str, Any]] = []
+        # WebKit's interception protocol omits file bytes (Playwright issue #14624).
+        # Observe the unchanged FormData before fetch. A separate un-intercepted app
+        # journey proves the HTTP upload and saved playback bytes in both browsers.
+        page.expose_binding(
+            "observeAudioFormData", lambda source, body: self._form_data.append(body)
+        )
+        page.add_init_script("""const originalFetch = window.fetch.bind(window);
+          window.fetch = async (url, options) => {
+            const body = options?.body;
+            if (body instanceof FormData && body.has('item')) {
+              const file = body.get('audioFile');
+              await window.observeAudioFormData({
+                item: JSON.parse(body.get('item')),
+                audio: file ? Array.from(new Uint8Array(await file.arrayBuffer())) : null,
+              });
+            }
+            return originalFetch(url, options);
+          };""")
         stub_api_json(page, API, {"captures": [self.capture]}, method="GET")
         stub_api_json(page, f"{API}/{self.capture['captureId']}", self.capture, method="GET")
         for language in ("en", "fr"):
@@ -205,19 +224,25 @@ class DraftAudioApi:
         if route.request.method != "POST":
             route.fallback()
             return
-        upload = audio_upload(route.request)
+        wire = audio_upload(route.request)
+        observed = self._form_data.pop(0)
+        assert wire.item == observed["item"]
+        data = bytes(observed["audio"]) if observed["audio"] is not None else None
+        if wire.audio_file:  # Chromium also supplies the actual intercepted file bytes.
+            assert wire.audio_file == data
+        upload = AudioSave(wire.item, data, wire.content_type)
         self.saves.append(upload)
         if self.save_error:
             self._error(route, "anki_unavailable", 503)
             return
         route.fulfill(json={"itemId": upload.item["itemId"]})
 
-    def open(self, language: str, viewport: ViewportSize) -> str:
+    def open(self, language: str, viewport: ViewportSize, category: str = "Vocabulary") -> str:
         """Use the implemented blank-Draft flow; its response is existing setup, not new API."""
         page = self.page
         page.set_viewport_size(viewport)
         page.goto(f"{CAPTURES_PATH}/{self.capture['captureId']}")
-        choose(page, "English" if language == "en" else "French", "Vocabulary")
+        choose(page, "English" if language == "en" else "French", category)
         with page.expect_response(lambda response: is_blank_draft(response.request)) as drafted:
             write_it_myself(page).click()
         field(page, "Russian meaning").fill("делать поспешные выводы")

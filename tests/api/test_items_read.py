@@ -209,7 +209,7 @@ def test_get_item_returns_the_item_flat_with_its_item_id(
     response = client.get(item_path(language, item_id))
 
     assert response.status_code == 200
-    assert response.json() == on_wire(item_id, wire)
+    assert response.json() == {**on_wire(item_id, wire), "audio": None}
 
 
 NOT_FOUND = {
