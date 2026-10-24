@@ -1,6 +1,6 @@
 """Items: Save, create-or-update by ItemId in the AnkiStore (AD-6, AD-20), and the Item reads:
 the search and the duplicate check, both matched on normalized text here (AD-12), and one Item
-by ItemId.
+by ItemId, and permanent deletion with retryable media cleanup.
 """
 
 from language_lab.domain.catalog import Category, Language
@@ -54,6 +54,10 @@ class ItemService:
         `AppError(NOT_FOUND | ANKI_UNAVAILABLE | ANKI_BUSY)`.
         """
         return await self._anki.get_item(language, item_id)
+
+    async def delete(self, language: Language, item_id: str) -> None:
+        """Permanently delete the scoped Item, then clean its media; retries finish cleanup."""
+        await self._anki.delete_item(language, item_id)
 
 
 def _matches(item: Item, wanted: str) -> bool:

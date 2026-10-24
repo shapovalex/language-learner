@@ -10,10 +10,33 @@ devices: []
 
 # Maintain Items — released-wheel acceptance (Story 5.3)
 
-Prepared during ATDD. No released-wheel or real-Anki check has run for this story.
-Complete this record after implementing 5.3 and releasing the epic. The user runs the
+Prepared during ATDD and updated with automated build evidence. No released-wheel or
+real-Anki check has run for this story. Complete this record after the feature PR is
+merged and the epic is separately released. The user runs the
 release on the Mac mini against `LanguageLabDev`, from phone and desktop. Automated
 replay tests cannot establish real review-history deletion or device acceptance.
+
+## Automated implementation evidence
+
+The [build verification record](../atdd/implementation-validation-5-3.json) records the
+activated AC-1 through AC-12 RED/GREEN runs, added destructive-boundary checks and
+regression results. The deletion checks run against the real guarded adapter over the
+replay collection and against the browser UI with page-local API doubles:
+
+- [HTTP contract](../../../tests/api/test_items_delete.py): validation, empty 204,
+  scoped/repeated requests, fresh reads and safe error envelopes.
+- [Guarded adapter](../../../tests/integration/test_anki_item_delete.py): exact scopes,
+  both Categories, SetupGate, lock contention/release, note-before-media ordering,
+  malformed replies, isolation and retry after partial cleanup/enumeration failure.
+- [Browser behavior](../../../tests/e2e/test_item_delete.py): persisted Target and four
+  Cards, safe confirmation/focus, edits and Previews retained on Cancel/failure,
+  pending-navigation protection and refreshed phone/desktop/French lists.
+
+These checks do not supply observed real-Anki replies, review-history deletion or
+phone/desktop acceptance. Every manual result below remains not run. No production
+release was made during this build; the release tag and wheel fields stay blank until
+the separate release is available. Retain the five checks and raw-reply comparison
+below as the release handoff.
 
 ## Setup and evidence
 

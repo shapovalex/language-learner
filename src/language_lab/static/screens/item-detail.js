@@ -21,9 +21,11 @@
 // the chip and the router's unsaved alert. One regeneration runs at a time; a failed one shows
 // its alert with Try again in its group and leaves the buffer as it was, and a reply arriving
 // after the screen is gone opens nothing. Previews stay open across a Save and compare against
-// the new Current. Voice, audio and Delete are later stories'.
+// the new Current. Delete permanently removes the persisted Item, with a reusable confirmation;
+// cancellation and failures keep this buffer and every Preview. Voice and audio are later stories'.
 
 import {
+  deleteItem,
   errorMessage,
   findDuplicates,
   getItem,
@@ -33,7 +35,7 @@ import {
 } from "../api.js";
 import { categoryName, languageName } from "../catalog.js";
 import { alertBox, element, skeleton, tryAgain } from "../dom.js";
-import { confirmLeave, navigate, setDirty } from "../router.js";
+import { confirmDestructive, confirmLeave, navigate, setDirty } from "../router.js";
 import {
   duplicateSheet,
   editorFields,
@@ -128,6 +130,7 @@ export function mount(root, params) {
   let values = null;
   let busy = false;
   let error = null;
+  let deleteError = null;
   let createdAnyway = null; // the Target Create anyway accepted, which skips the check
   let sheet = null;
   let previews = {}; // group key -> the Preview's values for that group's fields
@@ -207,12 +210,34 @@ export function mount(root, params) {
         ),
       );
     }
+    if (deleteError) {
+      const unreachable = isApiError(deleteError, "anki_unavailable");
+      alertSlot.append(
+        alertBox(
+          "item-delete-alert",
+          element(
+            "p", "compose-alert-title",
+            unreachable ? "Not deleted — Anki isn't reachable" : "Not deleted",
+          ),
+          element(
+            "p", "draft-alert-body",
+            unreachable
+              ? "Make sure Anki Desktop is open on the Mac mini, then try again."
+              : errorMessage(deleteError),
+          ),
+        ),
+      );
+    }
 
     const actions = element("div", "draft-actions");
     const reason = element("p", "draft-reason");
     const save = element("button", "button button-primary", SAVE_CHANGES);
     save.type = "submit";
-    actions.append(reason, save);
+    const remove = element("button", "button-destructive-text", "Delete");
+    remove.type = "button";
+    remove.disabled = busy;
+    remove.addEventListener("click", () => onDelete(remove));
+    actions.append(remove, reason, save);
 
     form.addEventListener("submit", (event) => {
       event.preventDefault();
@@ -240,6 +265,7 @@ export function mount(root, params) {
     refresh();
     if (focus === "title") title.focus();
     if (focus === "save") save.focus();
+    if (focus === "delete") remove.focus();
     if (keepField && focus !== null && !focus.group) keepField = null;
     if (focus?.group && !keepField) {
       const target = focusTargets[focus.group]?.[focus.part];
@@ -254,6 +280,49 @@ export function mount(root, params) {
         // Not every input type keeps a selection
       }
     }
+  }
+
+  async function onDelete(trigger) {
+    if (busy || !item) return;
+    const content = document.createDocumentFragment();
+    content.append(
+      document.createTextNode(
+        "This permanently removes the Item and its 4 Cards from Anki, with their review history:",
+      ),
+    );
+    const cards = element("ul");
+    for (const name of ["Understand", "Produce", "Write", "Pronounce"]) {
+      cards.append(element("li", "", name));
+    }
+    content.append(cards, element("p", "", "There is no undo."));
+    try {
+      const deleted = await confirmDestructive({
+        title: `Delete “${item.target}”?`,
+        body: content,
+        confirmLabel: "Delete permanently",
+        trigger,
+        action: async () => {
+          busy = true;
+          deleteError = null;
+          renderEditor();
+          await deleteItem(lang, itemId);
+        },
+      });
+      if (!deleted) {
+        // A regeneration may have replaced the original trigger while the dialog was open.
+        if (mounted) body.querySelector(".button-destructive-text")?.focus();
+        return;
+      }
+    } catch (failure) {
+      if (!mounted) return;
+      busy = false;
+      deleteError = failure;
+      renderEditor({ focus: "delete" });
+      return;
+    }
+    if (!mounted) return;
+    setDirty(null);
+    navigate(`/${lang}/items`);
   }
 
   // A group's Regenerate button, then its loading state, failure alert or compare pair

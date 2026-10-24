@@ -1,11 +1,10 @@
-"""Items' HTTP routes, under /api/items: Save, the list/search, the duplicate read and the Item
-read."""
+"""Items' HTTP routes, under /api/items: Save, list/search, duplicate read, detail and Delete."""
 
 import json
 import re
 from typing import Annotated, Any, Literal, TypedDict
 
-from fastapi import APIRouter, Form, Query
+from fastapi import APIRouter, Form, Query, Response
 from pydantic import BaseModel, Field, TypeAdapter, ValidationError
 
 from language_lab.domain.catalog import UUID4, Category, Language
@@ -97,5 +96,12 @@ def items_router(service: ItemService) -> APIRouter:
         if re.fullmatch(UUID4, item_id) is None:
             raise AppError(ErrorCode.NOT_FOUND)
         return (await service.get(lang, item_id)).wire()
+
+    @router.delete("/{lang}/{item_id}", status_code=204)
+    async def delete_item(lang: Language, item_id: str) -> Response:
+        if re.fullmatch(UUID4, item_id) is None:
+            raise AppError(ErrorCode.NOT_FOUND)
+        await service.delete(lang, item_id)
+        return Response(status_code=204)
 
     return router

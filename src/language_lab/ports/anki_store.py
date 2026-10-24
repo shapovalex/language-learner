@@ -1,8 +1,8 @@
 """The AnkiStore port (AD-1, AD-5): every Anki use case a feature can ask for.
 
 Each method is one complete use case that the adapter runs under the Anki lock: readiness, sync,
-the SetupState, the Setup preview and apply, Create, List, Get and Delete Capture, Save Item, and
-the Item reads so far.
+the SetupState, the Setup preview and apply, Create, List, Get and Delete Capture, Save and Delete
+Item, and the Item reads.
 Later entries add methods here, to the AnkiConnect adapter and to the fake in tests/fakes/ together.
 """
 
@@ -115,5 +115,14 @@ class AnkiStore(Protocol):
         """The Item `item_id` of either Category of `language`, matched in Python and never in a
         query (AD-4), from reads only under one lock hold; not gated (AD-19). Raises
         `AppError(NOT_FOUND | ANKI_UNAVAILABLE | ANKI_BUSY)`.
+        """
+        ...
+
+    async def delete_item(self, language: Language, item_id: str) -> None:
+        """Delete the Language's matching Item notes and Cards, then matching managed media,
+        under one lock hold. Cleanup runs even when the notes are already absent, so a retry
+        finishes partial cleanup. Every write is Prefix guarded and Setup gated; the first
+        failure stops the sequence without compensation. Raises
+        `AppError(SETUP_REQUIRED | ANKI_UNAVAILABLE | ANKI_BUSY)`.
         """
         ...
