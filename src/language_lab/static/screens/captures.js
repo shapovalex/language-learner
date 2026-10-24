@@ -45,6 +45,7 @@ import {
   blankValues,
   chosenText,
   draftEditor,
+  disposeDraftAudio,
   duplicateSheet,
   generatedValues,
   generatingScreen,
@@ -471,6 +472,7 @@ export function mount(root, params = {}) {
 
   function closeEditor() {
     closeSheet();
+    disposeDraftAudio(draft);
     draft = null;
     editing = false;
     draftRoot.replaceChildren();
@@ -515,7 +517,7 @@ export function mount(root, params = {}) {
       }
     }
     try {
-      await saveItem(saving.language, item);
+      await saveItem(saving.language, item, saving.audio?.accepted?.blob);
     } catch (error) {
       if (!mounted || draft !== saving) return;
       saving.busy = false;
@@ -743,6 +745,7 @@ export function mount(root, params = {}) {
   // The router's unmount, carrying `update` so the screen stays mounted within its routes
   const unmount = () => {
     mounted = false;
+    disposeDraftAudio(draft);
     closeSheet();
     root.replaceChildren();
   };

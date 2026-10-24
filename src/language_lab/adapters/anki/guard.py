@@ -40,6 +40,7 @@ READS = frozenset(
         "notesInfo",
         "cardsInfo",
         "getMediaFilesNames",
+        "retrieveMediaFile",
     }
 )
 
@@ -122,6 +123,9 @@ class PrefixGuard:
                 await self.check(inner, inner_params, lookup)
             return
         _require(isinstance(action, str))
+        if action == "retrieveMediaFile":
+            _require(self._is_media(params.get("filename")))
+            return
         if action in READS:
             return
         if self._name_targeted(action, params):

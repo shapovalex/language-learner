@@ -13,12 +13,20 @@ class ItemService:
         self._anki = anki
 
     async def save(
-        self, item_id: str, language: Language, content: ItemContent, audio: AudioIntent
+        self,
+        item_id: str,
+        language: Language,
+        content: ItemContent,
+        audio: AudioIntent,
+        audio_bytes: bytes | None = None,
     ) -> None:
         """Save the Item `item_id`; a retry with the same ItemId updates it. Raises
         `AppError(SETUP_REQUIRED | ANKI_UNAVAILABLE | ANKI_BUSY)`.
         """
-        await self._anki.save_item(item_id, language, content, audio)
+        await self._anki.save_item(item_id, language, content, audio, audio_bytes=audio_bytes)
+
+    async def media(self, name: str) -> bytes:
+        return await self._anki.get_media(name)
 
     async def search(self, language: Language, query: str = "") -> list[Item]:
         """The Items of `language`, both Categories, whose normalized Target, Russian meaning or

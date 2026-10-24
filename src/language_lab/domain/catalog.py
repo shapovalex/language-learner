@@ -23,3 +23,6 @@ class Exercise(StrEnum):
     PRODUCE = "produce"
     WRITE = "write"
     PRONOUNCE = "pronounce"
+
+
+LOCALES = {Language.EN: "en-US", Language.FR: "fr-CA"}

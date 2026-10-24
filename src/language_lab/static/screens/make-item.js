@@ -12,8 +12,9 @@
 // Try again. Before a Save, a duplicate opens the duplicate sheet (S-Duplicate, story 4.3).
 
 import { CATEGORIES, LANGUAGES, categoryName, languageName } from "../catalog.js";
-import { errorMessage, isApiError } from "../api.js";
+import { errorMessage, isApiError, getVoices, previewAudio } from "../api.js";
 import { alertBox, element, skeleton, tryAgain } from "../dom.js";
+import { readVoice, writeVoice } from "../voice-pref.js";
 
 const MAKE_AN_ITEM = "Make an Item";
 const USE_AS_IS = "Use as is";
@@ -104,7 +105,7 @@ export function saveFailure(error) {
 
 // The Save's `item` part (Consistency Conventions): ItemContent, the ItemId and `audio: "keep"`
 export function itemPart(draft) {
-  const item = { category: draft.category, itemId: draft.itemId, audio: "keep" };
+  const item = { category: draft.category, itemId: draft.itemId, audio: draft.audio?.accepted ? "replace" : "keep" };
   for (const [key] of FIELDS[draft.category]) {
     if (key === "alternatives") {
       item.russianAlternatives = alternativeLines(draft.values.alternatives);
@@ -381,10 +382,12 @@ export function draftEditor(draft, { onEdit, onSave, onDiscard, alertFor }) {
     onChange: (key) => {
       if (key === "target") title.textContent = draft.values.target;
       refresh();
+      audio.refresh();
       onEdit();
     },
   });
 
+  const audio = referenceAudio(draft);
   const alertSlot = element("div", "draft-alert-slot");
   if (draft.error) {
     const [alertTitle, body] = alertFor(draft.error);
@@ -410,7 +413,7 @@ export function draftEditor(draft, { onEdit, onSave, onDiscard, alertFor }) {
     event.preventDefault();
     if (!save.disabled) onSave();
   });
-  form.append(header, fields, alertSlot, actions);
+  form.append(header, fields, audio.card, alertSlot, actions);
   screen.append(back, form);
 
   function refresh() {
@@ -493,4 +496,160 @@ export function duplicateSheet(draft, matches, { onOpen, onCancel, onCreate }) {
     if (event.target === dialog) onCancel();
   });
   return { dialog, primary: open };
+}
+
+
+// URLs belong to the Draft, independent of DOM rerenders after a failed Save.
+export function disposeDraftAudio(draft) {
+  const state = draft?.audio;
+  if (!state) return;
+  state.disposed = true;
+  state.sequence += 1;
+  state.render = null;
+  for (const player of state.players) {
+    player.pause();
+    player.removeAttribute("src");
+    player.load();
+  }
+  state.players.clear();
+  for (const clip of [state.accepted, state.offered]) {
+    if (clip) URL.revokeObjectURL(clip.url);
+  }
+  state.accepted = state.offered = null;
+}
+
+function referenceAudio(draft) {
+  const locale = draft.language === "fr" ? "fr-CA" : "en-US";
+  const first = !draft.audio;
+  const state = draft.audio ??= {
+    voices: [], voice: null, loading: true, voiceError: false,
+    previewing: false, previewError: false, sequence: 0,
+    accepted: null, offered: null, disposed: false, render: null, players: new Set(),
+  };
+  const card = element("section", "reference-audio");
+  card.setAttribute("aria-label", "Reference audio");
+  const heading = element("h2", "make-item-heading", "Reference audio · optional");
+  const body = element("div", "reference-audio-body");
+  card.append(heading, body);
+
+  function button(label, action, className = "button button-secondary") {
+    const node = element("button", className, label);
+    node.type = "button";
+    node.disabled = draft.busy;
+    node.addEventListener("click", action);
+    return node;
+  }
+
+  function player(clip, label) {
+    const wrap = element("div", "reference-audio-clip");
+    const audio = element("audio");
+    state.players.add(audio);
+    audio.src = clip.url;
+    audio.controls = true;
+    audio.preload = "none";
+    audio.setAttribute("aria-label", label);
+    wrap.append(audio, button(label, () => { audio.play().catch(() => {}); }, "button-link"));
+    if (clip.target !== draft.values.target) {
+      wrap.append(element("p", "reference-audio-stale", "Audio no longer matches the text."));
+    }
+    return wrap;
+  }
+
+  function render() {
+    if (state.disposed) return;
+    for (const player of state.players) player.pause();
+    state.players.clear();
+    body.replaceChildren();
+    const label = element("label", "draft-label", "Voice");
+    const select = element("select", "compose-field reference-audio-voice");
+    select.setAttribute("aria-label", "Voice");
+    select.disabled = state.loading || !state.voices.length || draft.busy || state.previewing;
+    for (const voice of state.voices) {
+      const option = element("option", null, voice.displayName);
+      option.value = voice.name;
+      select.append(option);
+    }
+    select.value = state.voice ?? "";
+    select.addEventListener("change", () => {
+      state.voice = select.value;
+      writeVoice(locale, state.voice);
+    });
+    label.append(select);
+    body.append(label);
+    if (state.loading) body.append(element("p", "make-item-hint", "Loading voices…"));
+    if (state.voiceError) {
+      body.append(alertBox("reference-audio-error", "Couldn't load voices", tryAgain(loadVoices)));
+    } else if (!state.loading && !state.voices.length) {
+      body.append(element("p", "make-item-hint", "No voices available for this language."));
+    }
+    const previewButton = button(state.previewing ? "Making audio…" : "Preview", preview);
+    previewButton.disabled = draft.busy || state.previewing || state.loading || !state.voice || !draft.values.target.trim();
+    body.append(previewButton);
+    if (state.accepted) body.append(player(state.accepted, state.offered ? "Play current audio" : "Play audio preview"));
+    if (state.offered) {
+      body.append(player(state.offered, "Play audio preview"));
+      const compare = element("div", "reference-audio-actions");
+      compare.append(
+        button("Keep current", () => {
+          URL.revokeObjectURL(state.offered.url);
+          state.offered = null;
+          state.render();
+        }),
+        button("Use preview", () => {
+          if (state.accepted) URL.revokeObjectURL(state.accepted.url);
+          state.accepted = state.offered;
+          state.offered = null;
+          state.render();
+        }, "button button-primary"),
+      );
+      body.append(compare);
+    }
+    if (state.previewError) {
+      body.append(alertBox("reference-audio-error", "Couldn't make the audio. Current audio is unchanged.", tryAgain(preview)));
+    }
+  }
+
+  async function loadVoices() {
+    state.loading = true;
+    state.voiceError = false;
+    state.render();
+    try {
+      const { voices } = await getVoices(locale);
+      if (state.disposed) return;
+      state.voices = voices;
+      const preferred = state.voice ?? readVoice(locale);
+      state.voice = voices.some((voice) => voice.name === preferred) ? preferred : voices[0]?.name ?? null;
+    } catch {
+      if (state.disposed) return;
+      state.voiceError = true;
+    }
+    state.loading = false;
+    state.render();
+  }
+
+  async function preview() {
+    if (state.previewing || !state.voice || !draft.values.target.trim() || draft.busy) return;
+    const sequence = ++state.sequence;
+    const target = draft.values.target;
+    const voice = state.voice;
+    state.previewing = true;
+    state.previewError = false;
+    state.render();
+    try {
+      const blob = await previewAudio({ language: draft.language, voice, target });
+      if (state.disposed || state.sequence !== sequence) return;
+      if (state.offered) URL.revokeObjectURL(state.offered.url);
+      state.offered = { blob, target, url: URL.createObjectURL(blob) };
+    } catch {
+      if (state.disposed || state.sequence !== sequence) return;
+      state.previewError = true;
+    }
+    state.previewing = false;
+    state.render();
+  }
+
+  state.render = render;
+  render();
+  if (first) loadVoices();
+  return { card, refresh: render };
 }

@@ -4,9 +4,10 @@ import json
 import re
 from typing import Annotated, Any, Literal, TypedDict
 
-from fastapi import APIRouter, Form, Query, Response
+from fastapi import APIRouter, File, Form, Query, Response, UploadFile
 from pydantic import BaseModel, Field, TypeAdapter, ValidationError
 
+from language_lab.domain.audio import MAX_AUDIO_BYTES, validate_mp3
 from language_lab.domain.catalog import UUID4, Category, Language
 from language_lab.domain.errors import AppError, ErrorCode
 from language_lab.domain.items import AudioIntent, ItemContent
@@ -19,7 +20,7 @@ class _SaveIntent(BaseModel):
     """The `item` part's keys beside ItemContent (Consistency Conventions, Binary payloads)."""
 
     item_id: str = Field(alias="itemId", pattern=UUID4)
-    audio: Literal[AudioIntent.KEEP]  # epic-reference-audio adds replace and remove
+    audio: Literal[AudioIntent.KEEP, AudioIntent.REPLACE]
 
 
 class SavedBody(TypedDict):
@@ -68,9 +69,25 @@ def items_router(service: ItemService) -> APIRouter:
     router = APIRouter(prefix="/api/items")
 
     @router.post("/{lang}")
-    async def save(lang: Language, item: Annotated[str, Form()]) -> SavedBody:
+    async def save(
+        lang: Language,
+        item: Annotated[str, Form()],
+        audio_file: Annotated[UploadFile | None, File(alias="audioFile")] = None,
+    ) -> SavedBody:
         intent, content = _parse(item)
-        await service.save(intent.item_id, lang, content, intent.audio)
+        data = None
+        if audio_file is not None:
+            try:
+                data = await audio_file.read(MAX_AUDIO_BYTES + 1)
+            finally:
+                await audio_file.close()
+        if intent.audio is AudioIntent.REPLACE:
+            if data is None:
+                raise AppError(ErrorCode.VALIDATION_FAILED)
+            validate_mp3(data)
+        elif data is not None:
+            raise AppError(ErrorCode.VALIDATION_FAILED)
+        await service.save(intent.item_id, lang, content, intent.audio, data)
         return {"itemId": intent.item_id}
 
     @router.get("/{lang}")
@@ -95,7 +112,8 @@ def items_router(service: ItemService) -> APIRouter:
         # A malformed ItemId names no Item, so it never reaches the store
         if re.fullmatch(UUID4, item_id) is None:
             raise AppError(ErrorCode.NOT_FOUND)
-        return (await service.get(lang, item_id)).wire()
+        item = await service.get(lang, item_id)
+        return {**item.wire(), "audio": item.audio}
 
     @router.delete("/{lang}/{item_id}", status_code=204)
     async def delete_item(lang: Language, item_id: str) -> Response:
@@ -103,5 +121,15 @@ def items_router(service: ItemService) -> APIRouter:
             raise AppError(ErrorCode.NOT_FOUND)
         await service.delete(lang, item_id)
         return Response(status_code=204)
+
+    return router
+
+
+def media_router(service: ItemService) -> APIRouter:
+    router = APIRouter(prefix="/api/media")
+
+    @router.get("/{name}")
+    async def media(name: str) -> Response:
+        return Response(await service.media(name), media_type="audio/mpeg")
 
     return router

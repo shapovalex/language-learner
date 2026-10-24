@@ -94,13 +94,21 @@ class AnkiStore(Protocol):
         language: Language,
         content: ItemContent,
         audio: AudioIntent = AudioIntent.KEEP,
+        *,
+        audio_bytes: bytes | None = None,
     ) -> None:
         """Save the Item `item_id`, create-or-update by ItemId (AD-20), under one lock hold. The
         ItemId is matched in Python, never in a query (AD-4). A new one is added to its
         Language/Category Pronunciation deck, then cards 0-2 move to their Study decks (AD-6); a
-        stored one has its fields updated, its `Audio` and cards left as they are. Only `keep` is
-        built so far. Raises `AppError(SETUP_REQUIRED | ANKI_UNAVAILABLE | ANKI_BUSY)`.
+        stored one has its fields updated, with Audio preserved for `keep`. `replace` stores
+        exact MP3 bytes before the note and deletes differing old managed media after the
+        note write and card placement succeed. Raises
+        `AppError(SETUP_REQUIRED | ANKI_UNAVAILABLE | ANKI_BUSY)`.
         """
+        ...
+
+    async def get_media(self, name: str) -> bytes:
+        """Read managed media under the lock, independent of the Setup write gate."""
         ...
 
     async def item_candidates(self, language: Language, category: Category) -> list[Item]:

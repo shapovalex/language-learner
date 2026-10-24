@@ -1620,3 +1620,19 @@ button.segment {
   font-size: var(--font-size-button-sm);
   font-weight: var(--font-weight-button-sm);
 }
+
+
+.reference-audio {
+  min-width: 0;
+  padding: 16px;
+  border: 1px solid var(--color-border);
+  border-radius: 12px;
+}
+.reference-audio-body, .reference-audio-clip {
+  display: grid;
+  gap: 12px;
+}
+.reference-audio-body { margin-top: 12px; }
+.reference-audio-voice, .reference-audio audio { width: 100%; min-width: 0; }
+.reference-audio-actions { display: flex; flex-wrap: wrap; gap: 12px; }
+.reference-audio-stale { color: var(--color-ink-muted); margin: 0; }

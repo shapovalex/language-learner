@@ -7,7 +7,6 @@ any LanguageLab Save, read, naming, guarding or lock behavior.
 
 import base64
 import hashlib
-import inspect
 import json
 from pathlib import Path
 from typing import Any
@@ -55,15 +54,12 @@ def replace_parts(item_id: str, data: bytes = MP3, **overrides: Any) -> dict[str
 
 
 def audio_client(settings: Settings, store: Any, speech: Any = None) -> TestClient:
-    """Wire the proposed Speech injection once available; current routes still yield RED.
-
-    Signature detection only bypasses absent composition-root wiring. It never creates
-    routes, responses or product behavior. Remove it after create_app gains `speech`.
-    """
-    kwargs = {"anki_store": store, "llm": FakeLlm()}
-    if "speech" in inspect.signature(create_app).parameters:
-        kwargs["speech"] = speech
-    return app_client(create_app(settings, **kwargs), settings, raise_server_exceptions=False)
+    """Wire the app with real Anki persistence and a controlled Speech port."""
+    return app_client(
+        create_app(settings, anki_store=store, llm=FakeLlm(), speech=speech),
+        settings,
+        raise_server_exceptions=False,
+    )
 
 
 class MediaRig:
