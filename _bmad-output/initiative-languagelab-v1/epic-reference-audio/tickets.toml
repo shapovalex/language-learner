@@ -1,0 +1,46 @@
+# Approved breakdown for Reference audio (epic 6), in build order.
+# Entries remain planned until built; no leaf files are needed.
+
+[[entry]]
+id = 1
+type = "story"
+title = "Preview and save Reference audio from a Draft"
+description = "Delivers the Draft-to-Anki tracer with the Speech port and Azure REST adapter, current locale-filtered Voice lists for en-US and fr-CA, independent browser Voice preferences, memory-only MP3 Preview and Keep current or Use preview, exact-Blob multipart Save with audio=replace, backend-computed managed filenames, media storage before the note write, guarded /api/media playback and an Item read contract exposing the saved audio reference for 6.2, using api.js for binary requests and retaining ordinary audio=keep Save."
+verify = "Pytest with fake ports and recorded Azure HTTP fixtures plus phone and desktop Playwright show a Draft Voice selection, explicit Preview and Use preview then Save producing byte-identical MP3 playback from /api/media with four correct Cards, no Anki writes during Preview, independent browser locale preferences with no automatic regeneration on Voice change, and visible recoverable Voice, TTS and Save errors retaining local edits and preserving prior note and audio values until the note write succeeds without exposing credentials or content in logs."
+covers = ["CAP-9"]
+after = ["4.1", "4.3"]
+hitl = false
+risk = "high"
+
+[[entry]]
+id = 2
+type = "story"
+title = "Regenerate, keep, and remove audio on existing Items"
+description = "Reuses the audio and saved-reference contracts from 6.1 on editable Item detail for current playback, explicit regeneration with Current vs Preview and Keep current or Use preview, optional audio removal committed only by Save, the stale-audio warning after Target changes without blocking Save, and locked AD-6 replace/remove sequencing with same-hash protection, post-note superseded-media cleanup, retryable partial failures and the existing guarded Item deletion and Setup orphan-repair integration."
+verify = "Pytest failure injection and responsive Playwright prove opening an Item reads its current audio, changing Voice or previewing never writes Anki, kept or accepted previews and removals remain local until Save, Target edits warn yet permit audio=keep, replacement preserves old media until the note write succeeds and same-hash media is retained, failures stop later steps and preserve the previous value until a successful note write, retries tolerate leftovers, and confirmed Item deletion removes only that Item's managed media."
+covers = ["CAP-9"]
+after = [1, "5.1", "5.3"]
+hitl = false
+risk = "high"
+
+[[entry]]
+id = 3
+type = "story"
+title = "Refactor sweep"
+description = "Reviews the completed plans and deferred review findings from 6.1 and 6.2, then removes duplication and resolves cleanup in the audio, Save, Anki media and shared client paths without adding or deferring capability scope."
+verify = "The focused audio, Item Save/Delete, managed-media and browser regression checks pass after cleanup, with the sweep plan documenting which deferred findings were resolved and why any remaining finding is outside this epic."
+covers = ["CAP-9"]
+after = [1, 2]
+hitl = false
+risk = "low"
+
+[[entry]]
+id = 4
+type = "story"
+title = "Verify Reference audio end to end on the released wheel"
+description = "Closes the epic with automated end-to-end coverage across Draft creation and existing Item audio management and a user-run released-wheel acceptance on the Mac Mini with LanguageLabDev, real Azure Voices in both locales, iPhone and iPad Safari and desktop, exact-preview media comparison, failure retention and deletion checks, and correct audio playback and placement in Anki Desktop and AnkiMobile."
+verify = "The integrated pytest and Playwright checks pass and an acceptance file under _bmad-output/test-artifacts/acceptance/ records evidence for all five epic Done when checks, AC13, AC14, FR-23 and FR-24, AC21 audio cleanup and AC15 playback placement with real audio, including retained edits and audio after failure, independent locale preferences, no Preview writes and no out-of-Prefix changes."
+covers = ["CAP-9"]
+after = [1, 2, 3]
+hitl = true
+risk = "medium"
