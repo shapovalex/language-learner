@@ -14,7 +14,11 @@ from language_lab.domain.setup import SetupPreview, SetupState
 from language_lab.domain.setup import plan_hash as _plan_hash
 from language_lab.domain.sync import SyncOutcome
 
-_MEDIA = re.compile(r"LanguageLab_" + UUID4[1:-1] + r"_[0-9a-f]{12}\.mp3")
+_MEDIA = re.compile(
+    r"languagelab_"  # AD-7: the Prefix lowercased
+    + UUID4[1:-1]
+    + r"_[0-9a-f]{12}\.mp3"
+)
 
 
 class FakeAnkiStore:
@@ -237,7 +241,7 @@ class FakeAnkiStore:
         names = [
             name
             for name in self.media
-            if name.startswith(f"LanguageLab_{item_id}_") and _MEDIA.fullmatch(name)
+            if name.startswith(f"languagelab_{item_id}_") and _MEDIA.fullmatch(name)
         ]
         if (stored is not None or names) and self.preview.state is not SetupState.READY:
             raise AppError(ErrorCode.SETUP_REQUIRED)

@@ -4,7 +4,7 @@ domain/audio.py, shared by the Save route, the Anki adapter and the fake store.
 - **audio_upload.** `replace` needs a file that is a valid MP3 within `MAX_AUDIO_BYTES`
   (`PAYLOAD_TOO_LARGE` over it, `VALIDATION_FAILED` when it isn't an MP3); `keep` and `remove`
   refuse any file. The bytes stored are the bytes sent.
-- **media_name.** `<Prefix>_<ItemId>_<sha256[:12]>.mp3`.
+- **media_name.** `<prefix lowercased>_<ItemId>_<sha256[:12]>.mp3`.
 """
 
 import pytest
@@ -60,5 +60,6 @@ def test_replace_over_the_size_limit_is_refused_413() -> None:
 def test_media_name_is_prefix_item_id_and_content_digest(data: bytes) -> None:
     name = media_name("LanguageLab", ITEM_ID, data)
     assert name == managed_name(ITEM_ID, data, prefix="LanguageLab")
-    assert name.startswith(f"LanguageLab_{ITEM_ID}_") and name.endswith(".mp3")
-    assert len(name.removeprefix(f"LanguageLab_{ITEM_ID}_").removesuffix(".mp3")) == 12
+    assert name.startswith(f"languagelab_{ITEM_ID}_") and name.endswith(".mp3")
+    assert len(name.removeprefix(f"languagelab_{ITEM_ID}_").removesuffix(".mp3")) == 12
+    assert media_name("LanguageLabDev", ITEM_ID, data).startswith(f"languagelabdev_{ITEM_ID}_")

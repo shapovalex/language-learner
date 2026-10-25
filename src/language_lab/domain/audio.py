@@ -71,5 +71,8 @@ def audio_upload(intent: AudioIntent, data: bytes | None) -> bytes | None:
 
 
 def media_name(prefix: str, item_id: str, data: bytes) -> str:
-    """The managed media name of `data` for an Item: `<Prefix>_<ItemId>_<sha256[:12]>.mp3`."""
-    return f"{prefix}_{item_id}_{hashlib.sha256(data).hexdigest()[:12]}.mp3"
+    """The managed media name of `data` for an Item (AD-7):
+    `<prefix lowercased>_<ItemId>_<sha256[:12]>.mp3`. Anki lowercases the names it stores
+    (spike 2.2), so a lowercase name comes back unchanged.
+    """
+    return f"{prefix.lower()}_{item_id}_{hashlib.sha256(data).hexdigest()[:12]}.mp3"

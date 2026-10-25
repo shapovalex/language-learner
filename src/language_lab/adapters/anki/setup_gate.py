@@ -13,8 +13,8 @@ Only manifest note types are read (exact `note_query`), so another Prefix's note
 
 For the opt-in repairs (entry 11) the preview also reads, still reads only: the `Audio` names
 the same `notesInfo` answer references, the manifest note types' cards (one `multi` of
-`findCards` beside `getMediaFilesNames` for `<Prefix>_*`, then one `cardsInfo`). They never
-change the SetupState.
+`findCards` beside `getMediaFilesNames` for `<prefix lowercased>_*`, then one `cardsInfo`).
+They never change the SetupState.
 
 `SetupGate(manifest)` is shared by the client and the store. `check(action, params, lookup)`
 runs after the Prefix guard on every non-Setup request: reads (and `multi` of reads) pass, and
@@ -209,12 +209,13 @@ def _card_state(info: Any) -> CardState | None:
 async def read_leftovers(
     lookup: Lookup, manifest: Manifest, models: Iterable[str]
 ) -> tuple[tuple[CardState, ...], frozenset[str]]:
-    """The cards of each manifest note type in `models` and the media named `<Prefix>_*`: one
+    """The cards of each manifest note type in `models` and the media named `<prefix>_*`
+    (lowercased, AD-7; `getMediaFilesNames` matches case-sensitively): one
     `multi` of `findCards` and `getMediaFilesNames`, then one `cardsInfo` when there are cards.
     """
     types = _manifest_types(manifest, models)
     reads: list[Read] = [("findCards", {"query": note_query(manifest, t)}) for t in types]
-    reads.append(("getMediaFilesNames", {"pattern": f"{manifest.prefix}_*"}))
+    reads.append(("getMediaFilesNames", {"pattern": f"{manifest.prefix.lower()}_*"}))
     *found, media = await multi(lookup, reads)
     ids: list[int] = []
     for result in found:

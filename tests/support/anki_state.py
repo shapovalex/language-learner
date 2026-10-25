@@ -157,8 +157,8 @@ def preset_config(name: str, **overrides: Any) -> dict[str, Any]:
 
 
 def media_name(prefix: str) -> str:
-    """An AD-7 managed media name: `<Prefix>_<ItemId>_<sha256[:12]>.mp3`."""
-    return f"{prefix}_{uuid.uuid4()}_{uuid.uuid4().hex[:12]}.mp3"
+    """An AD-7 managed media name: `<prefix lowercased>_<ItemId>_<sha256[:12]>.mp3`."""
+    return f"{prefix.lower()}_{uuid.uuid4()}_{uuid.uuid4().hex[:12]}.mp3"
 
 
 def set_path(config: dict[str, Any], path: str, value: Any) -> None:

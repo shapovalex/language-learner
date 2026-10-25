@@ -485,7 +485,8 @@ class AnkiConnectStore:
                         )
                         if next(_matching(infos, _ITEM_ID, item_id), None) is not None:
                             return
-            stem = f"{manifest.prefix}_{item_id}_"
+            # AD-7 names are lowercase, and `getMediaFilesNames` matches case-sensitively
+            stem = f"{manifest.prefix.lower()}_{item_id}_"
             names = await self._client.invoke("getMediaFilesNames", pattern=f"{stem}*")
             if not isinstance(names, list) or not all(isinstance(name, str) for name in names):
                 raise AppError(ErrorCode.ANKI_UNAVAILABLE)

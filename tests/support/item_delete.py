@@ -12,6 +12,7 @@ from typing import Any
 from language_lab.adapters.anki.client import AnkiConnectClient
 from language_lab.adapters.anki.guard import PrefixGuard
 from language_lab.adapters.anki.lock import AnkiLock
+from language_lab.adapters.anki.manifest import Manifest
 from language_lab.adapters.anki.setup_gate import SetupGate
 from language_lab.adapters.anki.store import AnkiConnectStore
 from language_lab.domain.catalog import Language
@@ -37,7 +38,8 @@ def put_item(collection: Collection, *, language: str = "en") -> tuple[str, int]
 
 
 def media_names(item_id: str, *, prefix: str = MANIFEST.prefix) -> list[str]:
-    return [f"{prefix}_{item_id}_{digit * 12}.mp3" for digit in ("1", "2", "3")]
+    """Three AD-7 names of the Item: the Prefix lowercased (spike 2.2)."""
+    return [f"{prefix.lower()}_{item_id}_{digit * 12}.mp3" for digit in ("1", "2", "3")]
 
 
 async def delete_item(store: Any, item_id: str) -> None:
@@ -71,8 +73,9 @@ def wired_delete(
     state: str = "ready",
     replies: dict[str, Any] | None = None,
     lock: ObservedLock | None = None,
+    manifest: Manifest = MANIFEST,
 ) -> tuple[AnkiConnectStore, AnkiConnectReplay]:
-    gate = SetupGate(MANIFEST)
+    gate = SetupGate(manifest)
     gate.set(SetupState(state))
     answers = collection_replies(collection, writes=True) | (replies or {})
 
@@ -86,9 +89,9 @@ def wired_delete(
 
     replay = AnkiConnectReplay({action: observe(reply) for action, reply in answers.items()})
     client = AnkiConnectClient(
-        ANKI_URL, transport=replay.transport, guard=PrefixGuard(MANIFEST), gate=gate
+        ANKI_URL, transport=replay.transport, guard=PrefixGuard(manifest), gate=gate
     )
-    store = AnkiConnectStore(client, lock or AnkiLock(), manifest=MANIFEST, gate=gate)
+    store = AnkiConnectStore(client, lock or AnkiLock(), manifest=manifest, gate=gate)
     return store, replay
 
 
