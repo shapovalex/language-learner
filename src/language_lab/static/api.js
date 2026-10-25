@@ -221,6 +221,14 @@ export function getPronunciationQueue(lang) {
   return request(pronunciationPath(lang, "queue"));
 }
 
+export function assessAttempt(lang, itemId, recording, signal) {
+  const body = new FormData();
+  body.append("itemId", itemId);
+  const extension = recording.type.startsWith("audio/mp4") ? "mp4" : "webm";
+  body.append("recording", recording, `attempt.${extension}`);
+  return request(pronunciationPath(lang, "attempt"), { method: "POST", body, signal });
+}
+
 // Rate one Card through Anki's scheduler (FR-34): `{cardId, reps, rating}` in, with `reps` as
 // the queue read it; `{alreadyAnswered}` out. A retry with the same body answers nothing twice
 // (AD-20)

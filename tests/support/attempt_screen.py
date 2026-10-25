@@ -145,14 +145,41 @@ class AttemptApi:
         self.failed = False
         self.hold = False
         self.attempts: list[dict[str, Any]] = []
+        self._form_data: list[dict[str, Any]] = []
         self._held: list[Route] = []
+        # WebKit interception omits binary file bytes (Playwright issue #14624).
+        # Observe unchanged FormData, as the existing audio screen helpers do.
+        page.expose_binding(
+            "observeAttemptFormData", lambda source, body: self._form_data.append(body)
+        )
+        page.add_init_script("""(() => {
+          const originalFetch = window.fetch.bind(window);
+          window.fetch = async (url, options) => {
+            const body = options?.body;
+            if (body instanceof FormData && body.has('recording')) {
+              const file = body.get('recording');
+              await window.observeAttemptFormData({
+                itemId: body.get('itemId'),
+                recording: Array.from(new Uint8Array(await file.arrayBuffer())),
+              });
+            }
+            return originalFetch(url, options);
+          };
+        })();""")
         page.route(f"**/api/pronunciation/{lang}/attempt", self._attempt)
 
     def _attempt(self, route: Route) -> None:
         if route.request.method != "POST":
             route.fallback()
             return
-        self.attempts.append(multipart(route.request))
+        parts = multipart(route.request)
+        observed = self._form_data.pop(0)
+        assert parts["itemId"]["data"].decode() == observed["itemId"]
+        data = bytes(observed["recording"])
+        if parts["recording"]["data"]:
+            assert parts["recording"]["data"] == data
+        parts["recording"]["data"] = data
+        self.attempts.append(parts)
         if self.hold:
             self._held.append(route)
             return

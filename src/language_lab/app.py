@@ -139,6 +139,7 @@ _APP_ERROR_STATUS = {
     ErrorCode.NOT_FOUND: 404,
     ErrorCode.LLM_FAILED: 502,
     ErrorCode.TTS_FAILED: 502,
+    ErrorCode.ASSESSMENT_FAILED: 503,
     ErrorCode.PAYLOAD_TOO_LARGE: 413,
     ErrorCode.LLM_INVALID_OUTPUT: 502,
 }
@@ -399,7 +400,9 @@ def create_app(
     app.include_router(drafts_router(DraftService(llm)))
     app.include_router(items_router(ItemService(anki_store)))
     app.include_router(media_router(ItemService(anki_store)))
-    app.include_router(pronunciation_router(PronunciationService(anki_store, sync=sync)))
+    app.include_router(
+        pronunciation_router(PronunciationService(anki_store, sync=sync, speech=speech))
+    )
 
     app.mount(f"/static/{version}", StaticFiles(directory=str(_STATIC)), name="static")
 

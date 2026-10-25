@@ -4,12 +4,13 @@ session signals (AD-17: each signal answers 204 at once, whatever the Sync does)
 
 from typing import Annotated, Any, TypedDict
 
-from fastapi import APIRouter, Response
+from fastapi import APIRouter, Request, Response
 from pydantic import BaseModel, ConfigDict, Field, StrictInt
 
 from language_lab.domain.catalog import Language
 from language_lab.domain.pronunciation import Rating
 from language_lab.features.pronunciation.service import PronunciationService
+from language_lab.features.pronunciation.upload import read_attempt
 
 
 class _RatingBody(BaseModel):
@@ -32,6 +33,15 @@ class RatedBody(TypedDict):
 
 def pronunciation_router(service: PronunciationService) -> APIRouter:
     router = APIRouter(prefix="/api/pronunciation/{lang}")
+
+    @router.post("/attempt")
+    async def attempt(lang: Language, request: Request) -> dict[str, Any]:
+        item_id, recording = await read_attempt(request)
+        assessment = await service.attempt(lang, item_id, recording)
+        return {
+            "assessment": assessment.wire() if assessment is not None else None,
+            "nothingHeard": assessment is None,
+        }
 
     @router.get("/queue")
     async def queue(lang: Language) -> QueueBody:

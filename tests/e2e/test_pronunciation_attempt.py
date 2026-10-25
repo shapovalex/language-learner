@@ -8,6 +8,7 @@ feedback or cleanup checks. Real iOS capture, codecs and HTTPS permission belong
 """
 
 import re
+from datetime import UTC, datetime, timedelta
 
 import pytest
 from playwright.sync_api import Page, expect
@@ -41,10 +42,6 @@ from tests.support.pronunciation_screen import (
     reference_button,
     review_card,
     target_text,
-)
-
-pytestmark = pytest.mark.skip(
-    reason="ATDD 7.2 RED: activate when implementing recording, locale feedback and Attempt gating."
 )
 
 
@@ -117,8 +114,10 @@ class TestRecording:
             native = install_microphone(page)
             api = AttemptApi(page)
             page.clock.install()
+            page.clock.pause_at(datetime.now(UTC) + timedelta(seconds=1))
             page.goto("/en/pronunciation")
             record_button(page).click()
+            expect(record_button(page, LISTENING)).to_be_visible()
             page.clock.run_for(29_999)
             before = len(api.attempts)
 
@@ -138,6 +137,35 @@ class TestRecording:
 
 
 class TestAssessmentFeedback:
+    @pytest.mark.parametrize("width", ["phone", "tablet"])
+    def test_feedback_precedes_rating_on_phone_and_keeps_tablet_columns(
+        self, page: Page, width: str
+    ) -> None:
+        page.set_viewport_size(viewports.ALL[width])
+        install_microphone(page)
+        AttemptApi(page)
+        page.goto("/en/pronunciation")
+        finish_attempt(page)
+
+        regions = main(page).locator(
+            'section[aria-label="Card"], section[aria-label="Assessment"], '
+            'section[aria-label="Rating"]'
+        )
+        assert regions.evaluate_all(
+            "elements => elements.map(element => element.getAttribute('aria-label'))"
+        ) == ["Card", "Assessment", "Rating"]
+        card = main(page).get_by_role("region", name="Card", exact=True).bounding_box()
+        feedback = main(page).get_by_role("region", name="Assessment", exact=True).bounding_box()
+        rating = main(page).get_by_role("region", name="Rating", exact=True).bounding_box()
+        if width == "phone":
+            assert feedback["y"] >= card["y"] + card["height"]
+            assert rating["y"] >= feedback["y"] + feedback["height"]
+        else:
+            assert rating["x"] == pytest.approx(card["x"], abs=1)
+            assert rating["y"] >= card["y"] + card["height"]
+            assert feedback["x"] >= card["x"] + card["width"]
+            assert feedback["y"] == pytest.approx(card["y"], abs=1)
+
     @pytest.mark.p0
     def test_nothing_heard_warns_and_does_not_unlock_rating(self, page: Page) -> None:
         """[P0] AC-10 an all-Omission result asks to record closer and never enables Rating."""
@@ -354,6 +382,7 @@ class TestRatingGateAndDisposal:
             finish_attempt(page)
             completed_score = score_ring(page).inner_text()
             record_button(page, "Try again").click()
+            expect(record_button(page, LISTENING)).to_be_visible()
             recording = mic_state(page)
 
             if leave == "rating":
@@ -388,3 +417,157 @@ class TestRatingGateAndDisposal:
             )
 
         assert observe_journey(journey) is None
+
+
+@pytest.mark.parametrize("later", ["silence", "failure", "denied"])
+def test_later_unusable_attempt_keeps_the_cards_rating_eligibility(page: Page, later: str):
+    install_microphone(page)
+    api = AttemptApi(page)
+    page.goto("/en/pronunciation")
+    finish_attempt(page)
+    if later == "silence":
+        api.result = {"assessment": None, "nothingHeard": True}
+    elif later == "failure":
+        api.failed = True
+    else:
+        page.evaluate("window.__attemptMic.denied = true")
+    if later == "denied":
+        record_button(page, "Try again").click()
+    else:
+        finish_attempt(page, retry=True)
+    expect(main(page).get_by_role("alert")).to_be_visible()
+    for name in RATINGS:
+        expect(rating_button(page, name)).to_be_enabled()
+    assert api.review.ratings == []
+
+
+def test_leaving_during_permission_request_stops_the_late_stream(page: Page):
+    install_microphone(page)
+    api = AttemptApi(page)
+    page.goto("/en/pronunciation")
+    page.evaluate("window.__attemptMic.holdPermission = true")
+    record_button(page).click()
+    expect(record_button(page, "Opening microphone…")).to_be_disabled()
+    page.wait_for_function("window.__releaseAttemptPermission != null")
+    language_nav(page, "English").get_by_role("link", name="Items", exact=True).click()
+    page.evaluate("window.__releaseAttemptPermission()")
+    page.wait_for_function("window.__attemptMic.trackStops === window.__attemptMic.tracks")
+    language_nav(page, "English").get_by_role("link", name="Pronunciation", exact=True).click()
+    expect(record_button(page)).to_be_enabled()
+    expect(score_ring(page)).to_have_count(0)
+    assert api.attempts == []
+    state = mic_state(page)
+    assert state["tracks"] > 0
+    assert state["starts"] == 0
+    assert state["trackStops"] == state["tracks"]
+
+
+@pytest.mark.parametrize("failed", [False, True])
+def test_late_assessment_after_navigation_cannot_change_the_new_screen(page: Page, failed: bool):
+    install_microphone(page)
+    api = AttemptApi(page)
+    api.hold = True
+    api.failed = failed
+    page.goto("/en/pronunciation")
+    record_button(page).click()
+    record_button(page, LISTENING).click()
+    api.wait_for_attempts(1)
+    language_nav(page, "English").get_by_role("link", name="Items", exact=True).click()
+    language_nav(page, "English").get_by_role("link", name="Pronunciation", exact=True).click()
+    expect(record_button(page)).to_be_enabled()
+    api.release()
+    expect(score_ring(page)).to_have_count(0)
+    expect(main(page).get_by_role("alert")).to_have_count(0)
+    for name in RATINGS:
+        expect(rating_button(page, name)).to_be_disabled()
+
+
+def test_record_stops_reference_and_oversize_capture_never_uploads(page: Page):
+    install_microphone(page)
+    api = AttemptApi(page)
+    page.goto("/en/pronunciation")
+    reference_button(page).click()
+    page.evaluate("window.__attemptMic.payloadSize = 5 * 1024 * 1024 + 1")
+    record_button(page).click()
+    expect(record_button(page, LISTENING)).to_be_visible()
+    assert page.evaluate("document.querySelectorAll('audio[src]').length") == 0
+    record_button(page, LISTENING).click()
+    expect(main(page).get_by_role("alert")).to_contain_text("Recording is too large")
+    assert api.attempts == []
+    state = mic_state(page)
+    assert state["tracks"] > 0
+    assert state["trackStops"] == state["tracks"]
+    for name in RATINGS:
+        expect(rating_button(page, name)).to_be_disabled()
+
+
+def test_feedback_thresholds_and_lower_phoneme_scores_keep_noncolor_cues(page: Page):
+    install_microphone(page)
+    api = AttemptApi(page)
+    words = api.result["assessment"]["words"]
+    template = words[0].copy()
+    api.result["assessment"]["words"] = [
+        {
+            **template,
+            "text": f"word{score}",
+            "score": score,
+            "phonemes": [{"symbol": "θ", "score": 59}],
+        }
+        for score in [59, 60, 79, 80]
+    ]
+    page.goto("/en/pronunciation")
+    finish_attempt(page)
+    ring_color = score_ring(page).evaluate("e => getComputedStyle(e).borderTopColor")
+    for score in [59, 60, 79, 80]:
+        pill = main(page).get_by_role("button", name=f"word{score}", exact=True)
+        expected = "poor" if score < 60 else "fair" if score < 80 else "good"
+        assert f"feedback-{expected}" in pill.get_attribute("class")
+        if 60 <= score < 80:
+            assert pill.evaluate("e => getComputedStyle(e).textDecorationStyle") == "dotted"
+    main(page).get_by_role("button", name="word80", exact=True).click()
+    expect(word_feedback(page).get_by_text("θ", exact=True)).to_be_visible()
+    assert (
+        word_feedback(page)
+        .locator(".review-phoneme")
+        .get_attribute("class")
+        .endswith("feedback-poor")
+    )
+    api.result["assessment"]["overall"] = 30
+    finish_attempt(page, retry=True)
+    assert score_ring(page).evaluate("e => getComputedStyle(e).borderTopColor") == ring_color
+    expect(
+        main(page).get_by_text("Overall score 30. Weakest word: word59.", exact=True)
+    ).to_have_count(1)
+
+
+@pytest.mark.parametrize("mp4", [False, True], ids=["webm-opus", "mp4-aac"])
+def test_native_attempt_upload_reaches_the_real_app_without_interception(
+    page: Page, base_url: str, mp4: bool
+):
+    """Validate HTTP file bytes through real multipart parsing and PyAV in both engines."""
+    import json
+
+    from tests.support.duplicates import vocabulary
+    from tests.support.pronunciation_screen import ReviewApi
+
+    install_microphone(page, mp4=mp4)
+    card = review_card("thought", audio=False)
+    saved = page.request.post(
+        f"{base_url}/api/items/en",
+        headers={"Origin": base_url},
+        multipart={
+            "item": json.dumps({"itemId": card["itemId"], **vocabulary("thought"), "audio": "keep"})
+        },
+    )
+    assert saved.status == 200
+    ReviewApi(page, due=[card])
+    page.goto("/en/pronunciation")
+    record_button(page).click()
+    with page.expect_response(lambda response: is_attempt(response.request)) as attempted:
+        record_button(page, LISTENING).click()
+    assert attempted.value.status == 200
+    # The server's injected Speech fake returns None, after real upload validation/decode.
+    assert attempted.value.json() == {"assessment": None, "nothingHeard": True}
+    expect(main(page).get_by_role("alert")).to_contain_text(NOTHING_TITLE)
+    state = mic_state(page)
+    assert state["trackStops"] == state["tracks"]

@@ -8,13 +8,14 @@
 // autoplays: /api/media/<name> is requested on the first tap only (FR-31). A Rating posts the
 // Card's cardId and reps; once Anki confirms, the queue is read again for the next Card and the
 // chip. A failed Rating keeps the Card current with an inline alert whose Try again resends the
-// same Rating (AD-20). Ratings have no hotkeys and, until story 7.2 adds Attempts, no gate.
+// same Rating (AD-20). One usable Assessment unlocks neutral Ratings for this Card.
 //
 // The session end is sent when the screen unmounts, when the page is hidden or goes away
 // (`pagehide`, as a beacon), and when the queue is empty. A page shown again after being hidden
 // starts a new session if Cards remain. Nothing about a session is stored.
 
 import {
+  assessAttempt,
   errorMessage,
   getPronunciationQueue,
   isApiError,
@@ -23,9 +24,11 @@ import {
   sessionBeacon,
   sessionSignal,
 } from "../api.js";
+import { AttemptRecorder } from "../attempt-recorder.js";
 import { categoryName, languageName } from "../catalog.js";
 import { alertBox, element, skeleton, tryAgain } from "../dom.js";
 import { releasePlayer } from "../reference-audio.js";
+import { navigate } from "../router.js";
 
 const RATINGS = [
   ["again", "Again"],
@@ -66,11 +69,21 @@ export function mount(root, params) {
   let inSession = false; // a session start was sent and no end since
   let player = null; // the current Card's Reference <audio>, made on the first tap
   let playerFor = null; // the cardId that player belongs to
+  let eligible = false;
+  let assessment = null;
+  let selectedWord = 0;
+  let attemptState = "idle";
+  let attemptWarning = null;
+  let attemptSeq = 0;
+  let recorder = null;
+  let attemptRequest = null;
 
   const screen = element("div", "review-screen");
   const heading = element("h1", "review-title", `${language} Pronunciation`);
   const body = element("div", "review-body");
-  screen.append(heading, body);
+  const announcement = element("p", "sr-only");
+  announcement.setAttribute("aria-live", "polite");
+  screen.append(heading, body, announcement);
   root.replaceChildren(screen);
 
   function startSession() {
@@ -93,6 +106,7 @@ export function mount(root, params) {
   }
 
   function playReference(card) {
+    if (attemptState === "recording" || attemptState === "permission") return;
     if (playerFor !== card.cardId) {
       dropPlayer();
       player = element("audio");
@@ -116,16 +130,215 @@ export function mount(root, params) {
     const target = element("p", "review-target", card.target);
     target.lang = lang;
     section.append(head, target);
+    const actions = element("div", "review-actions");
     if (card.audio) {
       const reference = element("button", "button review-reference");
       reference.type = "button";
       reference.setAttribute("aria-label", REFERENCE);
+      reference.dataset.control = "reference";
+      reference.disabled = attemptState === "recording" || attemptState === "permission";
       reference.append(speakerIcon(), element("span", null, "Reference"));
       reference.addEventListener("click", () => playReference(card));
-      const actions = element("div", "review-actions");
       actions.append(reference);
-      section.append(actions);
     }
+    const labels = {
+      idle: "Record", permission: "Opening microphone…", recording: "Listening… tap to stop",
+      assessing: "Checking…", result: "Try again",
+    };
+    if (!attemptWarning || attemptWarning === "mic") {
+      const record = action(labels[attemptState] ?? "Record", "record", () => {
+        if (attemptState === "recording") recorder?.stop();
+        else startRecording(card);
+      });
+      record.classList.add("review-record");
+      if (attemptState === "recording") record.classList.add("review-listening");
+      record.disabled = busy || attemptState === "assessing" || attemptState === "permission";
+      actions.append(record);
+    }
+    section.append(actions);
+    if (attemptState === "recording") {
+      const meter = element("meter", "review-meter");
+      meter.min = 0;
+      meter.max = 1;
+      meter.value = 0;
+      meter.setAttribute("aria-label", "Microphone level");
+      section.append(meter);
+    }
+    if (attemptWarning) section.append(attemptAlert(card));
+    return section;
+  }
+
+  function action(label, control, callback) {
+    const button = element("button", "button", label);
+    button.type = "button";
+    button.dataset.control = control;
+    button.addEventListener("click", callback);
+    return button;
+  }
+
+  function discardAttempt(resetEligibility = false) {
+    ++attemptSeq;
+    attemptRequest?.abort();
+    attemptRequest = null;
+    recorder?.dispose();
+    recorder = null;
+    assessment = null;
+    selectedWord = 0;
+    attemptWarning = null;
+    attemptState = "idle";
+    announcement.textContent = "";
+    if (resetEligibility) eligible = false;
+  }
+
+  function startRecording(card) {
+    if (busy || ["recording", "permission", "assessing"].includes(attemptState)) return;
+    discardAttempt();
+    dropPlayer();
+    const token = attemptSeq;
+    const current = () => mounted && token === attemptSeq;
+    attemptState = "permission";
+    render();
+    recorder = new AttemptRecorder({
+      recording: () => {
+        if (!current()) return;
+        attemptState = "recording";
+        render();
+        body.querySelector('[data-control="record"]')?.focus();
+      },
+      level: value => {
+        if (!current()) return;
+        const meter = body.querySelector("meter");
+        if (meter) meter.value = value;
+      },
+      stopping: () => {
+        if (!current()) return;
+        attemptState = "assessing";
+        render();
+      },
+      complete: blob => {
+        if (!current()) return;
+        recorder = null;
+        attemptState = "assessing";
+        render();
+        attemptRequest = new AbortController();
+        // The helper owns the upload body. The screen keeps neither Blob nor FormData.
+        const pending = assessAttempt(lang, card.itemId, blob, attemptRequest.signal);
+        blob = null;
+        pending.then(result => {
+          if (!current()) return;
+          attemptRequest = null;
+          assessment = result.assessment;
+          attemptWarning = result.nothingHeard ? "nothing" : null;
+          attemptState = "result";
+          if (assessment) {
+            eligible = true;
+            selectedWord = assessment.words.reduce((weakest, word, index, words) =>
+              word.score < words[weakest].score ? index : weakest, 0);
+            announcement.textContent = `Overall score ${assessment.overall}. Weakest word: ${assessment.words[selectedWord].text}.`;
+          }
+          render();
+          body.querySelector('[data-control="record"]')?.focus();
+        }).catch(() => {
+          if (!current()) return;
+          attemptRequest = null;
+          attemptWarning = "failed";
+          attemptState = "result";
+          render();
+          body.querySelector('[data-control="record"]')?.focus();
+        });
+      },
+      error: reason => {
+        if (!current()) return;
+        recorder = null;
+        attemptState = "idle";
+        attemptWarning = reason === "size" ? "size" : "mic";
+        render();
+        body.querySelector('[data-control="record"]')?.focus();
+      },
+    });
+    recorder.start();
+  }
+
+  function attemptAlert(card) {
+    const copy = {
+      mic: ["LanguageLab can't hear you", "Allow microphone access for this site in Safari, then reload the page."],
+      nothing: ["Couldn't hear that Attempt", "Record again closer to the microphone."],
+      failed: ["Couldn't assess that Attempt", "This Card isn't answered yet. Record again, or leave and come back later."],
+      size: ["Recording is too large", "Record again with a shorter Attempt."],
+    };
+    const [title, message] = copy[attemptWarning];
+    const alert = alertBox("review-alert", element("strong", null, title), element("p", null, message));
+    if (attemptWarning !== "failed") {
+      alert.className = "inline-alert-warning review-alert";
+    }
+    if (attemptWarning !== "mic") {
+      alert.append(action("Record again", "record", () => startRecording(card)));
+    }
+    if (attemptWarning === "failed") {
+      alert.append(action("Exit", "exit", () => navigate(`/${lang}/items`)));
+    }
+    return alert;
+  }
+
+  function feedbackClass(score) {
+    return score === null ? "feedback-empty" : score >= 80 ? "feedback-good" : score >= 60 ? "feedback-fair" : "feedback-poor";
+  }
+
+  function scoresCard() {
+    const section = element("section", "review-scores review-card");
+    section.setAttribute("aria-label", "Assessment");
+    const ring = element("div", "review-score-ring", String(assessment.overall));
+    ring.setAttribute("aria-label", "Overall score");
+    ring.style.setProperty("--score", `${assessment.overall}%`);
+    section.append(ring);
+    const scores = element("div", "review-subscores");
+    for (const label of ["Accuracy", "Fluency", "Completeness", "Prosody"]) {
+      const value = assessment[label.toLowerCase()];
+      if (value === null || (lang === "fr" && label === "Prosody")) continue;
+      const row = element("div", "review-subscore");
+      const number = element("span", null, String(value));
+      number.setAttribute("aria-label", label);
+      row.append(element("span", null, label), number);
+      scores.append(row);
+    }
+    section.append(scores);
+    const pills = element("div", "review-word-pills");
+    assessment.words.forEach((word, index) => {
+      const pill = action(word.text, `word-${index}`, () => {
+        selectedWord = index;
+        render();
+      });
+      pill.className = `button review-word-pill ${feedbackClass(word.score)}`;
+      pill.lang = assessment.locale;
+      pill.setAttribute("aria-pressed", String(index === selectedWord));
+      pills.append(pill);
+    });
+    section.append(pills);
+    const word = assessment.words[selectedWord];
+    const detail = element("section", "review-word-detail");
+    detail.lang = assessment.locale;
+    detail.setAttribute("aria-label", "Word feedback");
+    const error = word.errorType === "Mispronunciation" ? "mispronounced" : word.errorType === "None" ? "no pronunciation error" : word.errorType.toLowerCase();
+    detail.append(element("h2", null, `${word.text} · ${word.score} · ${error}`));
+    const units = element("div", "review-position-strip");
+    if (lang === "fr") {
+      detail.append(element("p", null, "Where in the word"));
+      for (const position of ["start", "middle", "end"]) {
+        const value = word.positions?.[position] ?? null;
+        const cell = element("div", `review-position ${feedbackClass(value)}`);
+        cell.append(element("span", null, position), element("span", null, value === null ? "—" : String(value)));
+        units.append(cell);
+      }
+      section.append(element("p", "review-feedback-note", "French feedback covers the overall score, words and where in a word a sound slipped. Prosody isn't available."));
+    } else {
+      for (const phoneme of word.phonemes) {
+        const pill = element("span", `review-phoneme ${feedbackClass(phoneme.score)}`);
+        pill.append(element("span", null, phoneme.symbol), element("span", null, String(phoneme.score)));
+        units.append(pill);
+      }
+    }
+    detail.append(units);
+    section.append(detail);
     return section;
   }
 
@@ -136,13 +349,16 @@ export function mount(root, params) {
     for (const [rating, label] of RATINGS) {
       const button = element("button", "button review-rating-button", label);
       button.type = "button";
+      button.dataset.control = `rating-${rating}`;
+      button.disabled = !eligible;
       button.addEventListener("click", () => {
-        if (busy) return;
+        if (busy || !eligible) return;
         submit({ cardId: card.cardId, reps: card.reps, rating });
       });
       buttons.append(button);
     }
     section.append(element("p", "review-prompt", PROMPT), buttons);
+    if (!eligible) section.append(element("p", "review-prompt", "Record an Attempt to enable Rating."));
     if (busy) section.setAttribute("aria-busy", "true");
     return section;
   }
@@ -172,9 +388,8 @@ export function mount(root, params) {
     if (playerFor !== null && playerFor !== card.cardId) dropPlayer();
     // Focus inside the review survives the re-render: on the same Rating, else the first one
     const focused = body.contains(document.activeElement) ? document.activeElement : null;
-    const focusName = focused?.classList.contains("review-rating-button")
-      ? focused.textContent
-      : null;
+    const focusName = focused?.dataset.control;
+    const left = element("div", "review-main-column");
     const nodes = [targetCard(card)];
     if (failed) {
       const message = isApiError(failed.error, "setup_required")
@@ -190,13 +405,16 @@ export function mount(root, params) {
         ),
       );
     }
-    nodes.push(ratingRow(card));
+    left.append(...nodes);
     const layout = element("div", "review-layout");
-    layout.append(...nodes);
+    layout.append(left);
+    if (assessment) layout.append(scoresCard());
+    layout.append(ratingRow(card));
     body.replaceChildren(layout);
     if (focused) {
-      const buttons = [...layout.querySelectorAll(".review-rating-button")];
-      (buttons.find((button) => button.textContent === focusName) ?? buttons[0])?.focus();
+      const buttons = [...layout.querySelectorAll("button:not(:disabled)")];
+      (buttons.find(button => button.dataset.control === focusName) ??
+        buttons.find(button => button.dataset.control === "record"))?.focus();
     }
   }
 
@@ -219,6 +437,7 @@ export function mount(root, params) {
     busy = false;
     readError = error;
     if (next) {
+      if (queue?.cards[0]?.cardId !== next.cards[0]?.cardId) discardAttempt(true);
       queue = next;
       failed = null;
     }
@@ -252,11 +471,14 @@ export function mount(root, params) {
       return;
     }
     if (!mounted) return;
+    discardAttempt(true);
     await load();
   }
 
   function onVisibility() {
     if (document.visibilityState === "hidden") {
+      discardAttempt();
+      if (queue) render();
       if (inSession) endSession();
     } else if (queue?.cards.length && !inSession) {
       startSession();
@@ -264,6 +486,7 @@ export function mount(root, params) {
   }
 
   function onPageHide() {
+    discardAttempt(true);
     if (inSession) endSession(true);
   }
 
@@ -273,6 +496,7 @@ export function mount(root, params) {
 
   return () => {
     mounted = false;
+    discardAttempt(true);
     document.removeEventListener("visibilitychange", onVisibility);
     window.removeEventListener("pagehide", onPageHide);
     if (inSession) endSession();

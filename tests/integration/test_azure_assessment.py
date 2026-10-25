@@ -23,8 +23,6 @@ from tests.support.assessment import (
 from tests.support.audio import AZURE_KEY, AZURE_REGION
 from tests.support.azure import AzureReplay
 
-pytestmark = pytest.mark.skip(reason="Story 7.2 RED scaffold: activate with Azure assessment")
-
 
 class TestAzureAssessment:
     @pytest.mark.p0
@@ -87,3 +85,87 @@ class TestAzureAssessment:
 
         assert outcome is None
         assert len(replay.sent) == 1
+
+
+@pytest.mark.parametrize("status", [401, 429, 500])
+def test_provider_http_errors_redact_the_response(status):
+    from language_lab.domain.errors import AppError, ErrorCode
+
+    replay = AzureReplay([httpx.Response(status, text="private Target and subscription details")])
+    outcome = settle(assess_wire(replay, locale="en-US", target="private Target"))
+    assert isinstance(outcome, AppError)
+    assert outcome.code == ErrorCode.ASSESSMENT_FAILED
+    assert str(outcome) == "Pronunciation assessment failed."
+
+
+@pytest.mark.parametrize(
+    "payload",
+    [
+        None,
+        {},
+        {"NBest": []},
+        {"RecognitionStatus": "NoMatch"},
+        {"RecognitionStatus": "Success", "NBest": [{"Words": []}]},
+    ],
+)
+def test_malformed_or_empty_provider_reply_is_unusable(payload):
+    from language_lab.domain.errors import AppError, ErrorCode
+
+    replay = AzureReplay([httpx.Response(200, json=payload)])
+    outcome = settle(assess_wire(replay, locale="en-US", target="thought"))
+    assert isinstance(outcome, AppError)
+    assert outcome.code == ErrorCode.ASSESSMENT_FAILED
+
+
+def test_timeout_has_the_fixed_assessment_failure():
+    from language_lab.adapters.azure import AzureSpeech
+    from language_lab.domain.errors import AppError, ErrorCode
+
+    def timeout(request):
+        raise httpx.ReadTimeout("private provider details", request=request)
+
+    async def run():
+        speech = AzureSpeech(AZURE_KEY, AZURE_REGION, transport=httpx.MockTransport(timeout))
+        try:
+            return await speech.assess("en-US", "private target", wav_bytes())
+        finally:
+            await speech.aclose()
+
+    outcome = settle(run())
+    assert isinstance(outcome, AppError)
+    assert outcome.code == ErrorCode.ASSESSMENT_FAILED
+    assert "private" not in str(outcome)
+
+
+@pytest.mark.parametrize(
+    ("scores", "expected"),
+    [
+        ([], {"start": None, "middle": None, "end": None}),
+        ([23], {"start": 23, "middle": None, "end": None}),
+        ([81, 19], {"start": 81, "middle": 19, "end": None}),
+        ([90, 70, 10], {"start": 90, "middle": 70, "end": 10}),
+        ([90, 60, 40, 20], {"start": 60, "middle": 40, "end": 20}),
+    ],
+)
+def test_french_short_words_preserve_empty_buckets_and_never_sound_names(scores, expected):
+    reply = response_fixture(FR_REPLY)
+    reply["NBest"][0]["Words"][0]["Phonemes"] = [
+        {"Phoneme": "private-sound", "AccuracyScore": score} for score in scores
+    ]
+    replay = AzureReplay([httpx.Response(200, json=reply)])
+    body = settle(assess_wire(replay, locale="fr-CA", target="bonjour"))
+    assert body["words"][0]["positions"] == expected
+    assert body["words"][0]["phonemes"] == []
+    assert "private-sound" not in json.dumps(body)
+
+
+@pytest.mark.parametrize("invalid_score", [-1, 101, "private score"])
+def test_invalid_scores_fail_closed(invalid_score):
+    from language_lab.domain.errors import AppError, ErrorCode
+
+    reply = response_fixture(EN_REPLY)
+    reply["NBest"][0]["Words"][0]["Phonemes"][0]["AccuracyScore"] = invalid_score
+    replay = AzureReplay([httpx.Response(200, json=reply)])
+    outcome = settle(assess_wire(replay, locale="en-US", target="thought"))
+    assert isinstance(outcome, AppError)
+    assert outcome.code == ErrorCode.ASSESSMENT_FAILED

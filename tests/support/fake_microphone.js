@@ -7,6 +7,7 @@
   const probe = window.__attemptMic = {
     denied: __DENIED__, gets: 0, starts: 0, stops: 0, tracks: 0, trackStops: 0,
     level: 0.25, meterReads: 0, createdUrls: [], revokedUrls: [],
+    holdPermission: false, payloadSize: 0,
   };
   const Context = window.AudioContext || window.webkitAudioContext;
   const getByte = AnalyserNode.prototype.getByteTimeDomainData;
@@ -27,7 +28,8 @@
     probe.meterReads++;
     data.fill(probe.level * 255);
   };
-  Object.defineProperty(navigator.mediaDevices, 'getUserMedia', {
+  // WebKit may recreate the MediaDevices wrapper; patch its stable prototype.
+  Object.defineProperty(Object.getPrototypeOf(navigator.mediaDevices), 'getUserMedia', {
     configurable: true,
     value: async () => {
       probe.gets++;
@@ -35,10 +37,14 @@
       const context = new Context();
       const oscillator = context.createOscillator();
       const destination = context.createMediaStreamDestination();
+      const stream = destination.stream;
+      const tracks = stream.getTracks();
+      // Keep native wrappers stable so WebKit retains each track's stop observer.
+      Object.defineProperty(stream, 'getTracks', {value: () => tracks});
       oscillator.connect(destination);
       oscillator.start();
       await context.resume();
-      for (const track of destination.stream.getTracks()) {
+      for (const track of tracks) {
         probe.tracks++;
         const stop = track.stop.bind(track);
         let stopped = false;
@@ -52,7 +58,15 @@
           stop();
         };
       }
-      return destination.stream;
+      if (probe.holdPermission) {
+        await new Promise(resolve => {
+          window.__releaseAttemptPermission = () => {
+            window.__releaseAttemptPermission = null;
+            resolve();
+          };
+        });
+      }
+      return stream;
     },
   });
   class Recorder extends EventTarget {
@@ -73,7 +87,9 @@
     }
     requestData() {
       const event = new Event('dataavailable');
-      Object.defineProperty(event, 'data', {value: new Blob([bytes], {type: this.mimeType})});
+      Object.defineProperty(event, 'data', {value: new Blob([
+        probe.payloadSize ? new Uint8Array(probe.payloadSize) : bytes,
+      ], {type: this.mimeType})});
       this.emit('dataavailable', event);
     }
     stop() {

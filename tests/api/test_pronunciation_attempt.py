@@ -27,8 +27,6 @@ from tests.support.captures import MANIFEST
 from tests.support.fixtures.logs import LogCapture
 from tests.support.fixtures.settings import SettingsFactory
 
-pytestmark = pytest.mark.skip(reason="Story 7.2 RED scaffold: activate when implementing Attempts")
-
 
 def _client(settings_factory: SettingsFactory, rig, speech: AttemptSpeech):
     settings = settings_factory(
@@ -125,3 +123,90 @@ class TestAttemptRequest:
             for word in ("AccuracyScore", "PronScore", '"overall"', '"phonemes"', '"score"')
         )
         assert [line["status"] for line in log_capture.request_lines] == [200, 503]
+
+
+@pytest.mark.parametrize("lang", ["en", "fr"])
+def test_unknown_or_wrong_locale_item_is_not_assessed(settings_factory, lang):
+    import uuid
+
+    rig, item_id = attempt_rig()
+    speech = AttemptSpeech()
+    response = _client(settings_factory, rig, speech).post(
+        f"/api/pronunciation/{lang}/attempt",
+        files=attempt_parts(str(uuid.uuid4()) if lang == "en" else item_id),
+    )
+    assert response.status_code == 404
+    assert response.json()["error"]["code"] == "not_found"
+    assert speech.assessments == []
+    assert sent_writes(rig.replay.sent) == []
+
+
+def test_exact_upload_limit_is_accepted_without_disk_spooling(settings_factory, monkeypatch):
+    import builtins
+    import tempfile
+
+    rig, item_id = attempt_rig()
+    speech = AttemptSpeech()
+    client = _client(settings_factory, rig, speech)
+    recording = sample() + bytes(MAX_ATTEMPT_BYTES - len(sample()))
+    original_open = builtins.open
+
+    def read_only_open(file, mode="r", *args, **kwargs):
+        assert not any(flag in mode for flag in "wax+"), "Attempt wrote to disk"
+        return original_open(file, mode, *args, **kwargs)
+
+    def no_temporary_file(*args, **kwargs):
+        raise AssertionError("Attempt spooled audio to disk")
+
+    monkeypatch.setattr(builtins, "open", read_only_open)
+    monkeypatch.setattr(tempfile, "SpooledTemporaryFile", no_temporary_file)
+    monkeypatch.setattr(tempfile, "TemporaryFile", no_temporary_file)
+    monkeypatch.setattr(tempfile, "NamedTemporaryFile", no_temporary_file)
+    response = client.post(ATTEMPT_API, files=attempt_parts(item_id, recording))
+    assert response.status_code == 200
+    assert len(speech.assessments) == 1
+    assert sent_writes(rig.replay.sent) == []
+
+
+def test_nothing_heard_has_the_explicit_success_shape(settings_factory):
+    rig, item_id = attempt_rig()
+    speech = AttemptSpeech()
+
+    async def silence(*args):
+        return None
+
+    speech.assess = silence
+    response = _client(settings_factory, rig, speech).post(
+        ATTEMPT_API, files=attempt_parts(item_id)
+    )
+    assert response.status_code == 200
+    assert response.json() == {"assessment": None, "nothingHeard": True}
+    assert sent_writes(rig.replay.sent) == []
+
+
+@pytest.mark.parametrize("case", ["corrupt", "missing", "reference", "duplicate", "truncated"])
+def test_invalid_multipart_or_audio_never_reaches_azure(settings_factory, case):
+    rig, item_id = attempt_rig()
+    speech = AttemptSpeech()
+    client = _client(settings_factory, rig, speech)
+    parts = list(attempt_parts(item_id).items())
+    if case == "corrupt":
+        parts = list(attempt_parts(item_id, b"private corrupt audio").items())
+    elif case == "missing":
+        parts.pop()
+    elif case == "reference":
+        parts.append(("target", (None, "untrusted reference")))
+    elif case == "duplicate":
+        parts.append(parts[0])
+    if case == "truncated":
+        response = client.post(
+            ATTEMPT_API,
+            content=b'--test\r\nContent-Disposition: form-data; name="itemId"\r\n\r\n',
+            headers={"Content-Type": "multipart/form-data; boundary=test"},
+        )
+    else:
+        response = client.post(ATTEMPT_API, files=parts)
+    assert response.status_code == 422
+    assert response.json()["error"]["code"] == "validation_failed"
+    assert speech.assessments == []
+    assert sent_writes(rig.replay.sent) == []
