@@ -194,8 +194,8 @@ export function listItems(lang, query = "") {
   return request(`${path}?${new URLSearchParams({ q: query })}`);
 }
 
-export function getVoices(locale) {
-  return request(`/api/audio/voices?${new URLSearchParams({ locale })}`);
+export function getVoices(language) {
+  return request(`/api/audio/voices?${new URLSearchParams({ language })}`);
 }
 
 export function previewAudio(body) {

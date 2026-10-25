@@ -7,33 +7,45 @@ import { getVoices, previewAudio } from "./api.js";
 import { alertBox, element, tryAgain } from "./dom.js";
 import { readVoice, writeVoice } from "./voice-pref.js";
 
-// The Voice locale of a Language (domain/catalog.py LOCALES)
-export function audioLocale(language) {
-  return language === "fr" ? "fr-CA" : "en-US";
-}
+// The Voice locales of each Language, in list order (domain/catalog.py LOCALES), and the
+// group label of each locale in a Language with more than one
+const LOCALES = { en: ["en-US"], fr: ["fr-CA", "fr-FR"] };
+const GROUPS = { "fr-CA": "Canada", "fr-FR": "France" };
 
 // The Voice to show: the current choice, else the stored one, if listed; else the first
-export function chooseVoice(voices, current, locale) {
-  const preferred = current ?? readVoice(locale);
+export function chooseVoice(voices, current, language) {
+  const preferred = current ?? readVoice(language);
   return voices.some((voice) => voice.name === preferred) ? preferred : voices[0]?.name ?? null;
 }
 
 // The Voice <select> and its loading, error (with `retry` as Try again) and empty hints, as the
-// nodes to append. A change only stores the choice; it never synthesizes or writes Anki.
-export function voicePicker(state, locale, retry, disabled = false) {
+// nodes to append. A Language with several locales groups its Voices, one <optgroup> per
+// locale. A change only stores the choice; it never synthesizes or writes Anki.
+export function voicePicker(state, language, retry, disabled = false) {
   const label = element("label", "draft-label", "Voice");
   const select = element("select", "compose-field reference-audio-voice");
   select.setAttribute("aria-label", "Voice");
   select.disabled = disabled;
-  for (const voice of state.voices) {
-    const option = element("option", null, voice.displayName);
-    option.value = voice.name;
-    select.append(option);
+  const locales = LOCALES[language] ?? [];
+  const grouped = locales.length > 1;
+  for (const locale of grouped ? locales : [null]) {
+    const voices = state.voices.filter((voice) => !grouped || voice.locale === locale);
+    if (!voices.length) continue;
+    const parent = grouped ? element("optgroup") : select;
+    if (grouped) {
+      parent.label = GROUPS[locale];
+      select.append(parent);
+    }
+    for (const voice of voices) {
+      const option = element("option", null, voice.displayName);
+      option.value = voice.name;
+      parent.append(option);
+    }
   }
   select.value = state.voice ?? "";
   select.addEventListener("change", () => {
     state.voice = select.value;
-    writeVoice(locale, state.voice);
+    writeVoice(language, state.voice);
   });
   label.append(select);
   const nodes = [label];
@@ -46,16 +58,16 @@ export function voicePicker(state, locale, retry, disabled = false) {
   return nodes;
 }
 
-// Load the locale's Voices into `state`, rendering before and after; nothing after dispose
-export async function loadVoices(state, locale, render) {
+// Load the Language's Voices into `state`, rendering before and after; nothing after dispose
+export async function loadVoices(state, language, render) {
   state.loading = true;
   state.voiceError = false;
   render();
   try {
-    const { voices } = await getVoices(locale);
+    const { voices } = await getVoices(language);
     if (state.disposed) return;
     state.voices = voices;
-    state.voice = chooseVoice(voices, state.voice, locale);
+    state.voice = chooseVoice(voices, state.voice, language);
   } catch {
     if (state.disposed) return;
     state.voiceError = true;

@@ -2,7 +2,7 @@
 
 Fixtures are documented synthetic examples, not a captured subscription catalog.
 Proposed interface: adapters.azure.AzureSpeech(key, region, transport=...),
-voices(locale) -> list[Voice], synthesize(locale, voice, target) -> MP3 bytes.
+voices(locales) -> list[Voice], synthesize(locale, voice, target) -> MP3 bytes.
 """
 
 from xml.etree import ElementTree
@@ -11,7 +11,7 @@ import httpx
 import pytest
 
 from tests.support.aio import settle
-from tests.support.audio import AZURE_KEY, EN_VOICE, FR_VOICE, MP3
+from tests.support.audio import AZURE_KEY, EN_VOICE, FR_FR_VOICE, FR_VOICE, MP3
 from tests.support.azure import AzureReplay, catalog, synthesize, voice_transition
 
 
@@ -62,7 +62,7 @@ class TestAzureSpeech:
         replay = AzureReplay([httpx.Response(200, json=before), httpx.Response(200, json=after)])
 
         # When the same adapter reads the same locale twice across a provider change.
-        outcome = settle(voice_transition(replay, "fr-CA"))
+        outcome = settle(voice_transition(replay, ("fr-CA",)))
         latest = None if isinstance(outcome, Exception) else [v.name for v in outcome[1]]
 
         # Then the first assertion isolates the new catalog value, not merely a static list.
@@ -105,9 +105,24 @@ def test_catalog_excludes_non_neural_and_non_exact_locales():
     en = next(row for row in rows if row["Locale"] == "en-US")
     rows += [{**en, "VoiceType": "Standard"}, {**en, "Locale": "en-CA"}]
     replay = AzureReplay([httpx.Response(200, json=rows), httpx.Response(200, json=rows)])
-    result = settle(voice_transition(replay, "en-US"))
+    result = settle(voice_transition(replay, ("en-US",)))
     assert [voice.name for voice in result[0]] == [EN_VOICE]
     assert all(0 < request.extensions["timeout"]["read"] <= 30 for request in replay.sent)
+
+
+@pytest.mark.p1
+def test_french_catalog_is_one_read_of_canada_then_france_voices():
+    """The French list holds both locales in locale order, though the reply lists France first."""
+    rows = catalog()
+    fr_fr = next(row for row in rows if row["Locale"] == "fr-FR")
+    rows += [{**fr_fr, "Locale": "fr-BE", "ShortName": "fr-BE-TestNeural"}]
+    replay = AzureReplay([httpx.Response(200, json=rows), httpx.Response(200, json=rows)])
+    result = settle(voice_transition(replay, ("fr-CA", "fr-FR")))
+    assert [(voice.name, voice.locale) for voice in result[0]] == [
+        (FR_VOICE, "fr-CA"),
+        (FR_FR_VOICE, "fr-FR"),
+    ]
+    assert len(replay.sent) == 2  # one GET per read: voice_transition reads twice
 
 
 @pytest.mark.p1
@@ -121,7 +136,7 @@ def test_transport_timeout_is_tts_failed_without_the_upstream_message():
     async def run():
         speech = AzureSpeech(AZURE_KEY, "eastus", transport=httpx.MockTransport(fail))
         try:
-            return await speech.voices("en-US")
+            return await speech.voices(("en-US",))
         finally:
             await speech.aclose()
 

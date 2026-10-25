@@ -48,7 +48,7 @@ Other learners, multiple accounts, teachers and shared decks are out of scope. L
 - **Anki** — Anki Desktop on the Mac Mini, reached through AnkiConnect. It is the authoritative store for all learning data.
 - **Prefix** — The configured top-level name (default `LanguageLab`) that bounds every resource LanguageLab manages in Anki.
 - **Managed resource** — Any deck, note type, field, card template, CSS, deck option or media file under the Prefix that LanguageLab created. LanguageLab owns its structure. The user may edit managed field values, but not schemas or templates.
-- **Language** — English (locale `en-US`) or French (locale `fr-CA`). In v1 the translation language is always Russian.
+- **Language** — English (locale `en-US`) or French (locale `fr-CA`; Reference audio Voices also come from `fr-FR`, while pronunciation stays `fr-CA`). In v1 the translation language is always Russian.
 - **Category** — Vocabulary (single words and multiword phrases) or Sentence.
 - **Capture** — A piece of raw text saved for later processing. It is stored as a Capture note whose card is permanently suspended. One Capture can produce zero or more Items.
 - **Generation context** — Transient text, such as a source sentence or intended meaning, that guides Draft generation. It is never persisted.
@@ -326,12 +326,12 @@ The user can permanently delete an Item after an explicit confirmation that name
 
 **Description:** Reference audio is synthesized by Azure voices for the Item's locale. It is previewed before it is stored, and the exact previewed bytes are what Anki receives. Realizes UJ-2, UJ-5.
 
-#### FR-26: Choose a Voice for the locale
+#### FR-26: Choose a Voice for the Language
 
-The user can choose from the Voices currently available for the Item's locale (`en-US` for English, `fr-CA` for French).
+The user can choose from the Voices currently available for the Item's Language: `en-US` for English; `fr-CA` and `fr-FR` for French, in one list grouped "Canada" and "France" (decided 2026-10-25). Audio is made in the chosen Voice's own locale.
 
 **Consequences (testable):**
-- The Voice list reflects Azure's current catalog filtered to the locale.
+- The Voice list reflects Azure's current catalog filtered to the Language's locales.
 
 #### FR-27: Preview audio without changing Anki
 
@@ -349,12 +349,12 @@ The user can save a previewed audio clip as the Item's Reference audio.
 - Save stores the exact previewed MP3 in Anki media and updates the Item's audio field.
 - Superseded managed audio is removed only after the new value saves successfully. If Save fails, the previous audio stays in place.
 
-#### FR-29: Remember the last Voice per locale
+#### FR-29: Remember the last Voice per Language
 
-Each browser remembers the last selected Voice for each locale on its own.
+Each browser remembers the last selected Voice for each Language on its own; French keeps one Voice, from either locale.
 
 **Consequences (testable):**
-- The `en-US` and `fr-CA` selections persist independently in browser local storage and are not stored in Anki.
+- The English and French selections persist independently in browser local storage and are not stored in Anki.
 - Changing the selected Voice never regenerates existing audio. Regeneration is always an explicit Preview and Save.
 
 ### 4.8 Pronunciation Review
@@ -475,7 +475,7 @@ LanguageLab triggers a Sync at startup, every five minutes while running, before
 
 ### 7.1 In Scope
 
-- English (`en-US`) and French (`fr-CA`) with Russian as the translation language.
+- English (`en-US`) and French (`fr-CA`; Reference audio also `fr-FR`, pronunciation `fr-CA` only) with Russian as the translation language.
 - Text Capture, AI-drafted Vocabulary and Sentence Items, duplicate handling, editing, regeneration and deletion.
 - Four Exercises per Item. Understand, Produce and Write are reviewed in Anki; Pronounce is reviewed in LanguageLab with Azure Assessment.
 - Azure Reference audio with Voice selection.
@@ -517,7 +517,7 @@ v1 is complete when every criterion passes.
 11. Editing through LanguageLab updates the existing note without replacing its Cards or review histories. (FR-23)
 12. A managed field edited directly in Anki is visible when the Item is next opened in LanguageLab. (FR-22)
 13. Audio Preview does not change Anki. Save writes the exact previewed MP3, and regeneration keeps the old audio until Save succeeds. (FR-27, FR-28)
-14. The last selected `en-US` and `fr-CA` Voices persist independently in browser local storage. (FR-29)
+14. The last selected English (`en-US`) Voice and the last selected French Voice (`fr-CA` or `fr-FR`) persist independently in browser local storage. (FR-29)
 15. Understand, Produce and Write Cards show the agreed prompts, backs, hints and audio placement in AnkiMobile and Anki Desktop. (FR-21)
 16. Pronunciation review allows reference playback, recording, Azure feedback and unlimited retries without changing Anki. (FR-31–FR-33)
 17. Clicking a Rating answers only that Pronounce Card through Anki's scheduler and loads the next Card. (FR-34)

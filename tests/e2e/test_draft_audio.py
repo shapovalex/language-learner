@@ -23,10 +23,14 @@ from tests.support.audio_screen import (
     EN_FIRST,
     EN_SECOND,
     FR_FIRST,
+    FR_GROUPS,
     FR_SECOND,
-    LOCALE_KEYS,
+    FRANCE_FIRST,
+    FRANCE_SECOND,
+    LEGACY_FR_KEY,
     MAKING_AUDIO,
     STALE_AUDIO,
+    VOICE_KEYS,
     DraftAudioApi,
     audio_button,
     audio_card,
@@ -39,6 +43,7 @@ from tests.support.audio_screen import (
     tts_alert,
     voice,
     voice_alert,
+    voice_groups,
     waiting_save,
 )
 from tests.support.items_screen import (
@@ -56,7 +61,6 @@ UNRELATED_EDIT = "a personal mnemonic kept through audio retries"
 WIDTHS = {"phone": viewports.PHONE, "desktop": viewports.DESKTOP}
 FIRST_VOICE = {"en": EN_FIRST, "fr": FR_FIRST}
 SECOND_VOICE = {"en": EN_SECOND, "fr": FR_SECOND}
-LOCALE = {"en": "en-US", "fr": "fr-CA"}
 
 
 def discard_draft(page: Page) -> None:
@@ -85,8 +89,8 @@ class TestDraftReferenceAudio:
         # Then the independent English selection is restored, with no persisted Draft/Blob.
         expect(voice(page)).to_have_value(EN_SECOND)
         assert storage_values(page) == {
-            LOCALE_KEYS["en-US"]: EN_SECOND,
-            LOCALE_KEYS["fr-CA"]: FR_SECOND,
+            VOICE_KEYS["en"]: EN_SECOND,
+            VOICE_KEYS["fr"]: FR_SECOND,
         }
         assert page.evaluate("() => sessionStorage.length") == 0
         assert page.evaluate("() => history.state") is None
@@ -101,8 +105,8 @@ class TestDraftReferenceAudio:
         other = DraftAudioApi(other_page)
         other.open("fr", viewports.DESKTOP)
         voice(other_page).select_option(FR_FIRST)
-        assert storage_values(page)[LOCALE_KEYS["en-US"]] == EN_SECOND
-        assert storage_values(page)[LOCALE_KEYS["fr-CA"]] == FR_SECOND
+        assert storage_values(page)[VOICE_KEYS["en"]] == EN_SECOND
+        assert storage_values(page)[VOICE_KEYS["fr"]] == FR_SECOND
         # Each new Draft made its automatic Preview with the Voice shown when it opened.
         assert [call["voice"] for call in api.preview_requests] == [EN_FIRST, FR_FIRST, EN_SECOND]
         assert [call["voice"] for call in other.preview_requests] == [FR_FIRST]
@@ -223,7 +227,7 @@ class TestDraftReferenceAudio:
         expect(voice_alert(page)).to_have_count(0)
         expect(voice(page)).to_have_value(FR_SECOND)
         expect(field(page, "Mnemonic")).to_have_value(UNRELATED_EDIT)
-        assert api.voice_requests == ["fr-CA", "fr-CA"]
+        assert api.voice_requests == ["fr", "fr"]
         assert [call["voice"] for call in api.preview_requests] == [FR_FIRST]
         assert rendered_audio_bytes(page) == [MP3]
         assert api.saves == []
@@ -317,7 +321,7 @@ def test_missing_unavailable_or_other_locale_preference_falls_back_to_the_first_
     expect(voice(page)).to_have_value(EN_FIRST)
     # The automatic Preview uses the fallback Voice and stores no preference of its own
     assert [call["voice"] for call in api.preview_requests] == [EN_FIRST]
-    assert storage_values(page) == ({LOCALE_KEYS["en-US"]: stored} if stored else {})
+    assert storage_values(page) == ({VOICE_KEYS["en"]: stored} if stored else {})
 
 
 @pytest.mark.p1
@@ -463,7 +467,7 @@ PATHS = ["generate", "write"]
 
 
 def remember(page: Page, language: str, name: str) -> None:
-    key = LOCALE_KEYS[LOCALE[language]]
+    key = VOICE_KEYS[language]
     page.add_init_script(f"localStorage.setItem({json.dumps(key)}, {json.dumps(name)})")
 
 
@@ -661,7 +665,7 @@ def test_voice_and_target_edits_after_the_automatic_clip_make_no_new_audio(
     expect(preview_button(page)).to_be_enabled()
     page.evaluate("0")
     assert len(api.preview_requests) == 1
-    assert storage_values(page)[LOCALE_KEYS[LOCALE[language]]] == SECOND_VOICE[language]
+    assert storage_values(page)[VOICE_KEYS[language]] == SECOND_VOICE[language]
     assert rendered_audio_bytes(page) == [MP3]
     assert api.saves == []
 
@@ -732,8 +736,133 @@ def test_a_save_pressed_while_the_voices_load_waits_for_the_automatic_audio(
     assert api.saves == []
     assert api.preview_requests == []
     with page.expect_response(lambda response: is_item_save(response.request)):
-        voices.fulfill(json={"voices": CATALOG[LOCALE[language]]})
+        voices.fulfill(json={"voices": CATALOG[language]})
     expect(banner(page, api.capture["text"])).to_be_visible()
     [saved] = api.saves
     assert (saved.item["audio"], saved.audio_file) == ("replace", MP3)
     assert [call["voice"] for call in api.preview_requests] == [FIRST_VOICE[language]]
+
+
+# French Voices from fr-CA and fr-FR (plan-french-voices-fr-ca-and-fr-fr.md): one test per I/O
+# Matrix row, at phone and desktop widths.
+
+
+@pytest.mark.p1
+@pytest.mark.parametrize("viewport", WIDTHS.values(), ids=WIDTHS.keys())
+def test_a_french_draft_lists_canada_then_france_voices_in_two_groups(
+    page: Page, viewport: ViewportSize
+) -> None:
+    """Matrix "French list": one picker, the "Canada" group then the "France" group."""
+    api = DraftAudioApi(page)
+    api.open("fr", viewport)
+    assert voice_groups(voice(page)) == FR_GROUPS
+    expect(voice(page)).to_have_value(FR_FIRST)
+    assert api.voice_requests == ["fr"]
+    assert page.evaluate("document.documentElement.scrollWidth <= innerWidth")
+
+
+@pytest.mark.p1
+@pytest.mark.parametrize("viewport", WIDTHS.values(), ids=WIDTHS.keys())
+def test_an_english_draft_lists_only_us_voices_without_groups(
+    page: Page, viewport: ViewportSize
+) -> None:
+    """Matrix "English": en-US only, no groups."""
+    api = DraftAudioApi(page)
+    api.open("en", viewport)
+    assert voice_groups(voice(page)) == {}
+    options = voice(page).locator("option")
+    expect(options).to_have_count(2)
+    assert options.evaluate_all("options => options.map(o => o.value)") == [EN_FIRST, EN_SECOND]
+    assert api.voice_requests == ["en"]
+
+
+@pytest.mark.p0
+@pytest.mark.parametrize("viewport", WIDTHS.values(), ids=WIDTHS.keys())
+def test_a_france_voice_previews_and_saves_like_any_other(
+    page: Page, viewport: ViewportSize
+) -> None:
+    """Matrix "fr-FR Voice": the explicit Preview names the France Voice; Save stores its clip.
+    The API tests show the backend synthesizes it in fr-FR."""
+    api = DraftAudioApi(page)
+    api.open("fr", viewport)
+    voice(page).select_option(FRANCE_SECOND)
+    api.mp3 = SECOND_MP3
+    api.preview_and_accept()
+    assert api.preview_requests[-1] == {
+        "language": "fr",
+        "voice": FRANCE_SECOND,
+        "target": api.capture["text"],
+    }
+    save_and_wait(page, api)
+    [saved] = api.saves
+    assert (saved.item["audio"], saved.audio_file) == ("replace", SECOND_MP3)
+
+
+@pytest.mark.p0
+@pytest.mark.parametrize("viewport", WIDTHS.values(), ids=WIDTHS.keys())
+def test_a_remembered_france_voice_makes_the_automatic_audio_of_a_new_draft(
+    page: Page, viewport: ViewportSize
+) -> None:
+    """Matrix "fr-FR Voice" / "Preference": a France choice is the next French Draft's Voice,
+    used by its automatic Preview; English keeps its own preference."""
+    api = DraftAudioApi(page)
+    api.open("en", viewport)
+    voice(page).select_option(EN_SECOND)
+    discard_draft(page)
+    api.open("fr", viewport)
+    voice(page).select_option(FRANCE_FIRST)
+    discard_draft(page)
+
+    api.open("fr", viewport)
+
+    expect(voice(page)).to_have_value(FRANCE_FIRST)
+    assert api.preview_requests[-1]["voice"] == FRANCE_FIRST
+    assert storage_values(page) == {VOICE_KEYS["en"]: EN_SECOND, VOICE_KEYS["fr"]: FRANCE_FIRST}
+    discard_draft(page)
+    api.open("en", viewport)
+    expect(voice(page)).to_have_value(EN_SECOND)
+
+
+@pytest.mark.p1
+@pytest.mark.parametrize(
+    "stored,shown",
+    [(FR_SECOND, FR_SECOND), ("fr-CA-RetiredNeural", FR_FIRST)],
+    ids=["listed", "unavailable"],
+)
+@pytest.mark.parametrize("viewport", WIDTHS.values(), ids=WIDTHS.keys())
+def test_an_old_canada_preference_still_chooses_the_french_voice(page, stored, shown, viewport):
+    """Matrix "Old preference": only languagelab.voice.fr-CA is stored; a listed Voice is
+    preselected, an unavailable one falls back to the first listed. Nothing is migrated."""
+    page.add_init_script(f"localStorage.setItem({json.dumps(LEGACY_FR_KEY)}, {json.dumps(stored)})")
+    api = DraftAudioApi(page)
+    api.open("fr", viewport)
+    expect(voice(page)).to_have_value(shown)
+    assert [call["voice"] for call in api.preview_requests] == [shown]
+    assert storage_values(page) == {LEGACY_FR_KEY: stored}
+
+
+@pytest.mark.p1
+def test_the_french_preference_wins_over_an_old_canada_one(page):
+    """Matrix "Old preference": once the French key is set, the fr-CA key is ignored."""
+    page.add_init_script(
+        f"localStorage.setItem({json.dumps(LEGACY_FR_KEY)}, {json.dumps(FR_SECOND)});"
+        f"localStorage.setItem({json.dumps(VOICE_KEYS['fr'])}, {json.dumps(FRANCE_SECOND)})"
+    )
+    api = DraftAudioApi(page)
+    api.open("fr", viewports.DESKTOP)
+    expect(voice(page)).to_have_value(FRANCE_SECOND)
+
+
+@pytest.mark.p1
+@pytest.mark.parametrize("viewport", WIDTHS.values(), ids=WIDTHS.keys())
+def test_storage_denial_does_not_break_the_french_picker(page, viewport):
+    """Matrix "Preference": denied storage is tolerated; the first listed Voice is shown."""
+    page.add_init_script("""Object.defineProperty(window, 'localStorage', {get() {
+      throw new DOMException('denied', 'SecurityError');
+    }});""")
+    api = DraftAudioApi(page)
+    api.open("fr", viewport)
+    expect(voice(page)).to_have_value(FR_FIRST)
+    voice(page).select_option(FRANCE_FIRST)
+    api.preview_and_accept()
+    assert [call["voice"] for call in api.preview_requests] == [FR_FIRST, FRANCE_FIRST]

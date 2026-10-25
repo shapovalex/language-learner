@@ -186,7 +186,7 @@ Dependency rule: `routes → service → {ports, domain}`. Adapters depend on `p
   - **Router.** A single `router.js` owns navigation and unsaved changes. Screens report `router.setDirty(null | {kind, count, target})`. The router alone renders the unsaved alert and owns `beforeunload`. Screens call `router.confirmLeave()` before an in-screen discard or "Open existing", and clear dirty state before navigating after a successful Save.
   - **API calls.** A single `api.js` is the only `fetch` caller. It parses the error envelope (AD-15).
   - **Data freshness.** Screens re-read from the API on every mount and keep no cross-screen data cache.
-  - **Voice preference.** `static/voice-pref.js` is the only `localStorage` user, with keys `languagelab.voice.en-US` and `languagelab.voice.fr-CA`.
+  - **Voice preference.** `static/voice-pref.js` is the only `localStorage` user, with one key per Language: `languagelab.voice.en-US` and `languagelab.voice.fr`. French Voices come from `fr-CA` and `fr-FR` in one list, grouped "Canada" then "France", so the French key holds one Voice of either locale; while it is unset, the earlier `languagelab.voice.fr-CA` key is read instead (decided 2026-10-25).
   - **Third-party code.** Third-party browser code and fonts are vendored under `static/vendor/`; no npm, build step, or CDN.
 
 ### AD-14 — Audio flows through the backend; per-locale feedback is shaped server-side
@@ -275,7 +275,7 @@ Dependency rule: `routes → service → {ports, domain}`. Adapters depend on `p
 | Concern | Convention |
 | --- | --- |
 | API paths | `/api/<feature>/...`, lowercase kebab-case; language segment `en` / `fr`. Client paths: `/captures`, `/captures/<captureId>`, `/captures/<captureId>/new`, `/en/items`, `/en/items/<itemId>`, `/fr/pronunciation`, `/setup` |
-| JSON | camelCase keys (Pydantic alias generator); `Language` `en`/`fr` mapped to locales `en-US`/`fr-CA` only in `domain`; `Category` `vocabulary`/`sentence`; `Rating` `again`/`hard`/`good`/`easy`, mapped to ease 1–4 only in the Anki adapter |
+| JSON | camelCase keys (Pydantic alias generator); `Language` `en`/`fr` mapped to its Voice locales (`en-US`; `fr-CA` and `fr-FR` for Reference audio) only in `domain`, with `static/reference-audio.js` as the one client mirror; `Category` `vocabulary`/`sentence`; `Rating` `again`/`hard`/`good`/`easy`, mapped to ease 1–4 only in the Anki adapter |
 | Times | ISO 8601 UTC with `Z` in API and in the Capture `CreatedAt` field |
 | Binary payloads | Raw bytes, never base64 in JSON. Preview returns `audio/mpeg`. Save is `multipart/form-data` with an `item` JSON part (`ItemContent` + `itemId` + `audio` intent) and an optional `audioFile` part. An Attempt is `multipart/form-data` with an `itemId` field and a `recording` part |
 | Python | Package `language_lab`; feature modules `features/<feature>/{routes,service}.py`; async throughout; one `httpx.AsyncClient` per adapter |

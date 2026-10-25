@@ -10,15 +10,15 @@ class AudioService:
     def __init__(self, speech: Speech):
         self._speech = speech
 
-    async def voices(self, locale: str) -> list[Voice]:
-        if locale not in LOCALES.values():
-            raise AppError(ErrorCode.VALIDATION_FAILED)
-        return await self._speech.voices(locale)
+    async def voices(self, language: Language) -> list[Voice]:
+        """All of the Language's Voices, in its locale order, from one catalog read."""
+        return await self._speech.voices(LOCALES[language])
 
     async def preview(self, language: Language, voice: str, target: str) -> bytes:
+        """Synthesize in the chosen Voice's own locale, once it is in the Language's catalog."""
         if not target.strip():
             raise AppError(ErrorCode.VALIDATION_FAILED)
-        locale = LOCALES[language]
-        if voice not in {entry.name for entry in await self.voices(locale)}:
+        chosen = next((entry for entry in await self.voices(language) if entry.name == voice), None)
+        if chosen is None:
             raise AppError(ErrorCode.VALIDATION_FAILED)
-        return await self._speech.synthesize(locale, voice, target)
+        return await self._speech.synthesize(chosen.locale, voice, target)

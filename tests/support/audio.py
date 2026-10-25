@@ -32,6 +32,7 @@ AZURE_KEY = "test-azure-key-never-send-to-browser"
 AZURE_REGION = "eastus"
 EN_VOICE = "en-US-AndrewNeural"
 FR_VOICE = "fr-CA-SylvieNeural"
+FR_FR_VOICE = "fr-FR-DeniseNeural"
 PREVIEW_API = "/api/audio/preview"
 VOICES_API = "/api/audio/voices"
 

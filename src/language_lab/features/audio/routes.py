@@ -17,11 +17,11 @@ def audio_router(service: AudioService) -> APIRouter:
     router = APIRouter(prefix="/api/audio")
 
     @router.get("/voices")
-    async def voices(locale: str) -> dict:
+    async def voices(language: Language) -> dict:
         return {
             "voices": [
                 {"name": v.name, "locale": v.locale, "displayName": v.display_name}
-                for v in await service.voices(locale)
+                for v in await service.voices(language)
             ]
         }
 

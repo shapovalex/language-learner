@@ -1,6 +1,6 @@
 """Story 6.1 Draft audio HTTP contracts through the real app and guarded Anki adapter.
 
-Proposed new contracts: GET /api/audio/voices?locale=en-US returns
+Proposed new contracts: GET /api/audio/voices?language=en|fr returns
 {voices:[{name,locale,displayName}]}; POST /api/audio/preview takes
 {language,voice,target} and returns MP3 bytes. Save extends the existing item multipart
 with audioFile when audio=replace; Item reads add audio: managed filename | null.
@@ -20,6 +20,8 @@ from tests.support.audio import (
     AZURE_KEY,
     AZURE_REGION,
     EN_VOICE,
+    FR_FR_VOICE,
+    FR_VOICE,
     MP3,
     PREVIEW_API,
     VOICES_API,
@@ -58,7 +60,7 @@ class TestReferenceAudio:
         files_before = {
             p.relative_to(tmp_path): p.read_bytes() for p in tmp_path.rglob("*") if p.is_file()
         }
-        voices = client.get(VOICES_API, params={"locale": "en-US"})  # opaque setup read
+        voices = client.get(VOICES_API, params={"language": "en"})  # opaque setup read
 
         # When the user explicitly asks for Preview.
         response = client.post(PREVIEW_API, json=preview_body())
@@ -218,15 +220,57 @@ class TestReferenceAudio:
 
 
 @pytest.mark.p1
-@pytest.mark.parametrize("locale", ["en-CA", "fr-FR", "en", ""])
-def test_voice_catalog_rejects_unsupported_locales(settings_factory, locale):
+@pytest.mark.parametrize(
+    "params", [{"language": "de"}, {"language": "fr-FR"}, {"language": ""}, {"locale": "en-US"}]
+)
+def test_voice_catalog_rejects_unknown_languages(settings_factory, params):
     speech = FakeSpeech()
     rig = MediaRig(managed_collection(MANIFEST))
     client = audio_client(_settings(settings_factory), rig.store, speech)
-    response = client.get(VOICES_API, params={"locale": locale})
+    response = client.get(VOICES_API, params=params)
     assert response.status_code == 422
     assert response.json()["error"]["code"] == "validation_failed"
     assert speech.voice_requests == []
+
+
+@pytest.mark.p1
+@pytest.mark.parametrize(
+    "language,expected",
+    [
+        ("en", [(EN_VOICE, "en-US", "Andrew")]),
+        ("fr", [(FR_VOICE, "fr-CA", "Sylvie"), (FR_FR_VOICE, "fr-FR", "Denise")]),
+    ],
+)
+def test_voice_catalog_lists_every_locale_of_the_language_in_order(
+    settings_factory, language, expected
+):
+    """English stays en-US only; French is one list, Canada then France, from one read."""
+    speech = FakeSpeech()
+    rig = MediaRig(managed_collection(MANIFEST))
+    client = audio_client(_settings(settings_factory), rig.store, speech)
+    response = client.get(VOICES_API, params={"language": language})
+    assert response.status_code == 200
+    assert response.json() == {
+        "voices": [
+            {"name": name, "locale": locale, "displayName": label}
+            for name, locale, label in expected
+        ]
+    }
+    assert len(speech.voice_requests) == 1
+
+
+@pytest.mark.p1
+@pytest.mark.parametrize("voice,locale", [(FR_VOICE, "fr-CA"), (FR_FR_VOICE, "fr-FR")])
+def test_french_preview_synthesizes_in_the_voice_locale(settings_factory, voice, locale):
+    speech = FakeSpeech()
+    rig = MediaRig(managed_collection(MANIFEST))
+    response = audio_client(_settings(settings_factory), rig.store, speech).post(
+        PREVIEW_API, json=preview_body(language="fr", voice=voice, target="Bonjour")
+    )
+    assert response.status_code == 200
+    assert response.content == MP3
+    assert speech.requests == [(locale, voice, "Bonjour")]
+    assert sent_writes(rig.replay.sent) == []
 
 
 @pytest.mark.p1
@@ -237,6 +281,8 @@ def test_voice_catalog_rejects_unsupported_locales(settings_factory, locale):
         {"voice": ""},
         {"voice": "en-US-RetiredNeural"},
         {"voice": "fr-CA-SylvieNeural"},
+        {"voice": "fr-FR-DeniseNeural"},
+        {"language": "fr", "voice": EN_VOICE},
         {"target": " \n\t"},
     ],
 )
@@ -331,14 +377,14 @@ def test_missing_or_malformed_anki_media_fails_safely(settings_factory, value, s
 def test_voice_provider_failure_uses_safe_retryable_envelope(settings_factory, monkeypatch):
     from language_lab.domain.errors import AppError
 
-    async def fail(locale):
+    async def fail(locales):
         raise AppError(ErrorCode.TTS_FAILED)
 
     speech = FakeSpeech()
     monkeypatch.setattr(speech, "voices", fail)
     rig = MediaRig(managed_collection(MANIFEST))
     response = audio_client(_settings(settings_factory), rig.store, speech).get(
-        VOICES_API, params={"locale": "en-US"}
+        VOICES_API, params={"language": "en"}
     )
     assert response.status_code == 502
     assert response.json()["error"]["code"] == "tts_failed"
