@@ -205,3 +205,45 @@ export function previewAudio(body) {
     body: JSON.stringify(body),
   }, true);
 }
+
+// A managed Reference clip's URL (AD-7 name from a read), for an <audio> the user starts
+export function mediaUrl(name) {
+  return `/api/media/${encodeURIComponent(name)}`;
+}
+
+function pronunciationPath(lang, rest) {
+  return `/api/pronunciation/${encodeURIComponent(lang)}/${rest}`;
+}
+
+// The Language's Pronunciation queue (FR-30): `{due, new, cards: [{cardId, itemId, reps,
+// category, target, audio}]}`, due Cards first, then new; `audio` a managed name or null
+export function getPronunciationQueue(lang) {
+  return request(pronunciationPath(lang, "queue"));
+}
+
+// Rate one Card through Anki's scheduler (FR-34): `{cardId, reps, rating}` in, with `reps` as
+// the queue read it; `{alreadyAnswered}` out. A retry with the same body answers nothing twice
+// (AD-20)
+export function rateCard(lang, { cardId, reps, rating }) {
+  return request(pronunciationPath(lang, "rating"), {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ cardId, reps, rating }),
+  });
+}
+
+// A Pronunciation session's `start` or `end` (FR-36, AD-17): 204 at once, the Sync it asks for
+// never awaited. Fire and forget: a failed signal is never shown. `keepalive` lets it outlive
+// the screen that sent it
+export function sessionSignal(lang, signal) {
+  request(pronunciationPath(lang, `session/${signal}`), { method: "POST", keepalive: true }).catch(
+    () => {},
+  );
+}
+
+// The same signal while the page itself goes away (`pagehide`): a beacon, else a keepalive POST
+export function sessionBeacon(lang, signal) {
+  const path = pronunciationPath(lang, `session/${signal}`);
+  if (typeof navigator.sendBeacon === "function" && navigator.sendBeacon(path)) return;
+  sessionSignal(lang, signal);
+}

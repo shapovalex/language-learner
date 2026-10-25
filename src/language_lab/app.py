@@ -45,6 +45,8 @@ from language_lab.features.drafts.routes import drafts_router
 from language_lab.features.drafts.service import DraftService
 from language_lab.features.items.routes import items_router, media_router
 from language_lab.features.items.service import ItemService
+from language_lab.features.pronunciation.routes import pronunciation_router
+from language_lab.features.pronunciation.service import PronunciationService
 from language_lab.features.setup.routes import setup_router
 from language_lab.features.setup.service import SetupService
 from language_lab.features.sync.scheduler import Clock, SyncScheduler
@@ -334,7 +336,8 @@ def create_app(
         )
         speech = azure
 
-    # Features take `sync` as the SyncRequester port (Setup below); none imports it (AD-1, AD-13)
+    # Features take `sync` as the SyncRequester port (Setup and Pronunciation below); none
+    # imports it (AD-1, AD-13)
     sync = SyncService(anki_store, enabled=not settings.dev)
     scheduler = SyncScheduler(sync, clock, enabled=not settings.dev)
 
@@ -396,6 +399,7 @@ def create_app(
     app.include_router(drafts_router(DraftService(llm)))
     app.include_router(items_router(ItemService(anki_store)))
     app.include_router(media_router(ItemService(anki_store)))
+    app.include_router(pronunciation_router(PronunciationService(anki_store, sync=sync)))
 
     app.mount(f"/static/{version}", StaticFiles(directory=str(_STATIC)), name="static")
 

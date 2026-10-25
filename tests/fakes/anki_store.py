@@ -10,6 +10,7 @@ from language_lab.domain.captures import Capture
 from language_lab.domain.catalog import UUID4, Category, Language
 from language_lab.domain.errors import AppError, ErrorCode
 from language_lab.domain.items import AudioIntent, Item, ItemContent
+from language_lab.domain.pronunciation import PronounceCard, PronunciationQueue, Rating
 from language_lab.domain.setup import SetupPreview, SetupState
 from language_lab.domain.setup import plan_hash as _plan_hash
 from language_lab.domain.sync import SyncOutcome
@@ -57,6 +58,14 @@ class FakeAnkiStore:
 
     `delete_item()` removes only the matching Language's Item, tolerates an absent Item, and
     refuses writes when unavailable, busy or Setup is not ready, and removes matching audio.
+
+    `pronunciation_queue()` returns the Language's entries of `pronounce`, each `(Language,
+    is_due, PronounceCard)`, due first then new, in list order (empty by default, so a live
+    server's Pronunciation screen shows its empty state). `answer_card()` raises `not_found` for
+    a card id not queued in that Language, returns True (alreadyAnswered) when `reps` differs,
+    refuses when Setup is not ready, and otherwise records `(card_id, Rating)` in `answers` and
+    drops the Card from the queue. Both raise `anki_busy` or `anki_unavailable` as the other
+    methods do.
     """
 
     def __init__(
@@ -90,6 +99,8 @@ class FakeAnkiStore:
         self.items: dict[str, tuple[Language, ItemContent]] = {}
         self.media: dict[str, bytes] = {}
         self.audio: dict[str, str] = {}
+        self.pronounce: list[tuple[Language, bool, PronounceCard]] = []
+        self.answers: list[tuple[int, Rating]] = []
 
     async def reachable(self) -> bool:
         if self.busy:
@@ -249,6 +260,35 @@ class FakeAnkiStore:
         self.audio.pop(item_id, None)
         for name in names:
             self.media.pop(name, None)
+
+    async def pronunciation_queue(self, language: Language) -> PronunciationQueue:
+        if self.busy:
+            raise AppError(ErrorCode.ANKI_BUSY)
+        if not self.available:
+            raise AppError(ErrorCode.ANKI_UNAVAILABLE)
+        due = [card for lang, is_due, card in self.pronounce if lang is language and is_due]
+        new = [card for lang, is_due, card in self.pronounce if lang is language and not is_due]
+        return PronunciationQueue(len(due), len(new), (*due, *new))
+
+    async def answer_card(
+        self, language: Language, card_id: int, reps: int, rating: Rating
+    ) -> bool:
+        if self.busy:
+            raise AppError(ErrorCode.ANKI_BUSY)
+        if not self.available:
+            raise AppError(ErrorCode.ANKI_UNAVAILABLE)
+        entry = next(
+            (e for e in self.pronounce if e[0] is language and e[2].card_id == card_id), None
+        )
+        if entry is None:
+            raise AppError(ErrorCode.NOT_FOUND)
+        if entry[2].reps != reps:
+            return True
+        if self.preview.state is not SetupState.READY:
+            raise AppError(ErrorCode.SETUP_REQUIRED)
+        self.answers.append((card_id, rating))
+        self.pronounce.remove(entry)
+        return False
 
     async def sync(self) -> SyncOutcome:
         self.sync_calls += 1

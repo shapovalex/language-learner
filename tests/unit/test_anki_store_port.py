@@ -4,7 +4,8 @@ The tracer declared `reachable()` and `sync()`; story 2.6 adds `setup_preview()`
 `setup_apply()` and story 2.8 `setup_state()`; story 2.11 gives `setup_apply()` its `repairs`,
 story 3.1 adds `create_capture()`, story 3.2 `list_captures()` and `get_capture()`, story 3.3
 `delete_capture()`, story 4.1 `save_item()`, and story 4.3 `item_candidates()` and
-`get_item()`, and story 5.3 `delete_item()`.
+`get_item()`, story 5.3 `delete_item()`, and story 7.1 `pronunciation_queue()` and
+`answer_card()`.
 Later entries add methods to the port, the fake in tests/fakes/ and the AnkiConnect adapter
 together, and these tests keep them aligned.
 """
@@ -76,6 +77,8 @@ def test_anki_store_port_adds_the_setup_preview_read_and_the_fake_matches() -> N
         "get_item",
         "delete_item",
         "get_media",
+        "pronunciation_queue",
+        "answer_card",
     }
     assert inspect.iscoroutinefunction(AnkiStore.setup_preview)
     assert inspect.get_annotations(AnkiStore.setup_preview, eval_str=True)["return"] is SetupPreview
@@ -188,3 +191,30 @@ def test_fake_remove_mirrors_the_adapter_by_dropping_the_items_clip() -> None:
     assert item_id not in store.audio
     assert store.media == {}
     assert run(store.get_item(Language.EN, item_id)).audio is None
+
+
+@pytest.mark.p1
+def test_anki_store_port_adds_the_pronunciation_queue_and_rating_and_the_fake_matches() -> None:
+    """Story 7.1: `pronunciation_queue(language) -> PronunciationQueue` and `answer_card(language,
+    card_id, reps, rating) -> bool`; the fake and the adapter match.
+    """
+    from language_lab.domain.catalog import Language
+    from language_lab.domain.pronunciation import PronunciationQueue, Rating
+
+    names = ("pronunciation_queue", "answer_card")
+    port = {name: public_methods(AnkiStore).get(name) for name in names}
+
+    assert {name: public_methods(FakeAnkiStore).get(name) for name in names} == port
+    assert {name: public_methods(AnkiConnectStore).get(name) for name in names} == port
+    assert all(inspect.iscoroutinefunction(getattr(AnkiStore, name)) for name in names)
+    assert inspect.get_annotations(AnkiStore.pronunciation_queue, eval_str=True) == {
+        "language": Language,
+        "return": PronunciationQueue,
+    }
+    assert inspect.get_annotations(AnkiStore.answer_card, eval_str=True) == {
+        "language": Language,
+        "card_id": int,
+        "reps": int,
+        "rating": Rating,
+        "return": bool,
+    }

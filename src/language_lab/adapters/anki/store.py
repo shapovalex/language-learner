@@ -32,6 +32,13 @@ gated (AD-19). `item_candidates` sends only the exact scope of one Language/Cate
 Delete Item (story 5.3) resolves both Language/Category scopes under the same lock, deletes
 matching notes, then cleans matching managed media, including leftovers when notes are absent.
 Every write is guarded and gated; any failure stops the sequence for a later retry.
+
+The Pronunciation queue (story 7.1) is reads only, under one lock hold, not gated: one exact
+`findCards` per Category (`pronounce_queue_query`), then `cardsInfo` and `notesInfo` for what
+they found. A card Anki answers with a negative `queue` (suspended or buried) is dropped. The
+Rating reads the card's `cardsInfo` (its scope and `reps`) and sends `answerCards` only when the
+`reps` still match (AD-20), under the same lock hold; the answer is guarded and gated. The card
+id is the one Anki id a feature sees (AD-8 amendment, story 7.1); the ease mapping is here only.
 """
 
 import asyncio
@@ -53,7 +60,7 @@ from language_lab.adapters.anki.guard import is_int, media_pattern
 from language_lab.adapters.anki.lock import AnkiLock
 from language_lab.adapters.anki.manifest import PRONOUNCE_ORD, STUDY_ORDS, Manifest
 from language_lab.adapters.anki.migrations import Migration, run_migrations
-from language_lab.adapters.anki.query import note_query
+from language_lab.adapters.anki.query import note_query, pronounce_queue_query
 from language_lab.adapters.anki.setup_apply import run_plan, run_repairs
 from language_lab.adapters.anki.setup_gate import SCHEMA_VERSION_FIELD, SetupGate, read_preview
 from language_lab.domain.audio import audio_upload, media_name
@@ -67,6 +74,7 @@ from language_lab.domain.items import (
     SentenceContent,
     VocabularyContent,
 )
+from language_lab.domain.pronunciation import PronounceCard, PronunciationQueue, Rating
 from language_lab.domain.setup import PlanAction, SetupPreview, SetupState, checked_repairs
 from language_lab.domain.setup import plan_hash as _plan_hash
 from language_lab.domain.sync import SyncOutcome
@@ -87,6 +95,11 @@ _CREATED_AT_FORMAT = "%Y-%m-%dT%H:%M:%SZ"
 
 # The Item note types' fields Save writes besides the content (manifest.py)
 _AUDIO, _ITEM_ID = "Audio", "ItemId"
+
+# Anki's ease for each Rating (AnkiConnect `answerCards`): the only place the mapping lives
+_EASE = {Rating.AGAIN: 1, Rating.HARD: 2, Rating.GOOD: 3, Rating.EASY: 4}
+_NEW_TYPE = 0  # `cardsInfo.type` of a new card
+_INTRADAY_QUEUE = 1  # a learning card due in epoch seconds, not a day number
 
 
 def _field(info: dict[str, Any], name: str) -> str:
@@ -179,6 +192,44 @@ def _matching(infos: list[dict[str, Any]], name: str, value: str) -> Iterator[di
     never sent to Anki (AD-4).
     """
     return (info for info in infos if _field(info, name).strip() == value)
+
+
+def _queued_cards(infos: Any, expected: int) -> list[dict[str, Any]]:
+    """The `cardsInfo` entries still in the queue: each well formed, a card deleted since
+    `findCards` (`{}`) skipped, a suspended or buried one (negative `queue`) dropped;
+    `ANKI_UNAVAILABLE` on a malformed reply.
+    """
+    if not isinstance(infos, list) or len(infos) != expected:
+        raise AppError(ErrorCode.ANKI_UNAVAILABLE)
+    queued: list[dict[str, Any]] = []
+    for info in infos:
+        if info == {}:
+            continue
+        if not isinstance(info, dict):
+            raise AppError(ErrorCode.ANKI_UNAVAILABLE)
+        keys = ("cardId", "note", "type", "queue", "due", "reps")
+        if not all(is_int(info.get(key)) for key in keys):
+            raise AppError(ErrorCode.ANKI_UNAVAILABLE)
+        if info["queue"] < 0:
+            continue
+        queued.append(info)
+    return queued
+
+
+def _notes_by_id(infos: Any, expected: int) -> dict[int, dict[str, Any]]:
+    """`notesInfo` entries by note id, a note deleted in between (`{}`) left out;
+    `ANKI_UNAVAILABLE` on a malformed reply.
+    """
+    if not isinstance(infos, list) or len(infos) != expected:
+        raise AppError(ErrorCode.ANKI_UNAVAILABLE)
+    by_id: dict[int, dict[str, Any]] = {}
+    for info in infos:
+        if info == {}:
+            continue
+        if not isinstance(info, dict) or not is_int(info.get("noteId")):
+            raise AppError(ErrorCode.ANKI_UNAVAILABLE)
+        by_id[info["noteId"]] = info
+    return by_id
 
 
 def _failure_outcome(poll: dict[str, Any]) -> SyncOutcome:
@@ -494,6 +545,97 @@ class AnkiConnectStore:
             for name in sorted(set(names)):
                 if name.startswith(stem) and managed.fullmatch(name):
                     await self._client.invoke("deleteMediaFile", filename=name)
+
+    async def pronunciation_queue(self, language: Language) -> PronunciationQueue:
+        """The Language's due then new Pronounce Cards, from reads only under one lock hold.
+
+        Due Cards (any `type` but new) sort by their day-number `due`, intraday learning cards
+        (due in epoch seconds) after them, ties by card id; new Cards by card id, which is their
+        creation time. Raises `AppError(ANKI_UNAVAILABLE | ANKI_BUSY)`.
+        """
+        manifest = self._require_manifest()
+        async with self._lock.hold():
+            found: dict[int, Category] = {}
+            for category in Category:
+                model = manifest.item_note_type(language, category)
+                query = pronounce_queue_query(
+                    manifest, manifest.card_deck(model, PRONOUNCE_ORD), model, PRONOUNCE_ORD + 1
+                )
+                ids = await self._client.invoke("findCards", query=query)
+                if not isinstance(ids, list) or not all(is_int(card_id) for card_id in ids):
+                    raise AppError(ErrorCode.ANKI_UNAVAILABLE)
+                for card_id in ids:
+                    found.setdefault(card_id, category)
+            if not found:
+                return PronunciationQueue(0, 0, ())
+            card_infos = await self._client.invoke("cardsInfo", cards=list(found))
+            cards = _queued_cards(card_infos, len(found))
+            note_ids = sorted({info["note"] for info in cards})
+            notes = await self._client.invoke("notesInfo", notes=note_ids) if note_ids else []
+        by_note = _notes_by_id(notes, len(note_ids))
+        due: list[tuple[tuple[bool, int, int], PronounceCard]] = []
+        new: list[tuple[int, PronounceCard]] = []
+        for info in cards:
+            note = by_note.get(info["note"])
+            if note is None:  # deleted since `findCards`
+                continue
+            card_id = info["cardId"]
+            card = PronounceCard(
+                card_id=card_id,
+                item_id=_field(note, _ITEM_ID).strip(),
+                reps=info["reps"],
+                category=found[card_id],
+                target=_field(note, "Target"),
+                audio=_audio_name(_optional(note, _AUDIO), manifest.prefix),
+            )
+            if info["type"] == _NEW_TYPE:
+                new.append((card_id, card))
+            else:
+                key = (info["queue"] == _INTRADAY_QUEUE, info["due"], card_id)
+                due.append((key, card))
+        due.sort(key=lambda entry: entry[0])
+        new.sort(key=lambda entry: entry[0])
+        return PronunciationQueue(
+            len(due), len(new), tuple(card for _, card in due) + tuple(card for _, card in new)
+        )
+
+    async def answer_card(
+        self, language: Language, card_id: int, reps: int, rating: Rating
+    ) -> bool:
+        """Answer one Pronounce Card unless its `reps` moved on (then True: alreadyAnswered).
+
+        The card must be ord 3 of one of the Language's Item note types, unsuspended and
+        unburied, in its Pronunciation deck, else `NOT_FOUND`; its
+        `reps` and the answer share one lock hold. `answerCards` must answer `[true]`, else
+        `ANKI_UNAVAILABLE`. Raises `AppError(NOT_FOUND | SETUP_REQUIRED | ANKI_UNAVAILABLE |
+        ANKI_BUSY)`.
+        """
+        manifest = self._require_manifest()
+        models = {manifest.item_note_type(language, category) for category in Category}
+        async with self._lock.hold():
+            infos = await self._client.invoke("cardsInfo", cards=[card_id])
+            if not isinstance(infos, list) or len(infos) != 1 or not isinstance(infos[0], dict):
+                raise AppError(ErrorCode.ANKI_UNAVAILABLE)
+            info = infos[0]
+            model, queue = info.get("modelName"), info.get("queue")
+            if model not in models or info.get("ord") != PRONOUNCE_ORD:
+                raise AppError(ErrorCode.NOT_FOUND)  # `{}` too: a card Anki doesn't have
+            # Suspended, buried or moved out of its Pronunciation deck since the queue read
+            if not is_int(queue) or queue < 0:
+                raise AppError(ErrorCode.NOT_FOUND)
+            if info.get("deckName") != manifest.card_deck(model, PRONOUNCE_ORD):
+                raise AppError(ErrorCode.NOT_FOUND)
+            current = info.get("reps")
+            if not is_int(current):
+                raise AppError(ErrorCode.ANKI_UNAVAILABLE)
+            if current != reps:
+                return True
+            answered = await self._client.invoke(
+                "answerCards", answers=[{"cardId": card_id, "ease": _EASE[rating]}]
+            )
+            if answered != [True]:
+                raise AppError(ErrorCode.ANKI_UNAVAILABLE)
+            return False
 
     async def _cards_by_ord(self, note_id: int) -> dict[int, int]:
         """Each card id of note `note_id` by its ord, from `notesInfo` and `cardsInfo`;

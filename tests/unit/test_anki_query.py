@@ -12,7 +12,7 @@ import re
 import pytest
 
 from language_lab.adapters.anki.manifest import build_manifest
-from language_lab.adapters.anki.query import deck_query, note_query
+from language_lab.adapters.anki.query import deck_query, note_query, pronounce_queue_query
 
 RELEASE = "LanguageLab"
 DEV = "LanguageLabDev"
@@ -69,3 +69,25 @@ def test_query_builder_emits_only_exact_scopes_for_manifest_names() -> None:
         deck_query(dev, f"{RELEASE}::Study")
     with pytest.raises(ValueError):
         note_query(dev, f"{RELEASE} Capture")
+
+
+@pytest.mark.p0
+def test_the_pronounce_queue_query_is_one_exact_deck_and_note_scope() -> None:
+    """Story 7.1 (FR-30, AD-6): the Pronunciation deck and note type of one Language/Category,
+    ord 3 (`card:4`), new or due, unsuspended; a non-manifest name is refused.
+    """
+    from language_lab.domain.catalog import Category, Language
+
+    manifest = build_manifest(RELEASE)
+    model = manifest.item_note_type(Language.FR, Category.SENTENCE)
+    deck = manifest.card_deck(model, 3)
+
+    assert pronounce_queue_query(manifest, deck, model, 4) == (
+        f'deck:"{RELEASE}::Pronunciation::French::Sentences" '
+        f'note:"{RELEASE} French Sentence" card:4 (is:due OR is:new) -is:suspended'
+    )
+    for bad_deck, bad_model in ((f"{DEV}::Pronunciation", model), (deck, f"{RELEASE} *")):
+        with pytest.raises(ValueError):
+            pronounce_queue_query(manifest, bad_deck, bad_model, 4)
+    with pytest.raises(ValueError):
+        pronounce_queue_query(manifest, deck, model, 5)

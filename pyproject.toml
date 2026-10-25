@@ -34,6 +34,8 @@ build-backend = "uv_build"
 [tool.ruff]
 line-length = 100
 target-version = "py314"
+# Research scripts committed with planning docs are not part of the package or its tests
+extend-exclude = ["_bmad-output"]
 
 [tool.ruff.lint]
 select = ["E", "F", "W", "I", "B", "UP"]
