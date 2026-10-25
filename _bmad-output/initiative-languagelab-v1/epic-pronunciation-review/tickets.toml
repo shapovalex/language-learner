@@ -1,0 +1,47 @@
+# Approved breakdown for Pronunciation review (epic 7), in build order.
+# Entries remain planned until built; no leaf files are needed.
+
+[[entry]]
+id = 1
+type = "story"
+title = "Review loop: queue, Reference playback, Rating, and session Sync"
+description = "Delivers the review loop tracer through features/pronunciation, new AnkiStore queue and answer methods, and the Pronunciation screen: the Language's new and due, unsuspended Pronounce Cards (ord 3) in its Pronunciation decks in the FR-30 order, a Card payload carrying cardId, itemId, and reps, the 'N due · M new' chip on phone and iPad layouts and the empty state, the first Card read (skeleton, no Sync UI) before the pre-session Sync request, Target text with Reference playback from /api/media (no control when there is no audio), Again/Hard/Good/Easy (always enabled until 7.2 adds the Attempt gate) answered through Anki's scheduler for that Card only with the AD-20 reps check and alreadyAnswered, a Rating failure that keeps the Card current, and idempotent session start/end endpoints requesting Sync from the client signals in AD-17 (unmount, hidden, pagehide beacon, empty queue)."
+verify = "Pytest with fake ports and hand-built AnkiConnect exchanges plus phone and desktop Playwright show the queue order and scope, one Rating answering only its Card and loading the next, a retried Rating with stale reps returning alreadyAnswered without a second answer, a failed Rating leaving the Card current, the empty state, a failing or slow pre-session Sync never delaying the first Card, and Sync requested once per start and end signal with coalescing, no Sync in dev mode."
+covers = ["CAP-10"]
+after = ["2.8", "2.10", "4.1", "6.1"]
+hitl = false
+risk = "high"
+
+[[entry]]
+id = 2
+type = "story"
+title = "Record Attempts and show Azure feedback per locale"
+description = "Adds Attempts to the review screen: MediaRecorder capture with the mic-blocked state, the Listening pill and level meter, 30 s auto-stop and 5 MB cap; one Attempt request that reads the Target from Anki by itemId, converts the native recording (audio/mp4 on iOS, webm elsewhere) in memory with PyAV to 16 kHz mono WAV, calls Azure scripted pronunciation assessment over REST (flat NBest scores, as in the 2026-10-25 probe), and returns a domain.Assessment shaped per locale (en-US IPA phonemes and prosody, fr-CA overall, word, and start/middle/end positions computed from phoneme order, since Azure's fr-CA phoneme labels are empty); a nothing-heard reply (HTTP 200, every word Omission) shown as an inline warning 'Couldn't hear that Attempt' / 'Record again closer to the microphone.' with Record again, the Card unanswered and that Attempt not enabling Rating; the score ring, word pills, and weak-word panel per EXPERIENCE.md; unlimited retries (Try again records at once; Reference disabled while recording; 'Checking…' while assessing), Rating buttons enabled once one Attempt on the Card has an Assessment and kept enabled while a later one is assessed, the Assessment-failed state with Record again / Exit with no Rating ever pre-selected, and the recording Blob and Assessment dropped after a Rating or leaving the review."
+verify = "Pytest with the probe's real Azure replies and its MP4/AAC and WebM/Opus samples as fixtures (PyAV decoding without numpy) plus Playwright with a fake microphone show en-US and fr-CA feedback shaped as specified, no French sound named, no Anki write from any Attempt, no Rating selected by a score, the mic-blocked, nothing-heard, and Assessment-failed states with the Card still unanswered, oversize and overlong uploads refused, and no audio, scores, or Target text in logs."
+covers = ["CAP-10"]
+after = [1]
+hitl = false
+risk = "high"
+references = ["epic-pronunciation-review/research-azure-assessment/findings.md"]
+
+[[entry]]
+id = 3
+type = "story"
+title = "Refactor sweep"
+description = "Reviews the plans and deferred review findings of 7.1 and 7.2, then removes duplication and resolves cleanup in the pronunciation feature, Azure adapter, Anki queue and answer paths, and the review screen without adding or deferring capability scope."
+verify = "The pronunciation, Azure, Anki adapter, and review-screen regression checks pass after cleanup, and the sweep plan lists which deferred findings were resolved and why any remaining one is outside this epic."
+covers = ["CAP-10"]
+after = [1, 2]
+hitl = false
+risk = "low"
+
+[[entry]]
+id = 4
+type = "story"
+title = "Verify Pronunciation review end to end on the released wheel"
+description = "Closes the epic with an automated end-to-end review session across both Languages and a user-run released-wheel acceptance on the Mac Mini with LanguageLabDev: microphone permission over Tailscale HTTPS on iPhone Safari, iPad Safari, and desktop, the mic-blocked state, real Azure feedback for en-US and fr-CA, Ratings visible in Anki Desktop and AnkiMobile scheduling, session Sync on start and end including a closed tab, real AnkiConnect queue and answer replies recorded by a new `language-lab-record-fixtures anki` wheel subcommand in a throwaway Anki profile, and a sanitized real Azure assessment reply compared with 7.2's fixtures."
+verify = "The integrated pytest and Playwright checks pass and an acceptance file under _bmad-output/test-artifacts/acceptance/ records evidence for all six epic Done when checks (AC16–AC19, AC2 microphone part, AC20 session part), with the recorded AnkiConnect exchanges replacing the hand-built ones and any Azure fixture mismatch fixed."
+covers = ["CAP-10"]
+after = [1, 2, 3]
+hitl = true
+risk = "medium"
