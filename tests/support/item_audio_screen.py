@@ -17,16 +17,14 @@ from urllib.parse import parse_qs, urlparse
 
 from playwright.sync_api import Locator, Page, Request, Route
 
-from tests.support.audio import MP3, SECOND_MP3, managed_name
-from tests.support.audio_screen import CATALOG, PREVIEW_API, AudioSave, audio_upload
+from tests.support.audio import MP3, PREVIEW_API, SECOND_MP3, managed_name
+from tests.support.audio_screen import CATALOG, AudioSave, audio_upload
 from tests.support.captures_screen import main
 from tests.support.items_screen import item_api, item_detail_path, stub_duplicates
 from tests.support.maintain_items_screen import detail_wire
 
 REGENERATE_AUDIO = "Regenerate audio"
 REMOVE_AUDIO = "Remove audio"
-CURRENT_LABEL = "Current"  # CSS uppercases the overline (regenerate_screen.py)
-PREVIEW_LABEL = "Preview · not saved"
 
 
 def item_audio_card(page: Page) -> Locator:
@@ -43,11 +41,6 @@ def card_button(page: Page, name: str) -> Locator:
 
 def card_alert(page: Page, text: str) -> Locator:
     return item_audio_card(page).get_by_role("alert").filter(has_text=text)
-
-
-def unsaved_chip(page: Page, count: int) -> Locator:
-    label = f"{count} unsaved {'change' if count == 1 else 'changes'}"
-    return main(page).get_by_text(label, exact=True)
 
 
 def player_bytes(page: Page) -> list[bytes]:

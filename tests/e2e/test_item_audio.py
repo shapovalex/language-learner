@@ -13,21 +13,11 @@ import pytest
 from playwright.sync_api import BrowserContext, Page, Route, expect
 
 from tests.support import viewports
-from tests.support.audio import MP3, SECOND_MP3
-from tests.support.audio_screen import (
-    EN_SECOND,
-    KEEP_CURRENT,
-    PREVIEW_API,
-    STALE_AUDIO,
-    TTS_ERROR,
-    USE_PREVIEW,
-    is_preview,
-)
+from tests.support.audio import MP3, PREVIEW_API, SECOND_MP3
+from tests.support.audio_screen import EN_SECOND, STALE_AUDIO, TTS_ERROR, is_preview
 from tests.support.captures_screen import main
 from tests.support.duplicates import on_wire, sentence
 from tests.support.item_audio_screen import (
-    CURRENT_LABEL,
-    PREVIEW_LABEL,
     REGENERATE_AUDIO,
     REMOVE_AUDIO,
     ItemAudioApi,
@@ -38,10 +28,20 @@ from tests.support.item_audio_screen import (
     object_urls,
     player_bytes,
     record_object_urls,
-    unsaved_chip,
 )
 from tests.support.items_screen import is_item_save
 from tests.support.maintain_items_screen import edit_field, save_changes, stored_item
+from tests.support.regenerate_screen import (
+    CURRENT as CURRENT_LABEL,
+)
+from tests.support.regenerate_screen import (
+    KEEP_CURRENT,
+    USE_PREVIEW,
+    unsaved_chip,
+)
+from tests.support.regenerate_screen import (
+    PREVIEW_NOT_SAVED as PREVIEW_LABEL,
+)
 
 UNRELATED_EDIT = "a personal mnemonic kept through audio changes"
 REMOVAL_NOTE = "Audio will be removed when you save."

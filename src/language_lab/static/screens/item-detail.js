@@ -41,16 +41,20 @@ import {
   errorMessage,
   findDuplicates,
   getItem,
-  getVoices,
   isApiError,
-  previewAudio,
   regenerateContent,
   saveItem,
 } from "../api.js";
 import { categoryName, languageName } from "../catalog.js";
 import { alertBox, element, skeleton, tryAgain } from "../dom.js";
+import {
+  audioLocale,
+  loadVoices as loadVoiceList,
+  releasePlayer,
+  requestPreview,
+  voicePicker,
+} from "../reference-audio.js";
 import { confirmDestructive, confirmLeave, navigate, setDirty } from "../router.js";
-import { readVoice, writeVoice } from "../voice-pref.js";
 import {
   duplicateSheet,
   editorFields,
@@ -127,7 +131,7 @@ const AUDIO_COMPARE_HINT = "The old audio is removed only after Save succeeds.";
 // replace Save, the accepted Blob's URL), `offered` and `accepted` ({blob, url, target}) and
 // `removing`. Players are kept per URL, so a re-render moves them without stopping playback.
 function itemAudioCard({ language, audioName, target, values, busy, changed }) {
-  const locale = language === "fr" ? "fr-CA" : "en-US";
+  const locale = audioLocale(language);
   const state = {
     voices: [], voice: null, loading: true, voiceError: false,
     previewing: false, previewError: false, sequence: 0, disposed: false,
@@ -153,9 +157,7 @@ function itemAudioCard({ language, audioName, target, values, busy, changed }) {
     if (!clip) return;
     const audio = players.get(clip.url);
     if (audio) {
-      audio.pause();
-      audio.removeAttribute("src");
-      audio.load();
+      releasePlayer(audio);
       players.delete(clip.url);
     }
     if (clip.blob) URL.revokeObjectURL(clip.url);
@@ -206,27 +208,7 @@ function itemAudioCard({ language, audioName, target, values, busy, changed }) {
     controls = [];
     nodes = {};
     body.replaceChildren();
-    const label = element("label", "draft-label", "Voice");
-    const select = element("select", "compose-field reference-audio-voice");
-    select.setAttribute("aria-label", "Voice");
-    for (const voice of state.voices) {
-      const option = element("option", null, voice.displayName);
-      option.value = voice.name;
-      select.append(option);
-    }
-    select.value = state.voice ?? "";
-    select.addEventListener("change", () => {
-      state.voice = select.value;
-      writeVoice(locale, state.voice); // a Voice change never synthesizes or writes Anki
-    });
-    label.append(select);
-    body.append(label);
-    if (state.loading) body.append(element("p", "make-item-hint", "Loading voices…"));
-    if (state.voiceError) {
-      body.append(alertBox("reference-audio-error", "Couldn't load voices", tryAgain(loadVoices)));
-    } else if (!state.loading && !state.voices.length) {
-      body.append(element("p", "make-item-hint", "No voices available for this language."));
-    }
+    body.append(...voicePicker(state, locale, loadVoices));
 
     const hasAudio = Boolean(state.current || state.accepted);
     const regenerateRow = element("div", "reference-audio-actions");
@@ -326,42 +308,25 @@ function itemAudioCard({ language, audioName, target, values, busy, changed }) {
     if (!state.disposed) nodes[key]?.focus();
   }
 
-  async function loadVoices() {
-    state.loading = true;
-    state.voiceError = false;
-    render();
-    try {
-      const { voices } = await getVoices(locale);
-      if (state.disposed) return;
-      state.voices = voices;
-      const preferred = state.voice ?? readVoice(locale);
-      state.voice = voices.some((voice) => voice.name === preferred)
-        ? preferred
-        : voices[0]?.name ?? null;
-    } catch {
-      if (state.disposed) return;
-      state.voiceError = true;
-    }
-    state.loading = false;
-    render();
+  function loadVoices() {
+    return loadVoiceList(state, locale, render);
   }
 
   // The only synthesis: the buffer's Target in the chosen Voice, kept in memory (NFR-4)
   async function preview() {
     const text = values().target;
     if (state.previewing || busy() || !state.voice || !text.trim()) return;
-    const sequence = ++state.sequence;
+    const voice = state.voice;
     state.previewing = true;
     state.previewError = false;
     render();
     nodes.regenerate?.focus();
     try {
-      const blob = await previewAudio({ language, voice: state.voice, target: text });
-      if (state.disposed || state.sequence !== sequence) return;
+      const blob = await requestPreview(state, { language, voice, target: text });
+      if (!blob) return;
       release(state.offered);
       state.offered = { blob, target: text, url: URL.createObjectURL(blob) };
     } catch {
-      if (state.disposed || state.sequence !== sequence) return;
       state.previewError = true;
     }
     state.previewing = false;
@@ -429,7 +394,6 @@ function itemAudioCard({ language, audioName, target, values, busy, changed }) {
     },
     dispose() {
       state.disposed = true;
-      state.sequence += 1;
       for (const clip of [state.current, state.accepted, state.offered]) release(clip);
       for (const audio of players.values()) {
         audio.pause();

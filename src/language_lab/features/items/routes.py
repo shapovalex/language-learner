@@ -7,7 +7,7 @@ from typing import Annotated, Any, Literal, TypedDict
 from fastapi import APIRouter, File, Form, Query, Response, UploadFile
 from pydantic import BaseModel, Field, TypeAdapter, ValidationError
 
-from language_lab.domain.audio import MAX_AUDIO_BYTES, validate_mp3
+from language_lab.domain.audio import MAX_AUDIO_BYTES, audio_upload
 from language_lab.domain.catalog import UUID4, Category, Language
 from language_lab.domain.errors import AppError, ErrorCode
 from language_lab.domain.items import AudioIntent, ItemContent
@@ -81,12 +81,7 @@ def items_router(service: ItemService) -> APIRouter:
                 data = await audio_file.read(MAX_AUDIO_BYTES + 1)
             finally:
                 await audio_file.close()
-        if intent.audio is AudioIntent.REPLACE:
-            if data is None:
-                raise AppError(ErrorCode.VALIDATION_FAILED)
-            validate_mp3(data)
-        elif data is not None:
-            raise AppError(ErrorCode.VALIDATION_FAILED)
+        data = audio_upload(intent.audio, data)
         await service.save(intent.item_id, lang, content, intent.audio, data)
         return {"itemId": intent.item_id}
 

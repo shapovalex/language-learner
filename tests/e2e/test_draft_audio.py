@@ -19,10 +19,8 @@ from tests.support.audio_screen import (
     EN_SECOND,
     FR_FIRST,
     FR_SECOND,
-    KEEP_CURRENT,
     LOCALE_KEYS,
     STALE_AUDIO,
-    USE_PREVIEW,
     DraftAudioApi,
     audio_button,
     audio_card,
@@ -42,6 +40,7 @@ from tests.support.items_screen import (
     is_item_save,
     save_button,
 )
+from tests.support.regenerate_screen import KEEP_CURRENT, USE_PREVIEW
 from tests.support.unsaved import discard_button
 
 UNRELATED_EDIT = "a personal mnemonic kept through audio retries"

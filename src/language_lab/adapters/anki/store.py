@@ -37,7 +37,6 @@ Every write is guarded and gated; any failure stops the sequence for a later ret
 import asyncio
 import base64
 import binascii
-import hashlib
 import re
 from collections.abc import Collection, Iterator
 from datetime import UTC, datetime
@@ -57,7 +56,7 @@ from language_lab.adapters.anki.migrations import Migration, run_migrations
 from language_lab.adapters.anki.query import note_query
 from language_lab.adapters.anki.setup_apply import run_plan, run_repairs
 from language_lab.adapters.anki.setup_gate import SCHEMA_VERSION_FIELD, SetupGate, read_preview
-from language_lab.domain.audio import validate_mp3
+from language_lab.domain.audio import audio_upload, media_name
 from language_lab.domain.captures import Capture
 from language_lab.domain.catalog import Category, Language
 from language_lab.domain.errors import AppError, ErrorCode
@@ -352,12 +351,7 @@ class AnkiConnectStore:
         the sequence with no compensation: leftovers are Setup's `orphanMedia` repairs. Raises
         `AppError(SETUP_REQUIRED | ANKI_UNAVAILABLE | ANKI_BUSY)`.
         """
-        if audio is AudioIntent.REPLACE:
-            if audio_bytes is None:
-                raise AppError(ErrorCode.VALIDATION_FAILED)
-            validate_mp3(audio_bytes)
-        elif audio_bytes is not None:
-            raise AppError(ErrorCode.VALIDATION_FAILED)
+        audio_upload(audio, audio_bytes)
         manifest = self._require_manifest()
         model = manifest.item_note_type(language, content.category)
         fields = _content_fields(content)
@@ -367,8 +361,7 @@ class AnkiConnectStore:
             old_name = _audio_name(_optional(stored, _AUDIO), manifest.prefix) if stored else None
             name = None
             if audio_bytes is not None:
-                digest = hashlib.sha256(audio_bytes).hexdigest()[:12]
-                name = f"{manifest.prefix}_{item_id}_{digest}.mp3"
+                name = media_name(manifest.prefix, item_id, audio_bytes)
                 result = await self._client.invoke(
                     "storeMediaFile",
                     filename=name,
