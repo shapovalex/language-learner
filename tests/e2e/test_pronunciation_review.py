@@ -1,0 +1,158 @@
+"""Story 7.1 red-phase Pronunciation review journeys at phone, iPad and desktop widths.
+
+API responses are per-page doubles (tests/support/pronunciation_screen.py). Every assertion
+observes the real Pronunciation screen: what it renders, the requests it sends and their order.
+Python Playwright has no outer promise matcher: the missing review UI stops most journeys at
+their first locator, before later transitions run. That red-phase limitation is recorded for
+task activation; later transitions need re-observation once the screen exists.
+"""
+
+from urllib.parse import urlparse
+
+import pytest
+from playwright.sync_api import Page, expect
+
+from tests.support import viewports
+from tests.support.captures_screen import main
+from tests.support.navigation import language_nav, screen_heading
+from tests.support.pronunciation_screen import (
+    EMPTY_BODY,
+    EMPTY_TITLE,
+    LANGUAGES,
+    RATING_FAILED,
+    RATINGS,
+    ReviewApi,
+    is_media,
+    is_session,
+    queue_chip,
+    rating_alert,
+    rating_button,
+    reference_button,
+    review_card,
+    target_text,
+)
+
+pytestmark = pytest.mark.skip(reason="ATDD red phase until story 7.1 builds the review screen")
+
+
+class TestReviewLoop:
+    @pytest.mark.p1
+    @pytest.mark.parametrize(
+        ("width", "lang"), [("phone", "en"), ("tablet", "fr")], ids=["iphone-en", "ipad-fr"]
+    )
+    def test_the_screen_shows_the_queue_chip_and_the_current_target(
+        self, page: Page, width: str, lang: str
+    ) -> None:
+        """[P1] AC-4 "N due · M new" chip and the first Card's Target on phone and iPad."""
+        page.set_viewport_size(viewports.ALL[width])
+        due = [review_card(f"due {i}") for i in range(3)]
+        new = [review_card(f"new {i}", category="sentence") for i in range(2)]
+        ReviewApi(page, lang=lang, due=due, new=new)
+
+        page.goto(f"/{lang}/pronunciation")
+
+        expect(queue_chip(page, 3, 2)).to_have_text("3 due · 2 new")
+        expect(target_text(page, "due 0")).to_be_visible()
+        expect(screen_heading(page)).to_have_text(f"{LANGUAGES[lang]} Pronunciation")
+
+    @pytest.mark.p1
+    def test_an_empty_queue_shows_the_empty_state(self, page: Page) -> None:
+        """[P1] AC-5 the empty state copy, and no Rating buttons."""
+        page.set_viewport_size(viewports.PHONE)
+        ReviewApi(page, lang="fr")
+
+        page.goto("/fr/pronunciation")
+
+        expect(main(page).get_by_text(EMPTY_TITLE.format(language="French"))).to_be_visible()
+        expect(main(page).get_by_text(EMPTY_BODY)).to_be_visible()
+        for name in RATINGS:
+            expect(rating_button(page, name)).to_have_count(0)
+
+    @pytest.mark.p0
+    def test_the_first_card_shows_before_and_without_waiting_for_the_presession_sync(
+        self, page: Page
+    ) -> None:
+        """[P0] AC-6 the queue is read first; a held session start never delays the Card."""
+        page.set_viewport_size(viewports.PHONE)
+        api = ReviewApi(page, lang="en", due=[review_card("thoroughly")], hold_start=True)
+
+        page.goto("/en/pronunciation")
+
+        expect(target_text(page, "thoroughly")).to_be_visible()
+        api.wait_for("start")  # sent, and still unanswered
+        assert api.events.index("queue") < api.events.index("start")
+        assert api.sessions == ["start"]
+        expect(main(page).get_by_text("Sync")).to_have_count(0)
+
+    @pytest.mark.p1
+    def test_reference_plays_from_media_and_is_absent_without_audio(self, page: Page) -> None:
+        """[P1] AC-7 Reference fetches the Card's clip; a Card without audio has no control."""
+        page.set_viewport_size(viewports.DESKTOP)
+        with_audio = review_card("water", reps=2)
+        without_audio = review_card("butter", audio=False)
+        api = ReviewApi(page, lang="en", due=[with_audio, without_audio])
+        page.goto("/en/pronunciation")
+
+        with page.expect_request(is_media) as played:
+            reference_button(page).click()
+
+        assert urlparse(played.value.url).path == f"/api/media/{with_audio['audio']}"
+        rating_button(page, "Good").click()
+        expect(target_text(page, "butter")).to_be_visible()
+        expect(reference_button(page)).to_have_count(0)
+        assert api.media_requests == [f"/api/media/{with_audio['audio']}"]
+
+    @pytest.mark.p0
+    def test_a_rating_submits_that_card_and_loads_the_next(self, page: Page) -> None:
+        """[P0] AC-9 Good posts cardId, reps and rating, then the next Card and chip show."""
+        page.set_viewport_size(viewports.PHONE)
+        first = review_card("squirrel", reps=4)
+        second = review_card("Je voudrais un café.", category="sentence", audio=False)
+        api = ReviewApi(page, lang="en", due=[first], new=[second])
+        page.goto("/en/pronunciation")
+
+        rating_button(page, "Good").click()
+
+        expect(target_text(page, "Je voudrais un café.")).to_be_visible()
+        assert api.ratings == [{"cardId": first["cardId"], "reps": 4, "rating": "good"}]
+        expect(target_text(page, "squirrel")).to_have_count(0)
+        expect(queue_chip(page, 0, 1)).to_have_text("0 due · 1 new")
+        for name in RATINGS:  # always enabled until 7.2 adds the Attempt gate
+            expect(rating_button(page, name)).to_be_enabled()
+
+    @pytest.mark.p0
+    def test_a_failed_rating_keeps_the_card_current_and_try_again_resends_it(
+        self, page: Page
+    ) -> None:
+        """[P0] AC-11 the Rating alert shows, the Card stays, and Try again resends it."""
+        page.set_viewport_size(viewports.DESKTOP)
+        first = review_card("rural", reps=1)
+        second = review_card("anemone")
+        api = ReviewApi(page, lang="en", due=[first, second])
+        api.rating_error = True
+        page.goto("/en/pronunciation")
+
+        rating_button(page, "Hard").click()
+
+        expect(rating_alert(page)).to_contain_text(RATING_FAILED)
+        expect(target_text(page, "rural")).to_be_visible()
+        expect(queue_chip(page, 2, 0)).to_be_visible()
+        api.rating_error = False
+        rating_alert(page).get_by_role("button", name="Try again", exact=True).click()
+        expect(target_text(page, "anemone")).to_be_visible()
+        assert api.ratings == [{"cardId": first["cardId"], "reps": 1, "rating": "hard"}] * 2
+
+    @pytest.mark.p0
+    def test_leaving_the_review_sends_the_session_end_signal(self, page: Page) -> None:
+        """[P0] AC-13 unmounting the screen (navigating to Items) sends session end."""
+        page.set_viewport_size(viewports.DESKTOP)
+        api = ReviewApi(page, lang="en", due=[review_card("weather")])
+        page.goto("/en/pronunciation")
+        expect(target_text(page, "weather")).to_be_visible()
+
+        with page.expect_request(is_session("en", "end")) as ended:
+            language_nav(page, "English").get_by_role("link", name="Items", exact=True).click()
+
+        assert urlparse(ended.value.url).path == "/api/pronunciation/en/session/end"
+        assert api.sessions[:1] == ["start"]
+        expect(screen_heading(page)).to_have_text("English Items")
