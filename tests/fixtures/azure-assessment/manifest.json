@@ -1,0 +1,27 @@
+[
+  {
+    "file": "en-weather.mp4-aac.mp4",
+    "source": "_bmad-output/initiative-languagelab-v1/epic-pronunciation-review/research-azure-assessment/samples/en-weather.mp4-aac.mp4",
+    "sha256": "b8358d010d5c9138035d8b0e394d28e4b29ca0baf54f8ffebe32e09bbde56f8f"
+  },
+  {
+    "file": "en-weather.webm-opus.webm",
+    "source": "_bmad-output/initiative-languagelab-v1/epic-pronunciation-review/research-azure-assessment/samples/en-weather.webm-opus.webm",
+    "sha256": "9c2862bd95c47cd0ced5d06b641f0fb0e51b8bd505bd31ddd41ab0e74348be59"
+  },
+  {
+    "file": "single-en-US-taught-vs-thought.json",
+    "source": "_bmad-output/initiative-languagelab-v1/epic-pronunciation-review/research-azure-assessment/responses/single-en-US-taught-vs-thought.json",
+    "sha256": "10c05daff8e6679010650fb96bda6cee677787116d4b73e693af0bf60ad1775f"
+  },
+  {
+    "file": "single-fr-CA-bonsoir-vs-bonjour.json",
+    "source": "_bmad-output/initiative-languagelab-v1/epic-pronunciation-review/research-azure-assessment/responses/single-fr-CA-bonsoir-vs-bonjour.json",
+    "sha256": "43a02f2663d06d01c824bd7f5025aff72500dd641207871d1ef7f46d783910df"
+  },
+  {
+    "file": "silence-enUS.json",
+    "source": "_bmad-output/initiative-languagelab-v1/epic-pronunciation-review/research-azure-assessment/responses/silence-enUS.json",
+    "sha256": "f01a8618c755de9b213b598b1c65106e5f0f9317be1f833622282848d7696706"
+  }
+]
