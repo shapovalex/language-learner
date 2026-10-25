@@ -72,10 +72,26 @@ def keys(rows: Iterable[PlanItem]) -> set[str]:
     return {f"{r.kind}:{r.name}" for r in rows}
 
 
-def wired(collection: Collection) -> tuple[Any, AnkiConnectReplay]:
-    """The real client and store over `collection`, writes answered. Returns (store, replay)."""
+def wired(collection: Collection, *, list_all_media: bool = False) -> tuple[Any, AnkiConnectReplay]:
+    """The real client and store over `collection`, writes answered. Returns (store, replay).
+
+    `list_all_media=True` answers `getMediaFilesNames` with every media name, whatever the
+    pattern, so the adapter's own AD-7 filter is what decides.
+    """
     gate = SetupGate(MANIFEST)
-    replay = AnkiConnectReplay(collection_replies(collection, writes=True))
+    replies = collection_replies(collection, writes=True)
+    if list_all_media:
+        multi = replies["multi"]
+
+        def unfiltered(body: Any) -> Any:
+            reply = multi(body)
+            for index, inner in enumerate(body["params"]["actions"]):
+                if inner["action"] == "getMediaFilesNames":
+                    reply["result"][index] = {"result": sorted(collection.media), "error": None}
+            return reply
+
+        replies["multi"] = unfiltered
+    replay = AnkiConnectReplay(replies)
     client = AnkiConnectClient(
         ANKI_URL, transport=replay.transport, guard=PrefixGuard(MANIFEST), gate=gate
     )
@@ -137,7 +153,7 @@ def test_orphan_media_previews_as_an_opt_in_repair_row() -> None:
     collection.media |= {orphan, wrapped, plain, dev, "_cards.css", "LanguageLab_notes.mp3"}
     vocabulary_note(collection, audio=f"<div>[sound:{wrapped}]</div>")  # editor markup
     vocabulary_note(collection, audio=f"[sound:{plain}]")
-    store, _ = wired(collection)
+    store, _ = wired(collection, list_all_media=True)
 
     preview = run(store.setup_preview())
 
@@ -323,16 +339,17 @@ def test_an_audio_field_with_two_sound_tags_references_both() -> None:
 
 @pytest.mark.p1
 def test_a_media_name_in_another_case_is_not_offered() -> None:
-    """AC-1: a name that is AD-7 only under another case (spike 2.2: `storeMediaFile` may
-    lowercase) isn't offered, since the guard couldn't delete it.
+    """AC-1: AD-7 names are lowercase (spike 2.2: `storeMediaFile` lowercases). A name in
+    another case isn't offered, since the guard couldn't delete it. A lowercase leftover of a
+    failed v0.8.0 Save is.
     """
     collection = managed_collection(MANIFEST)
     orphan = media_name(PREFIX)
-    item_id, digest = orphan.removeprefix(f"{PREFIX}_").removesuffix(".mp3").split("_")
-    upper_digest = f"{PREFIX}_{item_id}_{digest.upper()}.mp3"  # the pattern matches; AD-7 doesn't
-    lower_prefix = f"{PREFIX.lower()}_{item_id}_{digest}.mp3"  # not even the pattern does
-    collection.media |= {orphan, upper_digest, lower_prefix}
-    store, _ = wired(collection)
+    item_id, digest = orphan.removeprefix(f"{PREFIX.lower()}_").removesuffix(".mp3").split("_")
+    upper_digest = f"{PREFIX.lower()}_{item_id}_{digest.upper()}.mp3"
+    mixed_prefix = f"{PREFIX}_{item_id}_{digest}.mp3"  # what v0.8.0 requested
+    collection.media |= {orphan, upper_digest, mixed_prefix}
+    store, _ = wired(collection, list_all_media=True)  # the listing doesn't filter them out
 
     preview = run(store.setup_preview())
 

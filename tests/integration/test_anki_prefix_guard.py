@@ -59,6 +59,9 @@ ALLOWED: list[tuple[str, dict[str, Any]]] = [
     ("multi", {"actions": [{"action": "createDeck", "params": {"deck": CAPTURES}}]}),
 ]
 
+# AD-7 names are lowercase: one in the Prefix's own case is never managed (fail closed)
+MIXED_CASE = media_name(RELEASE).replace(RELEASE.lower(), RELEASE, 1)
+
 # (action, params) the guard must reject for the LanguageLab Prefix, with nothing sent
 REJECTED: list[tuple[str, dict[str, Any]]] = [
     ("createDeck", {"deck": "Default"}),
@@ -89,7 +92,12 @@ REJECTED: list[tuple[str, dict[str, Any]]] = [
     ),
     ("storeMediaFile", {"filename": "pronunciation.mp3", "data": ""}),
     ("storeMediaFile", {"filename": media_name(DEV), "data": ""}),
-    ("deleteMediaFile", {"filename": f"{RELEASE}_not-an-item-id_0123456789ab.mp3"}),
+    ("deleteMediaFile", {"filename": f"{RELEASE.lower()}_not-an-item-id_0123456789ab.mp3"}),
+    ("storeMediaFile", {"filename": MIXED_CASE, "data": ""}),
+    ("deleteMediaFile", {"filename": MIXED_CASE}),
+    ("retrieveMediaFile", {"filename": MIXED_CASE}),
+    ("deleteMediaFile", {"filename": media_name(DEV)}),
+    ("retrieveMediaFile", {"filename": media_name(DEV)}),
     ("multi", {"actions": [{"action": "createDeck", "params": {"deck": "Default"}}]}),
     ("importPackage", {"path": "/tmp/deck.apkg"}),  # a write the guard doesn't know
 ]

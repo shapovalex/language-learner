@@ -13,6 +13,7 @@ from typing import Any
 
 from fastapi.testclient import TestClient
 
+from language_lab.adapters.anki.manifest import Manifest
 from language_lab.app import create_app
 from language_lab.domain.catalog import Language
 from language_lab.domain.items import AudioIntent
@@ -40,8 +41,10 @@ def preview_body(**overrides: Any) -> dict[str, str]:
 
 
 def managed_name(item_id: str, data: bytes = MP3, *, prefix: str = MANIFEST.prefix) -> str:
-    """Expected AD-7 name computed independently from the uploaded test bytes."""
-    return f"{prefix}_{item_id}_{hashlib.sha256(data).hexdigest()[:12]}.mp3"
+    """Expected AD-7 name computed independently from the uploaded test bytes; the Prefix
+    is lowercased (spike 2.2).
+    """
+    return f"{prefix.lower()}_{item_id}_{hashlib.sha256(data).hexdigest()[:12]}.mp3"
 
 
 def replace_parts(item_id: str, data: bytes = MP3, **overrides: Any) -> dict[str, Any]:
@@ -72,6 +75,7 @@ class MediaRig:
         media: dict[str, bytes] | None = None,
         replies: dict[str, Any] | None = None,
         state: str = "ready",
+        manifest: Manifest = MANIFEST,
     ) -> None:
         self.collection = collection
         self.media = dict(media or {})
@@ -79,8 +83,11 @@ class MediaRig:
         self.lock = ObservedLock()
 
         def store_media(body: dict[str, Any]) -> dict[str, Any]:
+            """Like real Anki (spike 2.2, `anki/storeMediaFile.json`): stored and answered
+            under the lowercased name.
+            """
             params = body["params"]
-            name = params["filename"]
+            name = params["filename"].lower()
             self.media[name] = base64.b64decode(params["data"], validate=True)
             collection.media.add(name)
             return {"result": name, "error": None}
@@ -102,7 +109,7 @@ class MediaRig:
             "deleteMediaFile": delete_media,
         } | (replies or {})
         self.store, self.replay = wired_delete(
-            collection, lock=self.lock, replies=answers, state=state
+            collection, lock=self.lock, replies=answers, state=state, manifest=manifest
         )
 
 

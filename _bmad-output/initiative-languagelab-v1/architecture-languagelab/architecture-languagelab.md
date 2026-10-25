@@ -114,7 +114,7 @@ Dependency rule: `routes → service → {ports, domain}`. Adapters depend on `p
   | Save Item (`replace`) | (1) store the new media file → (2) add or update the note (new notes go into their Language/Category **Pronunciation** deck with `allowDuplicate: true`) → (3) for a new note, move cards 0–2 to their Study decks → (4) delete the superseded media file, if its name differs from the new one |
   | Save Item (`keep` / `remove`) | Same order, skipping step 1 |
   | Create Capture | add the note (`allowDuplicate: true`) → suspend its card |
-  | Delete Item | delete the note → delete every media file matching `<Prefix>_<ItemId>_*` |
+  | Delete Item | delete the note → delete every media file matching `<prefix lowercased>_<ItemId>_*` |
 
   A failure at any step stops the sequence and returns an error. The prior note and media stay untouched until the note write succeeds. Leftovers from a partial failure are tolerated, and Setup reports and repairs them (AD-3). The Pronunciation queue selects only ord-3 cards in the Language's Pronunciation decks (`is:due` or `is:new`, not suspended). That way a card left behind by a failed move never enters the queue.
 
@@ -123,7 +123,7 @@ Dependency rule: `routes → service → {ports, domain}`. Adapters depend on `p
 - **Binds:** items, audio, setup; FR-28, FR-25, FR-31
 - **Prevents:** per-feature naming that makes managed-media and orphan detection impossible without a database, and several endpoints serving audio.
 - **Rule:**
-  - **Naming.** Every managed media file is named `<Prefix>_<ItemId>_<sha256[:12] of bytes>.mp3`, with the hash computed by the backend from the bytes it receives. A media file is managed if and only if its name matches this pattern.
+  - **Naming.** Every managed media file is named `<prefix lowercased>_<ItemId>_<sha256[:12] of bytes>.mp3`, with the hash computed by the backend from the bytes it receives. A media file is managed if and only if its name matches this pattern, case-sensitively. The Prefix is lowercased because AnkiConnect's `storeMediaFile` lowercases the names it stores and `getMediaFilesNames` matches its pattern case-sensitively (spike 2.2, `spike-2-2-ankiconnect-findings.md` Surprises). A lowercase name comes back unchanged, so Save can still require the stored name to equal the requested one. Every pattern that lists managed media is lowercase too.
   - **`Audio` field.** It holds exactly `[sound:<name>]` or is empty.
   - **Serving.** Stored audio is served only by `GET /api/media/<name>`, which rejects any non-managed name.
 

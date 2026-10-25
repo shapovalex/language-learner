@@ -61,7 +61,7 @@ class AnkiState:
     # manifest note type -> (note id, stored SchemaVersion or None when not an integer)
     note_versions: Mapping[str, tuple[tuple[int, int | None], ...]] = field(default_factory=dict)
     cards: tuple[CardState, ...] = ()  # every card of a manifest note type
-    media: frozenset[str] = frozenset()  # media file names matching `<Prefix>_*`
+    media: frozenset[str] = frozenset()  # media file names matching `<prefix lowercased>_*`
     audio: frozenset[str] = frozenset()  # names in managed notes' decoded `Audio` `[sound:]` tags
 
 

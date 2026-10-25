@@ -269,8 +269,9 @@ def test_media_names_are_filtered_by_item_id_and_the_managed_filename_contract()
     kept = [
         *media_names(str(uuid.uuid4())),
         *media_names(item_id, prefix=DEV_MANIFEST.prefix),
-        f"{MANIFEST.prefix}_{item_id}_invalid.mp3",
-        f"{MANIFEST.prefix}_{item_id}_{'a' * 12}.mp3/../outside",
+        f"{MANIFEST.prefix}_{item_id}_{'1' * 12}.mp3",  # the Prefix's case: never managed
+        f"{MANIFEST.prefix.lower()}_{item_id}_invalid.mp3",
+        f"{MANIFEST.prefix.lower()}_{item_id}_{'a' * 12}.mp3/../outside",
     ]
     collection.media.update([*matching, *kept])
     # Even a provider returning names outside the requested pattern must not widen cleanup.

@@ -155,7 +155,8 @@ class TestReferenceAudio:
         for rejected in [
             "foreign.mp3",
             managed_name(item_id, prefix="LanguageLabDev"),
-            f"LanguageLab_{item_id}_abc.mp3",
+            f"languagelab_{item_id}_abc.mp3",
+            name.replace("languagelab_", "LanguageLab_", 1),  # AD-7 names are lowercase
         ]:
             refused = client.get(f"/api/media/{rejected}")
             assert refused.status_code == 404

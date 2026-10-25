@@ -48,8 +48,10 @@ _UUID4 = r"[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}"
 
 
 def media_pattern(prefix: str) -> re.Pattern[str]:
-    """A managed media name (AD-7), `<Prefix>_<ItemId>_<sha256[:12]>.mp3`, to `fullmatch`."""
-    return re.compile(rf"{re.escape(prefix)}_{_UUID4}_[0-9a-f]{{12}}\.mp3")
+    """A managed media name (AD-7), `<prefix lowercased>_<ItemId>_<sha256[:12]>.mp3`, to
+    `fullmatch`. Case-sensitive: a name in the Prefix's original case is never managed.
+    """
+    return re.compile(rf"{re.escape(prefix.lower())}_{_UUID4}_[0-9a-f]{{12}}\.mp3")
 
 
 # Writes that name their note type in `modelName` (spike 2.2: AnkiConnect's model* family)
