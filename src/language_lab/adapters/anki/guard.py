@@ -4,9 +4,9 @@ something LanguageLab manages.
 `PrefixGuard(manifest).check(action, params, lookup)` runs before every v6 request. Reads in
 `READS` pass. A write passes only when its target is a manifest deck or note type (by exact
 name, never by prefix match), the `<Prefix>` preset, an AD-7 media name, or notes and cards of
-a manifest note type, looked up by id through `lookup` first. `multi` is checked action by
-action. Anything else, an action the guard doesn't know included, raises `PrefixViolation`
-before a request is sent: the guard fails closed.
+a manifest note type (`answerCards` included), looked up by id through `lookup` first. `multi`
+is checked action by action. Anything else, an action the guard doesn't know included, raises
+`PrefixViolation` before a request is sent: the guard fails closed.
 
 `check_read_only` is what a client without a guard applies: reads only.
 
@@ -83,6 +83,20 @@ def _ids(value: Any) -> list[int]:
     _require(isinstance(value, list) and len(value) > 0)
     _require(all(is_int(i) for i in value))
     return value
+
+
+_EASES = frozenset({1, 2, 3, 4})
+
+
+def _answered(params: Mapping[str, Any]) -> list[int]:
+    """The card ids of `answerCards`' answers, each `{cardId, ease}` with an int id and an ease
+    of 1-4, or a violation.
+    """
+    answers = params.get("answers")
+    _require(isinstance(answers, list) and len(answers) > 0)
+    _require(all(isinstance(a, dict) and set(a) == {"cardId", "ease"} for a in answers))
+    _require(all(is_int(a["ease"]) and a["ease"] in _EASES for a in answers))
+    return _ids([a["cardId"] for a in answers])
 
 
 def inner_actions(params: Mapping[str, Any]) -> list[tuple[Any, Mapping[str, Any]]]:
@@ -195,6 +209,8 @@ class PrefixGuard:
             await self._require_managed(lookup, "cardsInfo", "cards", _ids(params.get("cards")))
         elif action in _CARD_WRITES:
             await self._require_managed(lookup, "cardsInfo", "cards", _ids(params.get("cards")))
+        elif action == "answerCards":
+            await self._require_managed(lookup, "cardsInfo", "cards", _answered(params))
         elif action == "saveDeckConfig":
             await self._require_preset(params.get("config"), lookup)
         else:

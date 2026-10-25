@@ -39,10 +39,6 @@ from tests.support.pronunciation import (
     queue_of,
 )
 
-pytestmark = pytest.mark.skip(
-    reason="ATDD red phase until story 7.1 adds the Pronunciation queue, Rating and session routes"
-)
-
 
 def _client(settings_factory: SettingsFactory, rig: ReviewRig):
     settings = settings_factory(anki_prefix=MANIFEST.prefix)
@@ -182,3 +178,153 @@ class TestSessionSync:
 
         assert statuses == [204, 204, 204, 204]
         assert store.sync_calls == 0
+
+
+def _code(response) -> str | None:
+    return (response.json().get("error") or {}).get("code")
+
+
+class TestRatingGreenPhase:
+    @pytest.mark.p1
+    @pytest.mark.parametrize(
+        "body",
+        [
+            {"cardId": "1", "reps": 0, "rating": "good"},
+            {"cardId": 1, "reps": -1, "rating": "good"},
+            {"cardId": 1, "reps": 0, "rating": "perfect"},
+            {"cardId": True, "reps": 0, "rating": "good"},
+            {"cardId": 1, "reps": 0},
+            {"cardId": 1, "reps": 0, "rating": "good", "extra": 1},
+        ],
+    )
+    def test_a_malformed_rating_is_validation_failed_and_reaches_no_anki(
+        self, settings_factory: SettingsFactory, body: dict[str, object]
+    ) -> None:
+        rig = ReviewRig(managed_collection(MANIFEST))
+
+        response = _client(settings_factory, rig).post(RATING.format(lang="en"), json=body)
+
+        assert response.status_code == 422
+        assert _code(response) == "validation_failed"
+        assert rig.replay.sent == []
+
+    @pytest.mark.p0
+    def test_a_rating_while_setup_is_not_ready_is_409_setup_required(
+        self, settings_factory: SettingsFactory
+    ) -> None:
+        rig = ReviewRig(managed_collection(MANIFEST), state="needs_setup")
+        card = rig.pronounce(Language.EN, Category.VOCABULARY, due(1, reps=2))
+        rating = {"cardId": card.card_id, "reps": 2, "rating": "good"}
+
+        response = _client(settings_factory, rig).post(RATING.format(lang="en"), json=rating)
+
+        assert response.status_code == 409
+        assert _code(response) == "setup_required"
+        assert rig.answers == []
+
+    @pytest.mark.p0
+    def test_a_rating_for_another_languages_card_is_404(
+        self, settings_factory: SettingsFactory
+    ) -> None:
+        rig = ReviewRig(managed_collection(MANIFEST))
+        card = rig.pronounce(Language.FR, Category.VOCABULARY, due(1, reps=2))
+        rating = {"cardId": card.card_id, "reps": 2, "rating": "good"}
+
+        response = _client(settings_factory, rig).post(RATING.format(lang="en"), json=rating)
+
+        assert response.status_code == 404
+        assert _code(response) == "not_found"
+        assert sent_writes(rig.replay.sent) == []
+
+    @pytest.mark.p0
+    def test_an_unconfirmed_answer_is_503_anki_unavailable(
+        self, settings_factory: SettingsFactory
+    ) -> None:
+        rig = ReviewRig(
+            managed_collection(MANIFEST),
+            replies={"answerCards": {"result": [False], "error": None}},
+        )
+        card = rig.pronounce(Language.EN, Category.SENTENCE, new(1))
+        rating = {"cardId": card.card_id, "reps": 0, "rating": "again"}
+
+        response = _client(settings_factory, rig).post(RATING.format(lang="en"), json=rating)
+
+        assert response.status_code == 503
+        assert _code(response) == "anki_unavailable"
+
+    @pytest.mark.p1
+    def test_a_fresh_rating_is_answered_now(self, settings_factory: SettingsFactory) -> None:
+        rig = ReviewRig(managed_collection(MANIFEST))
+        card = rig.pronounce(Language.EN, Category.SENTENCE, new(1))
+        rating = {"cardId": card.card_id, "reps": 0, "rating": "easy"}
+
+        response = _client(settings_factory, rig).post(RATING.format(lang="en"), json=rating)
+
+        assert response.status_code == 200
+        assert response.json() == {"alreadyAnswered": False}
+        assert rig.answers == [{"cardId": card.card_id, "ease": 4}]
+
+
+class TestQueueGreenPhase:
+    @pytest.mark.p1
+    @pytest.mark.parametrize(
+        ("store", "code"),
+        [
+            (FakeAnkiStore(available=False), "anki_unavailable"),
+            (FakeAnkiStore(busy=True), "anki_busy"),
+        ],
+        ids=["unavailable", "busy"],
+    )
+    def test_a_queue_read_anki_cannot_answer_is_503(
+        self, settings_factory: SettingsFactory, store: FakeAnkiStore, code: str
+    ) -> None:
+        response = audio_client(settings_factory(), store).get(QUEUE.format(lang="fr"))
+
+        assert response.status_code == 503
+        assert _code(response) == code
+
+    @pytest.mark.p1
+    def test_an_unknown_language_is_422(self, settings_factory: SettingsFactory) -> None:
+        store = FakeAnkiStore()
+        client = audio_client(settings_factory(), store)
+
+        assert client.get(QUEUE.format(lang="de")).status_code == 422
+        assert client.post(SESSION.format(lang="de", signal="start")).status_code == 422
+        assert store.sync_calls == 0
+
+    @pytest.mark.p1
+    def test_the_queue_route_logs_no_target_text(
+        self, settings_factory: SettingsFactory, caplog: pytest.LogCaptureFixture
+    ) -> None:
+        """NFR-7: the request log line carries the route, never the Card's Target."""
+        rig = ReviewRig(managed_collection(MANIFEST))
+        rig.pronounce(Language.EN, Category.VOCABULARY, due(1), target="secretword")
+
+        with caplog.at_level("INFO", logger="language_lab"):
+            response = _client(settings_factory, rig).get(QUEUE.format(lang="en"))
+
+        assert response.status_code == 200
+        assert "secretword" not in caplog.text
+        assert "/api/pronunciation/{lang}/queue" in caplog.text
+
+
+class TestSessionGreenPhase:
+    @pytest.mark.p1
+    def test_a_failing_sync_never_fails_a_session_signal(
+        self, settings_factory: SettingsFactory
+    ) -> None:
+        settings = settings_factory()
+        store = FakeAnkiStore(available=False)
+        app = create_app(settings, anki_store=store, llm=FakeLlm(), speech=FakeSpeech())
+
+        async def scenario() -> list[int]:
+            async with asgi_client(app, settings) as client:
+                statuses = [
+                    (await client.post(SESSION.format(lang="en", signal=s))).status_code
+                    for s in ("start", "end")
+                ]
+                await drain()
+            return statuses
+
+        assert run(scenario()) == [204, 204]
+        assert store.sync_calls >= 1

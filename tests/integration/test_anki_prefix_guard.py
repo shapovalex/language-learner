@@ -203,6 +203,19 @@ BY_ID: list[tuple[str, dict[str, Any], bool]] = [
     ("changeDeck", {"cards": [MANAGED_CARD], "deck": "Default"}, False),
     ("suspend", {"cards": [MANAGED_CARD]}, True),
     ("suspend", {"cards": [MANAGED_CARD, BASIC_CARD]}, False),
+    # Story 7.1: a Rating answers cards of a manifest note type only, by id, with ease 1-4
+    ("answerCards", {"answers": [{"cardId": MANAGED_CARD, "ease": 3}]}, True),
+    ("answerCards", {"answers": [{"cardId": BASIC_CARD, "ease": 3}]}, False),
+    (
+        "answerCards",
+        {"answers": [{"cardId": MANAGED_CARD, "ease": 1}, {"cardId": BASIC_CARD, "ease": 1}]},
+        False,
+    ),
+    ("answerCards", {"answers": [{"cardId": MANAGED_CARD, "ease": 5}]}, False),
+    ("answerCards", {"answers": [{"cardId": MANAGED_CARD, "ease": True}]}, False),
+    ("answerCards", {"answers": [{"cardId": str(MANAGED_CARD), "ease": 2}]}, False),
+    ("answerCards", {"answers": []}, False),
+    ("answerCards", {"answers": [{"cardId": MANAGED_CARD}]}, False),
     ("saveDeckConfig", {"config": {"id": PRESET_ID, "name": RELEASE}}, True),
     ("saveDeckConfig", {"config": {"id": PRESET_ID + 1, "name": RELEASE}}, False),  # Default's id
     ("saveDeckConfig", {"config": {"id": PRESET_ID, "name": "Default"}}, False),

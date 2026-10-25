@@ -9,14 +9,14 @@ collection (tests/support/anki_state.py) whose cards also carry a `Schedule`. It
 
 - `findCards` as Anki's search does, at token level (no boolean parsing): every `deck:"X"` term
   matches X and its children (several are OR'd), `note:"T"` and `card:N` / `card:Name` filter,
-  `is:due` is a review card (queue 2 or 3) due on or before `TODAY`, and `is:new` is card type 0
-  **whether suspended or not** (Anki's `is:new` is type-based, so only `-is:suspended` drops a
-  suspended new card). With both `is:due` and `is:new` the result is their union.
+  `is:due` is a review or day-learning card (queue 2 or 3) due on or before `TODAY` or an
+  intraday learning card (queue 1) due on or before `NOW` (epoch seconds), and `is:new` is card
+  type 0 **whether suspended or buried or not** (Anki's `is:new` is type-based, so only
+  `-is:suspended` drops a suspended new card, and nothing in the query drops a buried one). With
+  both `is:due` and `is:new` the result is their union.
 - `cardsInfo` in AnkiConnect's documented shape plus `type`, `queue`, `due`, `reps`, `interval`.
 - `answerCards` (`{"answers": [{"cardId", "ease"}]}` → one bool each): records the answer in
   `.answers`, bumps `reps` and makes the card a review card due later, so it leaves the queue.
-
-Learning cards (queue 1, due in epoch seconds) are green-phase work.
 
 Proposed contracts (scaffold choices; the builder may rename and update these helpers):
 
@@ -49,6 +49,7 @@ from tests.support.hosts import local_url
 from tests.support.item_delete import ObservedLock, wired_delete
 
 TODAY = 200  # the collection's day number: a review card with due <= TODAY is due
+NOW = 1_792_000_000  # the collection's clock, in epoch seconds: an intraday learning card's due
 
 QUEUE = "/api/pronunciation/{lang}/queue"
 RATING = "/api/pronunciation/{lang}/rating"
@@ -62,9 +63,10 @@ _TEMPLATE_ORDS = {"understand": 0, "produce": 1, "write": 2, "pronounce": 3}
 class Schedule:
     """A card's scheduling state as `cardsInfo` reports it."""
 
-    type: int  # 0 new, 2 review
-    queue: int  # 0 new, 2 review; -1 when suspended (set from the card)
-    due: int  # a new card's position, or a review card's day number
+    type: int  # 0 new, 1 learning, 2 review, 3 relearning
+    queue: int  # 0 new, 1 intraday learning, 2 review, 3 day learning; -1 suspended (set from
+    # the card), -2/-3 buried
+    due: int  # a new card's position, a review card's day number, or epoch seconds (queue 1)
     reps: int
     interval: int = 0
 
@@ -81,6 +83,21 @@ def not_due(reps: int = 3) -> Schedule:
 def new(position: int) -> Schedule:
     """A new card at `position` in Anki's new queue (creation order)."""
     return Schedule(type=0, queue=0, due=position, reps=0)
+
+
+def learning(seconds_ago: int, reps: int = 1) -> Schedule:
+    """An intraday learning card (queue 1), due `seconds_ago` seconds before `NOW`."""
+    return Schedule(type=1, queue=1, due=NOW - seconds_ago, reps=reps)
+
+
+def day_learning(days_overdue: int, reps: int = 2) -> Schedule:
+    """A day-learning card (queue 3), due `days_overdue` days before `TODAY`."""
+    return Schedule(type=1, queue=3, due=TODAY - days_overdue, reps=reps)
+
+
+def buried(schedule: Schedule) -> Schedule:
+    """`schedule` buried by the user (queue -3)."""
+    return Schedule(schedule.type, -3, schedule.due, schedule.reps, schedule.interval)
 
 
 @dataclass(frozen=True)
@@ -185,8 +202,9 @@ class ReviewRig:
         if "-is:suspended" in query and self._is_suspended(card_id):
             return False
         schedule = self._schedule(card_id)
-        is_due = (
-            not self._is_suspended(card_id) and schedule.queue in (2, 3) and schedule.due <= TODAY
+        is_due = not self._is_suspended(card_id) and (
+            (schedule.queue in (2, 3) and schedule.due <= TODAY)
+            or (schedule.queue == 1 and schedule.due <= NOW)
         )
         is_new = schedule.type == 0  # suspended or not, as Anki's is:new
         wants_due, wants_new = bool(_IS_DUE.search(query)), bool(_IS_NEW.search(query))

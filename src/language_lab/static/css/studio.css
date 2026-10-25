@@ -1648,3 +1648,154 @@ button.segment {
   gap: 12px;
 }
 .reference-audio-removal-note { margin: 0; color: var(--color-ink-muted); }
+
+/* Pronunciation review (S-Review, S-iPadReview, story 7.1). Phone: stacked, Rating 2×2.
+   From 600px: the Target card and Rating in the left column (the scores column joins in 7.2),
+   Rating 4 across. The queue-count chip sits top right of the Target card. */
+.review-title {
+  margin: var(--space-5) 0;
+}
+
+.review-layout {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-stack-phone);
+}
+
+.review-card {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-7);
+  padding: var(--space-card-pad-phone);
+  border-radius: var(--radius-card);
+  background: var(--color-surface);
+}
+
+.review-card-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-5);
+}
+
+.review-category {
+  color: var(--color-ink-muted);
+  font-size: var(--font-size-label);
+  font-weight: var(--font-weight-label);
+}
+
+.review-count {
+  padding: var(--space-2) var(--space-5);
+  border-radius: var(--radius-count-chip);
+  background: var(--color-surface-sunken);
+  color: var(--color-ink);
+  font-size: var(--font-size-count);
+  font-weight: var(--font-weight-count);
+}
+
+.review-target {
+  margin: 0;
+  font-size: var(--font-size-target-text);
+  font-weight: var(--font-weight-target-text);
+  line-height: var(--line-height-target-text);
+  overflow-wrap: anywhere;
+}
+
+.review-actions {
+  display: flex;
+  gap: var(--space-5);
+}
+
+.review-reference {
+  gap: var(--space-3);
+  min-height: 52px;
+  background: var(--color-surface-sunken);
+  color: var(--color-ink);
+}
+
+.review-reference-icon {
+  width: 20px;
+  height: 20px;
+  fill: currentColor;
+}
+
+.review-rating {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-4);
+}
+
+.review-prompt {
+  margin: 0;
+  color: var(--color-ink-muted);
+  font-size: var(--font-size-body-sm);
+}
+
+.review-rating-buttons {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: var(--space-4);
+}
+
+/* Four identical, neutral buttons: never tinted, enlarged or pre-selected (FR-34) */
+.review-rating-button {
+  min-height: 52px;
+  padding: 0 var(--space-3);
+  border-color: var(--color-border);
+  background: var(--color-surface);
+  color: var(--color-ink);
+}
+
+.review-alert {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-5);
+  margin: 0;
+}
+
+.review-alert-body {
+  margin: 0;
+}
+
+.review-empty-title {
+  margin: 0 0 var(--space-1);
+  font-weight: 600;
+}
+
+.review-empty-body {
+  margin: 0;
+  color: var(--color-ink-muted);
+}
+
+@media (min-width: 600px) {
+  .review-layout {
+    gap: var(--space-stack-tablet);
+  }
+
+  .review-card {
+    gap: var(--space-9);
+    padding: var(--space-card-pad-tablet);
+    border-radius: var(--radius-card-lg);
+  }
+
+  .review-count {
+    font-size: var(--font-size-count-tablet);
+    font-weight: var(--font-weight-count-tablet);
+  }
+
+  .review-target {
+    font-size: var(--font-size-target-text-tablet);
+    font-weight: var(--font-weight-target-text-tablet);
+  }
+
+  .review-reference,
+  .review-rating-button {
+    min-height: 60px;
+  }
+
+  .review-rating-buttons {
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+  }
+}

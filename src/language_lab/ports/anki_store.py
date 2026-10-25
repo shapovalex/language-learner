@@ -2,7 +2,7 @@
 
 Each method is one complete use case that the adapter runs under the Anki lock: readiness, sync,
 the SetupState, the Setup preview and apply, Create, List, Get and Delete Capture, Save and Delete
-Item, and the Item reads.
+Item, the Item reads, and the Pronunciation queue and Rating.
 Later entries add methods here, to the AnkiConnect adapter and to the fake in tests/fakes/ together.
 """
 
@@ -13,6 +13,7 @@ from typing import Protocol
 from language_lab.domain.captures import Capture
 from language_lab.domain.catalog import Category, Language
 from language_lab.domain.items import AudioIntent, Item, ItemContent
+from language_lab.domain.pronunciation import PronunciationQueue, Rating
 from language_lab.domain.setup import SetupPreview, SetupState
 from language_lab.domain.sync import SyncOutcome
 
@@ -133,6 +134,27 @@ class AnkiStore(Protocol):
         under one lock hold. Cleanup runs even when the notes are already absent, so a retry
         finishes partial cleanup. Every write is Prefix guarded and Setup gated; the first
         failure stops the sequence without compensation. Raises
+        `AppError(SETUP_REQUIRED | ANKI_UNAVAILABLE | ANKI_BUSY)`.
+        """
+        ...
+
+    async def pronunciation_queue(self, language: Language) -> PronunciationQueue:
+        """The Language's new and due, unsuspended (and unburied) Pronounce Cards (ord 3) in its
+        Pronunciation decks, from the exact manifest scopes only, under one lock hold; not gated
+        (AD-19). Due Cards first, oldest due first, then new Cards in creation order (FR-30,
+        AD-6), each Target decoded through the codec (AD-9). Raises
+        `AppError(ANKI_UNAVAILABLE | ANKI_BUSY)`.
+        """
+        ...
+
+    async def answer_card(
+        self, language: Language, card_id: int, reps: int, rating: Rating
+    ) -> bool:
+        """Answer the Pronounce Card `card_id` of `language` with `rating` through Anki's
+        scheduler, under one lock hold (FR-34). When Anki's `reps` for it is no longer `reps`,
+        the Rating already landed: nothing is sent and True (alreadyAnswered) comes back (AD-20).
+        The answer is Prefix guarded and Setup gated. Raises `AppError(NOT_FOUND)` for a card
+        outside the Language's Pronounce scope, and
         `AppError(SETUP_REQUIRED | ANKI_UNAVAILABLE | ANKI_BUSY)`.
         """
         ...
