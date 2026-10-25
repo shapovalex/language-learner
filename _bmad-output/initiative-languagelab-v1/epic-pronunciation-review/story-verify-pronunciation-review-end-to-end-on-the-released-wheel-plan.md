@@ -3,14 +3,14 @@ title: 'Verify Pronunciation review end to end on the released wheel'
 type: 'chore'
 ticket: '4'
 created: '2026-10-25'
-status: 'in-progress'
+status: 'built'
 baseline_revision: 'f2d60a4cedc7f2a9070f82144ca7c57a9f2b3d25'
 route: 'full'
 route_source: 'auto'
 risk: 'medium'
-review: ''
-review_source: ''
-lenses_ran: []
+review: 'quick'
+review_source: 'pinned'
+lenses_ran: ['quick']
 review_loop_iteration: 0
 context: []
 ---
@@ -80,6 +80,19 @@ context: []
 ## Plan Change Log
 
 ## Review Triage Log
+
+Pass 1 (quick, 2026-10-25): high 0, medium 4, low 2, false 0, maybe-false 0.
+
+| Finding | Verdict | Route | Evidence/action |
+|---|---|---|---|
+| `played_bytes()` fetches `/api/media` from the test and asserts the reply | medium | patch | Breaks the frozen "no /api assertions" rule. Replace it with passive observation of the browser's own media request, and assert that it names the seeded clip. |
+| `PLAYED_PROBE` patches `HTMLMediaElement.play` (a second browser double) | medium | patch | The frozen rule allows only the fake microphone. The probe is removed by the same fix. |
+| DW1/DW4 can't make E1/F1 current when other Pronounce Cards are queued | medium | patch | `pronunciation.js` has no skip control. Setup now checks that the LanguageLabDev queue holds only the four Cards. |
+| DW3 Good/Hard on new Cards puts them back in the queue as learning Cards before DW6 | medium | patch | The queue query is `(is:due OR is:new)` and default learning steps apply. Rate Easy instead. |
+| No check that a retried Rating is applied only once (AC17) | low | patch | Add a double-tap check, and point to the 7.1 automated tests for the lost-reply retry. |
+| Done-when 6's hidden-tab and failed-Assessment parts have no row | low | patch | Add a hidden-app step to the Sync row, and point to the 7.2 automated test for the failed Assessment. |
+
+After the patches (commit e237739, plus a correction from `card:3` to `card:4`, the 1-based Pronounce template that `store.py` passes as `PRONOUNCE_ORD + 1`): journey 8 passed in Chromium and WebKit; `make test` 1456 passed; `make lint` and `git diff --check` clean. Nothing deferred.
 
 ## Design Notes
 
