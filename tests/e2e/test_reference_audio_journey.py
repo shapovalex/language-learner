@@ -16,12 +16,13 @@ import pytest
 from playwright.sync_api import Page, Route, ViewportSize, expect
 
 from tests.support import viewports
-from tests.support.audio import MP3, PREVIEW_API, SECOND_MP3
+from tests.support.audio import EN_VOICE, FR_VOICE, MP3, PREVIEW_API, SECOND_MP3
 from tests.support.audio_screen import (
     STALE_AUDIO,
     audio_button,
     preview_button,
     rendered_audio_bytes,
+    voice,
 )
 from tests.support.captures_screen import SAVE, compose_box, main, rows
 from tests.support.delete_item_screen import confirm_button, delete_button
@@ -46,6 +47,7 @@ from tests.support.navigation import EN_ITEMS, FR_ITEMS, go_by_nav, path_pattern
 from tests.support.regenerate_screen import USE_PREVIEW
 
 LANGUAGES = {"en": ("English", EN_ITEMS), "fr": ("French", FR_ITEMS)}
+VOICES = {"en": EN_VOICE, "fr": FR_VOICE}
 WIDTHS = {"phone": viewports.PHONE, "desktop": viewports.DESKTOP}
 ANY_UNSAVED = re.compile(r"^\d+ unsaved changes?$")
 
@@ -64,6 +66,8 @@ def make_item_with_audio(page: Page, language: str, target: str) -> bytes:
     choose(page, name, "Vocabulary")
     write_it_myself(page).click()
     field(page, "Russian meaning").fill("проверка аудио")
+    voice(page).select_option(VOICES[language])
+    expect(voice(page)).to_have_value(VOICES[language])
     preview_button(page).click()
     audio_button(page, USE_PREVIEW).click()
     expect(audio_button(page, USE_PREVIEW)).to_have_count(0)
