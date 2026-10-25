@@ -43,6 +43,8 @@ const CANCEL = "Cancel";
 const CREATE_ANYWAY = "Create anyway";
 const BACK = "‹ Capture";
 const UNREACHABLE_TITLE = "Not saved — Anki isn't reachable";
+const MAKING_AUDIO = "Making audio…";
+const AUTO_ERROR = "Couldn't make the audio. The Draft will save without audio.";
 const UNREACHABLE_BODY =
   "Make sure Anki Desktop is open on the Mac mini, then try again. Your text is still here.";
 
@@ -428,6 +430,8 @@ export function draftEditor(draft, { onEdit, onSave, onDiscard, alertFor }) {
     reason.textContent = why ?? "";
     reason.hidden = why === null;
     save.disabled = why !== null || draft.busy;
+    // A Save pressed while the automatic audio is made waits for it (captures.js saveDraft)
+    save.textContent = draft.busy && draft.audio?.autoPending ? MAKING_AUDIO : "Save to Anki";
     discard.disabled = draft.busy;
   }
 
@@ -527,6 +531,10 @@ function referenceAudio(draft) {
     voices: [], voice: null, loading: true, voiceError: false,
     previewing: false, previewError: false, sequence: 0,
     accepted: null, offered: null, disposed: false, render: null, players: new Set(),
+    // The one automatic Preview (AD-14): `autoDone` once the Voices first load, `autoError`
+    // when it (or its Try again) failed, `autoPending` the promise of the first Voice load and
+    // the automatic Preview (or of its Try again) while in flight
+    autoDone: false, autoError: false, autoPending: null,
   };
   const card = element("section", "reference-audio");
   card.setAttribute("aria-label", "Reference audio");
@@ -564,7 +572,7 @@ function referenceAudio(draft) {
     body.replaceChildren();
     const locked = state.loading || !state.voices.length || draft.busy || state.previewing;
     body.append(...voicePicker(state, locale, loadVoices, locked));
-    const previewButton = button(state.previewing ? "Making audio…" : "Preview", preview);
+    const previewButton = button(state.previewing ? MAKING_AUDIO : "Preview", preview);
     previewButton.disabled = draft.busy || state.previewing || state.loading || !state.voice || !draft.values.target.trim();
     body.append(previewButton);
     if (state.accepted) body.append(player(state.accepted, state.offered ? "Play current audio" : "Play audio preview"));
@@ -588,12 +596,54 @@ function referenceAudio(draft) {
     }
     if (state.previewError) {
       body.append(alertBox("reference-audio-error", "Couldn't make the audio. Current audio is unchanged.", tryAgain(preview)));
+    } else if (state.autoError) {
+      const again = tryAgain(() => { if (!state.autoPending) track(synthesize()); });
+      again.disabled = draft.busy || state.previewing || !state.voice || !draft.values.target.trim();
+      body.append(alertBox("reference-audio-error", AUTO_ERROR, again));
     }
   }
 
   // state.render, not render: a rerendered card replaces it, and the reply updates the new one
+  // Once the Voices first load, the Draft's audio is made automatically (AD-14). A Save
+  // waits on `autoPending` from the start of that Voice load to the end of the Preview
   function loadVoices() {
-    return loadVoiceList(state, locale, () => state.render());
+    if (state.autoDone) return loadVoiceList(state, locale, () => state.render());
+    return track((async () => {
+      await loadVoiceList(state, locale, () => state.render());
+      if (state.disposed || state.voiceError) return;
+      state.autoDone = true;
+      await synthesize();
+    })());
+  }
+
+  // `work` is what a Save waits for, until it settles
+  function track(work) {
+    const pending = work.finally(() => {
+      if (state.autoPending === pending) state.autoPending = null;
+    });
+    state.autoPending = pending;
+    return pending;
+  }
+
+  // The automatic Preview, or its Try again: the clip becomes the accepted audio, so Save
+  // stores it. It runs even while a Save waits for it (`draft.busy`); it never autoplays
+  async function synthesize() {
+    if (!state.voice || !draft.values.target.trim()) return;
+    const target = draft.values.target;
+    state.previewing = true;
+    state.autoError = false;
+    state.render();
+    try {
+      const blob = await requestPreview(state, { language: draft.language, voice: state.voice, target });
+      if (blob) {
+        if (state.accepted) URL.revokeObjectURL(state.accepted.url);
+        state.accepted = { blob, target, url: URL.createObjectURL(blob) };
+      }
+    } catch {
+      state.autoError = true;
+    }
+    state.previewing = false;
+    state.render?.();
   }
 
   async function preview() {
@@ -602,6 +652,7 @@ function referenceAudio(draft) {
     const voice = state.voice;
     state.previewing = true;
     state.previewError = false;
+    state.autoError = false;
     state.render();
     try {
       const blob = await requestPreview(state, { language: draft.language, voice, target });

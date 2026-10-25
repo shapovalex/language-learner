@@ -16,7 +16,8 @@ S-CapturesDesk, C-Draft, S-DraftPhone, EXPERIENCE.md; FR-11, FR-12, FR-18, FR-20
 - **Unsaved.** The Draft marks the screen dirty (`router.setDirty`, kind `draft`), so leaving
   raises the router alert "This Draft isn't saved."
 - **Save to Anki.** POST /api/items/<lang> with the `item` part (the Draft's ItemId, `audio:
-  "keep"` and the fields), then back to the same Capture with the success banner "Saved
+  "replace"` with the Draft's automatic Reference audio since 2026-10-25, and the fields),
+  then back to the same Capture with the success banner "Saved
   “<Target>” to Anki. Make another Item from this Capture, or delete it." (FR-12). A failed
   Save keeps the editor and its edits with the inline alert, and a retry sends the same ItemId
   (AD-20).
@@ -180,7 +181,8 @@ def save_draft(page: Page, russian: str, alternatives: str = "") -> dict[str, An
 def test_a_vocabulary_and_a_sentence_item_are_saved_from_one_capture(
     page: Page, viewport: ViewportSize
 ) -> None:
-    """AC-15: Save to Anki sends the Draft's ItemId with `audio: "keep"` and the fields (the
+    """AC-15: Save to Anki sends the Draft's ItemId with `audio: "replace"` (its automatic
+    Reference audio, decided 2026-10-25) and the fields (the
     alternatives one per line), then returns to the same Capture with the success banner; an
     English Vocabulary and a French Sentence Item are saved from one Capture this way.
     """
@@ -191,7 +193,7 @@ def test_a_vocabulary_and_a_sentence_item_are_saved_from_one_capture(
     expect(banner(page, VOCABULARY_TARGET)).to_be_visible()
 
     expect(page).to_have_url(path_pattern(f"{CAPTURES_PATH}/{CAPTURE_ID}"))
-    assert (vocabulary["itemId"], vocabulary["audio"]) == (vocabulary_id, "keep")
+    assert (vocabulary["itemId"], vocabulary["audio"]) == (vocabulary_id, "replace")
     assert vocabulary["category"] == "vocabulary"
     assert vocabulary["target"] == VOCABULARY_TARGET
     assert vocabulary["russianAlternatives"] == ["торопиться с выводами", "спешить"]

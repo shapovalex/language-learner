@@ -195,6 +195,7 @@ Dependency rule: `routes → service → {ports, domain}`. Adapters depend on `p
 - **Prevents:** recordings or Previews being cached, credentials reaching the browser, a client-supplied reference text, and the UI having to censor French feedback.
 - **Rule:**
   - **Preview.** `POST /api/audio/preview` synthesizes an MP3 and returns its bytes. The browser holds the Blob and re-uploads it at Save (`audio=replace`). The server keeps no Preview state.
+  - **Automatic Draft Preview.** A new Draft, generated or written by hand, requests one Preview automatically once its Voice list loads, with the remembered (or first) Voice and its Target, and holds the clip as its accepted audio, so Save to Anki stores it with no extra click. A Save pressed while it is in flight waits for it; a failure shows an inline notice with Try again and the Draft saves without audio. It never autoplays and never writes Anki before Save. Target and Voice edits, rerenders and Item detail never synthesize automatically (decided 2026-10-25).
   - **Attempt.** The browser uploads its native MediaRecorder output; on iOS Safari that's `audio/mp4`. One request:
     1. reads the Target text from Anki by `itemId` (never from the client);
     2. converts the recording in memory with PyAV to WAV PCM 16 kHz mono;

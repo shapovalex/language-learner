@@ -492,6 +492,13 @@ export function mount(root, params = {}) {
     saving.busy = true;
     saving.error = null;
     renderEditor();
+    // The automatic audio still being made: Save waits for it ("Making audio…"), then stores
+    // the clip, or the Draft without audio if it failed
+    if (saving.audio?.autoPending) {
+      await saving.audio.autoPending;
+      if (!mounted || draft !== saving) return;
+      renderEditor();
+    }
     const item = itemPart(saving);
     if (saving.createdAnyway !== item.target) {
       let matches;
