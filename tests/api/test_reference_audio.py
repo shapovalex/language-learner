@@ -284,7 +284,7 @@ def test_audio_larger_than_five_megabytes_returns_413(settings_factory):
 
 @pytest.mark.p0
 @pytest.mark.parametrize(
-    "intent,file_present", [("keep", True), ("replace", False), ("remove", False)]
+    "intent,file_present", [("keep", True), ("replace", False), ("remove", True)]
 )
 def test_inconsistent_audio_parts_are_rejected(settings_factory, intent, file_present):
     rig = MediaRig(managed_collection(MANIFEST))

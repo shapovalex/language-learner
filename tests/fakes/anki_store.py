@@ -191,6 +191,10 @@ class FakeAnkiStore:
             self.audio[item_id] = name
             if old and old != name:
                 self.media.pop(old, None)
+        elif audio is AudioIntent.REMOVE and audio_bytes is None:
+            old = self.audio.pop(item_id, None)
+            if old:
+                self.media.pop(old, None)
         elif audio is not AudioIntent.KEEP or audio_bytes is not None:
             raise AppError(ErrorCode.VALIDATION_FAILED)
         self.items[item_id] = (language, content)

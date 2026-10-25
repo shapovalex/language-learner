@@ -2,8 +2,8 @@
 
 The Item detail card reuses 6.1's region name "Reference audio" and its Voice, Keep current,
 Use preview, stale and TTS-failure copy. "Regenerate audio" is the explicit synthesis action on
-an existing Item (epic Done when 4, FR-23). "Remove audio" is a scaffold choice: the epic lets
-the builder pick the removal copy, and the tests change with it.
+an existing Item (epic Done when 4, FR-23). "Remove audio" is the epic-delegated removal copy; its
+pending note is "Audio will be removed when you save." with "Keep audio" to undo.
 
 Only API boundaries are stubbed: the real Item detail screen reads the Item, plays its clip,
 keeps Previews in memory and builds the multipart Save. The stored clip is SECOND_MP3 and every
@@ -25,8 +25,8 @@ from tests.support.maintain_items_screen import detail_wire
 
 REGENERATE_AUDIO = "Regenerate audio"
 REMOVE_AUDIO = "Remove audio"
-CURRENT_LABEL = "CURRENT"
-PREVIEW_LABEL = "PREVIEW · NOT SAVED"
+CURRENT_LABEL = "Current"  # CSS uppercases the overline (regenerate_screen.py)
+PREVIEW_LABEL = "Preview · not saved"
 
 
 def item_audio_card(page: Page) -> Locator:
@@ -73,6 +73,26 @@ def player_bytes(page: Page) -> list[bytes]:
     return [bytes(value) for value in arrays]
 
 
+def record_object_urls(page: Page) -> None:
+    """Record every Blob URL the page creates and revokes, in window.__objectUrls."""
+    page.add_init_script("""window.__objectUrls = {created: [], revoked: []};
+      const create = URL.createObjectURL.bind(URL);
+      const revoke = URL.revokeObjectURL.bind(URL);
+      URL.createObjectURL = (value) => {
+        const url = create(value);
+        window.__objectUrls.created.push(url);
+        return url;
+      };
+      URL.revokeObjectURL = (url) => {
+        window.__objectUrls.revoked.push(url);
+        revoke(url);
+      };""")
+
+
+def object_urls(page: Page) -> dict[str, list[str]]:
+    return page.evaluate("window.__objectUrls")
+
+
 def is_media(request: Request) -> bool:
     return request.method == "GET" and urlparse(request.url).path.startswith("/api/media/")
 
@@ -96,6 +116,7 @@ class ItemAudioApi:
         self.media = {self.audio_name: SECOND_MP3} if self.audio_name else {}
         self.preview_error = False
         self.save_error = False
+        self.voices_error = False
         self.media_requests: list[str] = []
         self.voice_requests: list[str] = []
         self.preview_requests: list[dict[str, Any]] = []
@@ -162,6 +183,9 @@ class ItemAudioApi:
             return
         locale = parse_qs(urlparse(route.request.url).query).get("locale", [""])[0]
         self.voice_requests.append(locale)
+        if self.voices_error:
+            self._error(route, "tts_failed", 502)
+            return
         route.fulfill(json={"voices": CATALOG.get(locale, [])})
 
     def _preview(self, route: Route) -> None:

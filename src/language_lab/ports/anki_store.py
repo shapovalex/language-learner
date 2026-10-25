@@ -102,7 +102,9 @@ class AnkiStore(Protocol):
         Language/Category Pronunciation deck, then cards 0-2 move to their Study decks (AD-6); a
         stored one has its fields updated, with Audio preserved for `keep`. `replace` stores
         exact MP3 bytes before the note and deletes differing old managed media after the
-        note write and card placement succeed. Raises
+        note write and card placement succeed. `remove` stores nothing, writes an empty Audio
+        field, then deletes the old managed media; a failure stops without compensation and
+        leaves any leftover clip for Setup's `orphanMedia` repair. Raises
         `AppError(SETUP_REQUIRED | ANKI_UNAVAILABLE | ANKI_BUSY)`.
         """
         ...

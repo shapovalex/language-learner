@@ -12,12 +12,16 @@ import pytest
 
 from tests.support.aio import run, settle
 from tests.support.anki_state import managed_collection, sent_writes
-from tests.support.audio import SECOND_MP3, MediaRig, remove_audio, stored_with_audio
-from tests.support.captures import MANIFEST, code_of
-
-pytestmark = pytest.mark.skip(
-    reason="ATDD red phase until story 6.2 existing-Item audio lifecycle is built"
+from tests.support.audio import (
+    MP3,
+    SECOND_MP3,
+    MediaRig,
+    managed_name,
+    remove_audio,
+    replace_audio,
+    stored_with_audio,
 )
+from tests.support.captures import MANIFEST, code_of
 
 FAILED = {"result": None, "error": "collection unavailable"}
 
@@ -78,6 +82,39 @@ class TestAudioRemovalFailures:
             "deleteMediaFile",
             "updateNoteFields",
         ]
+        assert rig.lock.holds == 2
+        assert rig.lock.depth == 0
+        preview = run(rig.store.setup_preview())
+        assert {row.key for row in preview.repairs} == {f"orphanMedia:{old_name}"}
+
+
+class TestAudioReplacementCleanupFailure:
+    @pytest.mark.p0
+    def test_replace_cleanup_failure_is_retryable_and_setup_repairable(self) -> None:
+        """[P0] AC-8 replace: failed old-clip cleanup reports, the note stands, retry succeeds."""
+        collection = managed_collection(MANIFEST)
+        item_id = str(uuid.uuid4())
+        old_name = stored_with_audio(collection, item_id, SECOND_MP3)
+        new_name = managed_name(item_id, MP3)
+        rig = MediaRig(
+            collection, media={old_name: SECOND_MP3}, replies={"deleteMediaFile": FAILED}
+        )
+
+        first = settle(replace_audio(rig.store, item_id, MP3))
+
+        assert code_of(first) == "anki_unavailable"
+        assert sent_writes(rig.replay.sent) == [
+            "storeMediaFile",
+            "updateNoteFields",
+            "deleteMediaFile",
+        ]
+        (note,) = collection.notes.values()
+        assert note.fields["Audio"] == f"[sound:{new_name}]"  # no rollback
+        assert rig.media == {old_name: SECOND_MP3, new_name: MP3}
+        retry = settle(replace_audio(rig.store, item_id, MP3))
+        assert retry is None
+        assert sent_writes(rig.replay.sent)[3:] == ["storeMediaFile", "updateNoteFields"]
+        assert rig.media[new_name] == MP3
         assert rig.lock.holds == 2
         assert rig.lock.depth == 0
         preview = run(rig.store.setup_preview())

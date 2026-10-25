@@ -103,7 +103,8 @@ export function saveFailure(error) {
   return ["Not saved", errorMessage(error)];
 }
 
-// The Save's `item` part (Consistency Conventions): ItemContent, the ItemId and `audio: "keep"`
+// The Save's `item` part (Consistency Conventions): ItemContent, the ItemId and the Draft's
+// audio intent; Item detail overrides `audio` with its own card's intent
 export function itemPart(draft) {
   const item = { category: draft.category, itemId: draft.itemId, audio: draft.audio?.accepted ? "replace" : "keep" };
   for (const [key] of FIELDS[draft.category]) {

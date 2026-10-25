@@ -155,3 +155,36 @@ def test_audio_save_and_media_read_have_matching_port_fake_adapter_signatures():
     assert parameters["audio"].default is AudioIntent.KEEP
     assert parameters["audio_bytes"].default is None
     assert parameters["audio_bytes"].kind is inspect.Parameter.KEYWORD_ONLY
+
+
+@pytest.mark.p1
+def test_fake_remove_mirrors_the_adapter_by_dropping_the_items_clip() -> None:
+    """Story 6.2: the fake's `remove` drops the Item's clip; `remove` with bytes is refused."""
+    import uuid
+
+    from language_lab.domain.catalog import Language
+    from language_lab.domain.errors import AppError
+    from language_lab.domain.items import AudioIntent
+    from tests.support.aio import run
+    from tests.support.audio import MP3
+    from tests.support.items import VOCABULARY, content
+
+    store = FakeAnkiStore()
+    item_id = str(uuid.uuid4())
+    run(
+        store.save_item(
+            item_id, Language.EN, content(VOCABULARY), AudioIntent.REPLACE, audio_bytes=MP3
+        )
+    )
+    assert store.audio[item_id] in store.media
+    with pytest.raises(AppError):
+        run(
+            store.save_item(
+                item_id, Language.EN, content(VOCABULARY), AudioIntent.REMOVE, audio_bytes=MP3
+            )
+        )
+    assert item_id in store.audio
+    run(store.save_item(item_id, Language.EN, content(VOCABULARY), AudioIntent.REMOVE))
+    assert item_id not in store.audio
+    assert store.media == {}
+    assert run(store.get_item(Language.EN, item_id)).audio is None

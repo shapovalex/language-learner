@@ -1,24 +1,23 @@
-"""Story 6.2 red-phase existing-Item Reference audio journeys at phone and desktop widths.
+"""Story 6.2 existing-Item Reference audio journeys at phone, tablet and desktop widths.
 
 API responses are per-page doubles (tests/support/item_audio_screen.py). Every assertion
 observes the real Item detail client: its native players' bytes or its outgoing multipart Save,
-not only the configured double. Python Playwright has no outer promise matcher: the missing
-Item-detail audio card currently stops each journey at its first card locator, before the
-outcome assertion. That red-phase limitation is recorded for task activation; later
-transitions need re-observation once the card exists.
+not only the configured double.
 """
 
+import re
 import uuid
 from collections.abc import Callable
 
 import pytest
-from playwright.sync_api import BrowserContext, Page, expect
+from playwright.sync_api import BrowserContext, Page, Route, expect
 
 from tests.support import viewports
 from tests.support.audio import MP3, SECOND_MP3
 from tests.support.audio_screen import (
     EN_SECOND,
     KEEP_CURRENT,
+    PREVIEW_API,
     STALE_AUDIO,
     TTS_ERROR,
     USE_PREVIEW,
@@ -36,17 +35,18 @@ from tests.support.item_audio_screen import (
     card_button,
     item_audio_card,
     item_voice,
+    object_urls,
     player_bytes,
+    record_object_urls,
     unsaved_chip,
 )
 from tests.support.items_screen import is_item_save
 from tests.support.maintain_items_screen import edit_field, save_changes, stored_item
 
-pytestmark = pytest.mark.skip(
-    reason="ATDD red phase until story 6.2 existing-Item audio UI is built"
-)
-
 UNRELATED_EDIT = "a personal mnemonic kept through audio changes"
+REMOVAL_NOTE = "Audio will be removed when you save."
+KEEP_AUDIO = "Keep audio"
+MEDIA_FAILED = "Couldn't load the saved audio."
 
 
 def french_item() -> dict:
@@ -81,6 +81,7 @@ class TestExistingItemAudio:
         api = ItemAudioApi(page, stored_item(has_audio=True))
         page.set_viewport_size(viewports.PHONE)
         api.open()
+        expect(item_audio_card(page).locator("audio")).to_have_count(1)
 
         assert player_bytes(page) == [SECOND_MP3]
 
@@ -229,3 +230,154 @@ class TestExistingItemAudio:
         assert player_bytes(page) == [SECOND_MP3]
         expect(card_button(page, USE_PREVIEW)).to_have_count(0)
         assert api.saves == []
+
+
+class TestExistingItemAudioMatrix:
+    @pytest.mark.p1
+    def test_pending_removal_can_be_undone_at_tablet_width(self, page: Page) -> None:
+        """[P1] AC-4 Keep audio undoes a pending removal: clean again, Save keeps the clip."""
+        api = ItemAudioApi(page, stored_item(has_audio=True))
+        open_item(page, api, viewports.TABLET)
+        card_button(page, REMOVE_AUDIO).click()
+        expect(card_button(page, KEEP_AUDIO)).to_be_focused()
+        expect(item_audio_card(page).get_by_text(REMOVAL_NOTE)).to_be_visible()
+        expect(item_audio_card(page).locator("audio")).to_have_count(0)
+        expect(unsaved_chip(page, 1)).to_be_visible()
+
+        card_button(page, KEEP_AUDIO).click()
+
+        expect(card_button(page, REMOVE_AUDIO)).to_be_focused()
+        expect(unsaved_chip(page, 1)).to_have_count(0)
+        assert player_bytes(page) == [SECOND_MP3]
+        edit_field(page, "Mnemonic").fill(UNRELATED_EDIT)
+        save_and_wait(page)
+        (saved,) = api.saves
+        assert (saved.item["audio"], saved.audio_file) == ("keep", None)
+
+    @pytest.mark.p1
+    def test_voice_list_failure_offers_try_again(self, page: Page) -> None:
+        """[P1] AC-9 a failed Voice list shows its alert; Try again loads the Voices."""
+        api = ItemAudioApi(page, stored_item(has_audio=True))
+        api.voices_error = True
+        page.set_viewport_size(viewports.PHONE)
+        api.open()
+        expect(card_alert(page, "Couldn't load voices")).to_be_visible()
+        expect(card_button(page, REGENERATE_AUDIO)).to_be_disabled()
+        assert player_bytes(page) == [SECOND_MP3]
+
+        api.voices_error = False
+        item_audio_card(page).get_by_role("button", name="Try again").click()
+
+        expect(card_button(page, REGENERATE_AUDIO)).to_be_enabled()
+        assert api.preview_requests == []
+
+    @pytest.mark.p1
+    def test_item_without_audio_previews_and_discarding_leaves_nothing_pending(
+        self, page: Page
+    ) -> None:
+        """[P1] AC-1 no audio: Preview instead of Regenerate, no Remove; discarding is clean."""
+        api = ItemAudioApi(page, stored_item(has_audio=False), has_audio=False)
+        open_item(page, api, viewports.DESKTOP)
+        expect(card_button(page, REMOVE_AUDIO)).to_have_count(0)
+        with page.expect_response(lambda response: is_preview(response.request)):
+            card_button(page, "Preview").click()
+        card_button(page, USE_PREVIEW).click()
+        expect(unsaved_chip(page, 1)).to_be_visible()
+
+        card_button(page, REMOVE_AUDIO).click()
+
+        expect(unsaved_chip(page, 1)).to_have_count(0)
+        expect(item_audio_card(page).locator("audio")).to_have_count(0)
+        edit_field(page, "Mnemonic").fill(UNRELATED_EDIT)
+        save_and_wait(page)
+        (saved,) = api.saves
+        assert (saved.item["audio"], saved.audio_file) == ("keep", None)
+
+    @pytest.mark.p0
+    def test_saved_replace_becomes_current_then_saved_remove_drops_the_player(
+        self, page: Page
+    ) -> None:
+        """[P0] AC-3/AC-4 after Save the accepted clip is Current; a saved removal clears it."""
+        api = ItemAudioApi(page, stored_item(has_audio=True))
+        open_item(page, api, viewports.PHONE)
+        regenerate(page, api)
+        card_button(page, USE_PREVIEW).click()
+        save_and_wait(page)
+        expect(unsaved_chip(page, 1)).to_have_count(0)
+        assert player_bytes(page) == [MP3]
+        expect(item_audio_card(page).get_by_text(STALE_AUDIO)).to_be_hidden()
+
+        card_button(page, REMOVE_AUDIO).click()
+        save_and_wait(page)
+
+        expect(unsaved_chip(page, 1)).to_have_count(0)
+        expect(item_audio_card(page).locator("audio")).to_have_count(0)
+        expect(card_button(page, "Preview")).to_be_visible()
+        assert [save.item["audio"] for save in api.saves] == ["replace", "remove"]
+        assert api.saves[1].audio_file is None
+        assert api.audio_name is None
+
+    @pytest.mark.p1
+    def test_blob_urls_are_revoked_on_discard_and_on_leaving(self, page: Page) -> None:
+        """[P1] Blob URLs go when a Preview is discarded and when the screen is left."""
+        record_object_urls(page)
+        api = ItemAudioApi(page, stored_item(has_audio=True))
+        open_item(page, api, viewports.DESKTOP)
+        regenerate(page, api)
+        card_button(page, KEEP_CURRENT).click()
+        expect(card_button(page, USE_PREVIEW)).to_have_count(0)
+        first = object_urls(page)
+        assert first["created"] and first["created"][0] in first["revoked"]
+
+        regenerate(page, api)
+        card_button(page, USE_PREVIEW).click()
+        save_and_wait(page)
+        expect(unsaved_chip(page, 1)).to_have_count(0)
+        accepted = object_urls(page)["created"][-1]
+        assert accepted not in object_urls(page)["revoked"]
+        main(page).get_by_role("link", name=re.compile("Items$")).click()
+        expect(page).to_have_url(re.compile(r"/en/items$"))
+
+        assert accepted in object_urls(page)["revoked"]
+
+    @pytest.mark.p1
+    def test_a_preview_reply_after_leaving_opens_nothing(self, page: Page) -> None:
+        """[P1] a Preview answering after the screen is left creates no clip and no card."""
+        record_object_urls(page)
+        api = ItemAudioApi(page, stored_item(has_audio=True))
+        held: list[Route] = []
+        # Registered last, so it answers first: the Preview stays pending until released
+        page.route(f"**{PREVIEW_API}", lambda route: held.append(route))
+        open_item(page, api, viewports.DESKTOP)
+        with page.expect_request(is_preview):
+            card_button(page, REGENERATE_AUDIO).click()
+        main(page).get_by_role("link", name=re.compile("Items$")).click()
+        expect(page).to_have_url(re.compile(r"/en/items$"))
+        for _ in range(200):  # the route handler runs on a later dispatch; at most ~2 s
+            if held:
+                break
+            page.wait_for_timeout(10)
+        assert held, "the Preview request never reached its held route"
+        (pending,) = held
+        with page.expect_response(lambda response: is_preview(response.request)):
+            pending.fulfill(status=200, content_type="audio/mpeg", body=MP3)
+
+        assert object_urls(page)["created"] == []
+
+        expect(item_audio_card(page)).to_have_count(0)
+        assert api.saves == []
+
+    @pytest.mark.p1
+    def test_media_failure_leaves_the_card_without_a_clip_and_edits_save(self, page: Page) -> None:
+        """[P1] AC-1 a clip that fails to load leaves no player; edits still save with keep."""
+        api = ItemAudioApi(page, stored_item(has_audio=True))
+        api.media = {}
+        open_item(page, api, viewports.PHONE)
+
+        expect(item_audio_card(page).get_by_text(MEDIA_FAILED)).to_be_visible()
+
+        expect(item_audio_card(page).locator("audio")).to_have_count(0)
+        edit_field(page, "Mnemonic").fill(UNRELATED_EDIT)
+        save_and_wait(page)
+        (saved,) = api.saves
+        assert (saved.item["audio"], saved.audio_file) == ("keep", None)

@@ -22,20 +22,35 @@
 // its alert with Try again in its group and leaves the buffer as it was, and a reply arriving
 // after the screen is gone opens nothing. Previews stay open across a Save and compare against
 // the new Current. Delete permanently removes the persisted Item, with a reusable confirmation;
-// cancellation and failures keep this buffer and every Preview. Voice and audio are later stories'.
+// cancellation and failures keep this buffer and every Preview.
+//
+// Reference audio (FR-23, story 6.2) is a card after the fields. The current clip plays from
+// /api/media/<audio> of this mount's read, never autoplaying; a clip that fails to load leaves
+// the card without a player and the edits unaffected. Voice changes only write voice-pref.js;
+// only "Regenerate audio" (or "Preview" when there is no audio) synthesizes, via 6.1's Preview,
+// and writes nothing. Its compare pair offers Keep current / Use preview; "Remove audio" marks a
+// pending removal that "Keep audio" undoes. The offered clip, the accepted one and the removal
+// each count as one unsaved change and live only in screen memory. Save changes sends the
+// intent (`replace` with the accepted Blob, `remove`, else `keep`) with the edits in one Save;
+// a failed Save keeps them, so a retry resends the same bytes under the same ItemId. A buffer
+// Target that differs from the remaining clip's Target warns "Audio no longer matches the
+// text." without blocking Save. Blob URLs are revoked when replaced, discarded or left behind.
 
 import {
   deleteItem,
   errorMessage,
   findDuplicates,
   getItem,
+  getVoices,
   isApiError,
+  previewAudio,
   regenerateContent,
   saveItem,
 } from "../api.js";
 import { categoryName, languageName } from "../catalog.js";
 import { alertBox, element, skeleton, tryAgain } from "../dom.js";
 import { confirmDestructive, confirmLeave, navigate, setDirty } from "../router.js";
+import { readVoice, writeVoice } from "../voice-pref.js";
 import {
   duplicateSheet,
   editorFields,
@@ -87,10 +102,343 @@ const GROUPS = [
   },
 ];
 
-// Changed fields, plus one per open Preview (EXPERIENCE.md "Unsaved … Preview")
-function unsavedCount(values, loaded, previews) {
+// Changed fields, plus one per open Preview (EXPERIENCE.md "Unsaved … Preview") and one per
+// pending audio state (offered, accepted, removal)
+function unsavedCount(values, loaded, previews, audioPending = 0) {
   const changed = Object.keys(loaded).filter((key) => values[key] !== loaded[key]).length;
-  return changed + Object.keys(previews).length;
+  return changed + Object.keys(previews).length + audioPending;
+}
+
+const REGENERATE_AUDIO = "Regenerate audio";
+const PREVIEW_AUDIO = "Preview";
+const MAKING_AUDIO = "Making audio…";
+const REMOVE_AUDIO = "Remove audio";
+const KEEP_AUDIO = "Keep audio";
+const REMOVAL_NOTE = "Audio will be removed when you save.";
+const STALE_AUDIO = "Audio no longer matches the text.";
+const TTS_FAILED = "Couldn't make the audio. Current audio is unchanged.";
+const MEDIA_FAILED = "Couldn't load the saved audio.";
+let compareIds = 0; // unique ids for the audio compare headings
+const AUDIO_COMPARE_HINT = "The old audio is removed only after Save succeeds.";
+
+// The Item's Reference audio card (story 6.2). `values()` is the edit buffer, `busy()` whether
+// a Save or Delete runs, `changed()` reports a pending-state change to the screen. State stays
+// in this closure: `current` ({url, target, blob?}: the saved clip, a /api/media URL or, after a
+// replace Save, the accepted Blob's URL), `offered` and `accepted` ({blob, url, target}) and
+// `removing`. Players are kept per URL, so a re-render moves them without stopping playback.
+function itemAudioCard({ language, audioName, target, values, busy, changed }) {
+  const locale = language === "fr" ? "fr-CA" : "en-US";
+  const state = {
+    voices: [], voice: null, loading: true, voiceError: false,
+    previewing: false, previewError: false, sequence: 0, disposed: false,
+    current: audioName ? { url: `/api/media/${encodeURIComponent(audioName)}`, target } : null,
+    currentFailed: false, offered: null, accepted: null, removing: false,
+  };
+  const players = new Map(); // url -> <audio>
+  const card = element("section", "reference-audio item-reference-audio");
+  card.setAttribute("aria-label", "Reference audio");
+  const heading = element("h2", "make-item-heading", "Reference audio");
+  const body = element("div", "reference-audio-body");
+  card.append(heading, body);
+  let stale = null; // the stale row, updated on every edit
+  let controls = []; // buttons whose disabled state follows busy/previewing
+  let nodes = {}; // this render's focus targets: regenerate, remove, keepAudio, compare, retry
+
+  function remaining() {
+    if (state.removing) return null;
+    return state.accepted ?? state.current;
+  }
+
+  function release(clip) {
+    if (!clip) return;
+    const audio = players.get(clip.url);
+    if (audio) {
+      audio.pause();
+      audio.removeAttribute("src");
+      audio.load();
+      players.delete(clip.url);
+    }
+    if (clip.blob) URL.revokeObjectURL(clip.url);
+  }
+
+  function button(label, action, className = "button button-secondary") {
+    const node = element("button", className, label);
+    node.type = "button";
+    node.addEventListener("click", action);
+    controls.push(node);
+    return node;
+  }
+
+  function player(clip, label) {
+    const wrap = element("div", "reference-audio-clip");
+    let audio = players.get(clip.url);
+    if (!audio) {
+      audio = element("audio");
+      audio.controls = true;
+      audio.preload = clip.blob ? "auto" : "metadata";
+      audio.src = clip.url;
+      if (clip === state.current && !clip.blob) {
+        audio.addEventListener("error", () => {
+          if (state.disposed || state.current !== clip) return;
+          state.currentFailed = true;
+          players.delete(clip.url);
+          render();
+        });
+      }
+      players.set(clip.url, audio);
+    }
+    audio.setAttribute("aria-label", label);
+    wrap.append(audio);
+    return wrap;
+  }
+
+  function currentPlayer() {
+    const clip = remaining();
+    if (!clip) return null;
+    if (clip === state.current && state.currentFailed) {
+      return element("p", "make-item-hint", MEDIA_FAILED);
+    }
+    return player(clip, clip === state.accepted ? "Play new audio" : "Play current audio");
+  }
+
+  function render() {
+    if (state.disposed) return;
+    controls = [];
+    nodes = {};
+    body.replaceChildren();
+    const label = element("label", "draft-label", "Voice");
+    const select = element("select", "compose-field reference-audio-voice");
+    select.setAttribute("aria-label", "Voice");
+    for (const voice of state.voices) {
+      const option = element("option", null, voice.displayName);
+      option.value = voice.name;
+      select.append(option);
+    }
+    select.value = state.voice ?? "";
+    select.addEventListener("change", () => {
+      state.voice = select.value;
+      writeVoice(locale, state.voice); // a Voice change never synthesizes or writes Anki
+    });
+    label.append(select);
+    body.append(label);
+    if (state.loading) body.append(element("p", "make-item-hint", "Loading voices…"));
+    if (state.voiceError) {
+      body.append(alertBox("reference-audio-error", "Couldn't load voices", tryAgain(loadVoices)));
+    } else if (!state.loading && !state.voices.length) {
+      body.append(element("p", "make-item-hint", "No voices available for this language."));
+    }
+
+    const hasAudio = Boolean(state.current || state.accepted);
+    const regenerateRow = element("div", "reference-audio-actions");
+    const regenerate = button(
+      state.previewing ? MAKING_AUDIO : hasAudio ? REGENERATE_AUDIO : PREVIEW_AUDIO,
+      preview,
+    );
+    if (state.previewing) regenerate.setAttribute("aria-busy", "true");
+    regenerate.dataset.role = "regenerate";
+    nodes.regenerate = regenerate;
+    regenerateRow.append(regenerate);
+    if (remaining()) {
+      nodes.remove = button(REMOVE_AUDIO, removeAudio, "button-link");
+      regenerateRow.append(nodes.remove);
+    }
+    stale = element("p", "reference-audio-stale", STALE_AUDIO);
+    regenerateRow.append(stale);
+
+    if (state.offered) {
+      const pair = element("section", "compare-pair reference-audio-compare");
+      pair.setAttribute("role", "group");
+      const title = element("h3", "compare-title", "Reference audio · compare");
+      title.id = `compare-audio-${++compareIds}`;
+      title.tabIndex = -1;
+      nodes.compare = title;
+      pair.setAttribute("aria-labelledby", title.id);
+      const panes = element("div", "compare-panes");
+      const now = element("div", "compare-pane compare-current");
+      now.append(element("span", "compare-label", CURRENT));
+      now.append(currentPlayer() ?? element("p", "compare-secondary", "No audio"));
+      const offered = element("div", "compare-pane compare-preview");
+      offered.append(
+        element("span", "compare-label", PREVIEW_NOT_SAVED),
+        player(state.offered, "Play audio preview"),
+      );
+      panes.append(now, offered);
+      const actions = element("div", "compare-actions");
+      actions.append(
+        button(KEEP_CURRENT, keepCurrent),
+        button(USE_PREVIEW, usePreview, "button button-soft"),
+      );
+      pair.append(
+        title,
+        panes,
+        element("p", "make-item-hint", AUDIO_COMPARE_HINT),
+        actions,
+      );
+      body.append(regenerateRow, pair);
+    } else {
+      const clip = currentPlayer();
+      if (clip) body.append(clip);
+      body.append(regenerateRow);
+      if (state.accepted) {
+        body.append(element("p", "make-item-hint", "New audio · saved when you save."));
+      }
+    }
+    if (state.removing) {
+      const row = element("div", "reference-audio-removal");
+      row.append(element("p", "reference-audio-removal-note", REMOVAL_NOTE));
+      nodes.keepAudio = button(KEEP_AUDIO, keepAudio, "button-link");
+      row.append(nodes.keepAudio);
+      body.append(row);
+    }
+    if (state.previewError) {
+      nodes.retry = tryAgain(preview);
+      body.append(alertBox("reference-audio-error", TTS_FAILED, nodes.retry));
+    }
+    refresh();
+  }
+
+  // Stale warning and disabled states: run on every edit, without rebuilding the players
+  function refresh() {
+    if (state.disposed) return;
+    const clip = remaining();
+    if (stale) stale.hidden = !clip || clip.target === values().target;
+    const blocked = busy() || state.previewing;
+    for (const node of controls) {
+      if (node.dataset.role === "regenerate") {
+        // The in-flight button stays focusable, marked busy and aria-disabled (preview()
+        // refuses re-entry)
+        if (state.previewing) {
+          node.disabled = false;
+          node.setAttribute("aria-disabled", "true");
+          continue;
+        }
+        node.disabled = busy() || state.loading || !state.voice || !values().target.trim();
+      } else {
+        node.disabled = blocked;
+      }
+    }
+  }
+
+  // Report a pending-state change, then focus `key` of the re-rendered card (the pressed
+  // control is gone), as the text groups do
+  function settle(key) {
+    changed();
+    if (!state.disposed) nodes[key]?.focus();
+  }
+
+  async function loadVoices() {
+    state.loading = true;
+    state.voiceError = false;
+    render();
+    try {
+      const { voices } = await getVoices(locale);
+      if (state.disposed) return;
+      state.voices = voices;
+      const preferred = state.voice ?? readVoice(locale);
+      state.voice = voices.some((voice) => voice.name === preferred)
+        ? preferred
+        : voices[0]?.name ?? null;
+    } catch {
+      if (state.disposed) return;
+      state.voiceError = true;
+    }
+    state.loading = false;
+    render();
+  }
+
+  // The only synthesis: the buffer's Target in the chosen Voice, kept in memory (NFR-4)
+  async function preview() {
+    const text = values().target;
+    if (state.previewing || busy() || !state.voice || !text.trim()) return;
+    const sequence = ++state.sequence;
+    state.previewing = true;
+    state.previewError = false;
+    render();
+    nodes.regenerate?.focus();
+    try {
+      const blob = await previewAudio({ language, voice: state.voice, target: text });
+      if (state.disposed || state.sequence !== sequence) return;
+      release(state.offered);
+      state.offered = { blob, target: text, url: URL.createObjectURL(blob) };
+    } catch {
+      if (state.disposed || state.sequence !== sequence) return;
+      state.previewError = true;
+    }
+    state.previewing = false;
+    render();
+    settle(state.previewError ? "retry" : "compare");
+  }
+
+  function keepCurrent() {
+    release(state.offered);
+    state.offered = null;
+    render();
+    settle("regenerate");
+  }
+
+  function usePreview() {
+    if (!state.offered) return;
+    release(state.accepted);
+    state.accepted = state.offered;
+    state.offered = null;
+    state.removing = false;
+    render();
+    settle("regenerate");
+  }
+
+  function removeAudio() {
+    release(state.accepted);
+    state.accepted = null;
+    state.removing = Boolean(state.current);
+    render();
+    settle(state.removing ? "keepAudio" : "regenerate");
+  }
+
+  function keepAudio() {
+    state.removing = false;
+    render();
+    settle("remove");
+  }
+
+  render();
+  loadVoices();
+  return {
+    card,
+    render,
+    refresh,
+    // Unsaved changes the card holds: one each for the offered clip, accepted clip, removal
+    pending: () => Number(Boolean(state.offered)) + Number(Boolean(state.accepted))
+      + Number(state.removing),
+    intent: () => (state.accepted ? "replace" : state.removing ? "remove" : "keep"),
+    blob: () => state.accepted?.blob ?? null,
+    // A successful Save of `intent`: the accepted clip becomes Current, or the clip is gone
+    saved(intent) {
+      if (state.disposed) return;
+      if (intent === "replace" && state.accepted) {
+        release(state.current);
+        state.current = state.accepted;
+        state.currentFailed = false;
+        state.accepted = null;
+      } else if (intent === "remove") {
+        release(state.current);
+        state.current = null;
+        state.currentFailed = false;
+        state.removing = false;
+      }
+      render();
+    },
+    dispose() {
+      state.disposed = true;
+      state.sequence += 1;
+      for (const clip of [state.current, state.accepted, state.offered]) release(clip);
+      for (const audio of players.values()) {
+        audio.pause();
+        audio.removeAttribute("src");
+      }
+      players.clear();
+      state.current = state.accepted = state.offered = null;
+    },
+  };
 }
 
 // [title, body] of a failed regeneration: the Draft's copy (captures.js), for an Item
@@ -137,6 +485,7 @@ export function mount(root, params) {
   let regenerating = null; // the group key whose regeneration is in flight
   let regenError = null; // {group, error} of the last failed regeneration
   let currentInputs = null; // the rendered inputs, to keep focus across a re-render
+  let audioCard = null; // the Reference audio card, built once per read
 
   const screen = element("div", "item-detail");
   const back = element("a", "back-link", `‹ ${languageName(lang)} Items`);
@@ -146,7 +495,7 @@ export function mount(root, params) {
   root.replaceChildren(screen);
 
   function syncDirty() {
-    const count = unsavedCount(values, loadedValues, previews);
+    const count = unsavedCount(values, loadedValues, previews, audioCard?.pending() ?? 0);
     setDirty(count ? { kind: "item", count, target: item.target } : null);
     return count;
   }
@@ -243,10 +592,12 @@ export function mount(root, params) {
       event.preventDefault();
       if (!save.disabled) saveChanges();
     });
-    form.append(header, fields, alertSlot, actions);
+    form.append(header, fields, audioCard.card, alertSlot, actions);
     body.replaceChildren(form);
+    audioCard.render();
 
     function refresh() {
+      audioCard.refresh();
       const count = syncDirty();
       chip.textContent = count ? unsavedLabel(count) : "";
       chip.hidden = count === 0;
@@ -453,6 +804,14 @@ export function mount(root, params) {
     item = read;
     loadedValues = generatedValues(read);
     values = { ...loadedValues };
+    audioCard = itemAudioCard({
+      language: lang,
+      audioName: read.audio ?? null,
+      target: read.target,
+      values: () => values,
+      busy: () => busy,
+      changed: () => renderEditor(),
+    });
     renderEditor();
   }
 
@@ -463,6 +822,8 @@ export function mount(root, params) {
     error = null;
     renderEditor();
     const part = itemPart({ category: item.category, itemId: item.itemId, values });
+    part.audio = audioCard.intent();
+    const audioBlob = part.audio === "replace" ? audioCard.blob() : null;
     if (part.target !== item.target && part.target !== createdAnyway) {
       let matches;
       try {
@@ -487,7 +848,7 @@ export function mount(root, params) {
       }
     }
     try {
-      await saveItem(lang, part);
+      await saveItem(lang, part, audioBlob);
     } catch (failure) {
       if (!mounted) return;
       busy = false;
@@ -497,12 +858,13 @@ export function mount(root, params) {
     }
     if (!mounted) return;
     // The saved values are now the Item's: clean again
-    const { audio: _audio, ...saved } = part;
+    const { audio: intent, ...saved } = part;
     item = saved;
     loadedValues = generatedValues(saved);
     values = { ...loadedValues };
     busy = false;
     createdAnyway = null;
+    audioCard.saved(intent);
     renderEditor({ focus: "save" });
   }
 
@@ -545,6 +907,7 @@ export function mount(root, params) {
   return () => {
     mounted = false;
     closeSheet();
+    audioCard?.dispose();
     root.replaceChildren();
   };
 }
