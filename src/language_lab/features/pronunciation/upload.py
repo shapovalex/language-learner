@@ -12,6 +12,11 @@ from language_lab.domain.catalog import UUID4
 from language_lab.domain.errors import AppError, ErrorCode
 from language_lab.features.pronunciation.audio import MAX_ATTEMPT_BYTES
 
+MAX_HEADER_BYTES = 8192  # all part header names and values, together
+MAX_BOUNDARY_BYTES = 200
+UUID_LENGTH = 36  # the itemId part's limit
+STREAM_SLACK_BYTES = 16384  # multipart framing allowed beyond the recording
+
 
 async def read_attempt(request: Request) -> tuple[str, bytes]:
     parts: dict[bytes, bytearray] = {}
@@ -27,19 +32,15 @@ async def read_attempt(request: Request) -> tuple[str, bytes]:
         current = None
         headers.clear()
 
-    def header_field(data, start, end):
-        nonlocal header_size
-        header_size += end - start
-        if header_size > 8192:
-            raise ValueError
-        header_name.extend(data[start:end])
+    def header_bytes(target: bytearray):
+        def on_bytes(data, start, end):
+            nonlocal header_size
+            header_size += end - start
+            if header_size > MAX_HEADER_BYTES:
+                raise ValueError
+            target.extend(data[start:end])
 
-    def header_value_part(data, start, end):
-        nonlocal header_size
-        header_size += end - start
-        if header_size > 8192:
-            raise ValueError
-        header_value.extend(data[start:end])
+        return on_bytes
 
     def header_end():
         key = bytes(header_name).lower()
@@ -62,14 +63,11 @@ async def read_attempt(request: Request) -> tuple[str, bytes]:
     def data_part(data, start, end):
         if current is None:
             raise ValueError
-        limit = MAX_ATTEMPT_BYTES if current == b"recording" else 36
-        if len(parts[current]) + end - start > limit:
-            code = (
-                ErrorCode.PAYLOAD_TOO_LARGE
-                if current == b"recording"
-                else (ErrorCode.VALIDATION_FAILED)
+        recording = current == b"recording"
+        if len(parts[current]) + end - start > (MAX_ATTEMPT_BYTES if recording else UUID_LENGTH):
+            raise AppError(
+                ErrorCode.PAYLOAD_TOO_LARGE if recording else ErrorCode.VALIDATION_FAILED
             )
-            raise AppError(code)
         parts[current].extend(data[start:end])
 
     def finished():
@@ -79,14 +77,14 @@ async def read_attempt(request: Request) -> tuple[str, bytes]:
     try:
         kind, options = parse_options_header(request.headers.get("content-type", ""))
         boundary = options.get(b"boundary", b"")
-        if kind != b"multipart/form-data" or not boundary or len(boundary) > 200:
+        if kind != b"multipart/form-data" or not boundary or len(boundary) > MAX_BOUNDARY_BYTES:
             raise ValueError
         parser = MultipartParser(
             boundary,
             callbacks={
                 "on_part_begin": begin,
-                "on_header_field": header_field,
-                "on_header_value": header_value_part,
+                "on_header_field": header_bytes(header_name),
+                "on_header_value": header_bytes(header_value),
                 "on_header_end": header_end,
                 "on_headers_finished": headers_finished,
                 "on_part_data": data_part,
@@ -96,7 +94,7 @@ async def read_attempt(request: Request) -> tuple[str, bytes]:
         total = 0
         async for chunk in request.stream():
             total += len(chunk)
-            if total > MAX_ATTEMPT_BYTES + 16384:
+            if total > MAX_ATTEMPT_BYTES + STREAM_SLACK_BYTES:
                 raise AppError(ErrorCode.PAYLOAD_TOO_LARGE)
             parser.write(chunk)
         parser.finalize()

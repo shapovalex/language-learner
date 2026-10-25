@@ -6,7 +6,12 @@ SyncRequester for a Sync and never wait for it (FR-36, AD-17). Nothing about a s
 import asyncio
 
 from language_lab.domain.catalog import Language
-from language_lab.domain.pronunciation import Assessment, PronunciationQueue, Rating
+from language_lab.domain.pronunciation import (
+    ASSESSMENT_LOCALE,
+    Assessment,
+    PronunciationQueue,
+    Rating,
+)
 from language_lab.features.pronunciation.audio import to_wav
 from language_lab.ports.anki_store import AnkiStore
 from language_lab.ports.speech import Speech
@@ -25,8 +30,7 @@ class PronunciationService:
         # get_item's scoped lock is released before decode or the provider request.
         item = await self._anki.get_item(language, item_id)
         wav = await asyncio.to_thread(to_wav, recording)
-        locale = "en-US" if language == Language.EN else "fr-CA"
-        return await self._speech.assess(locale, item.content.target, wav)
+        return await self._speech.assess(ASSESSMENT_LOCALE[language], item.content.target, wav)
 
     async def queue(self, language: Language) -> PronunciationQueue:
         """The Language's queue in FR-30 order. Raises `AppError(ANKI_UNAVAILABLE | ANKI_BUSY)`."""

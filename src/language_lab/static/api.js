@@ -240,18 +240,20 @@ export function rateCard(lang, { cardId, reps, rating }) {
   });
 }
 
+function sessionPath(lang, signal) {
+  return pronunciationPath(lang, `session/${signal}`);
+}
+
 // A Pronunciation session's `start` or `end` (FR-36, AD-17): 204 at once, the Sync it asks for
 // never awaited. Fire and forget: a failed signal is never shown. `keepalive` lets it outlive
 // the screen that sent it
 export function sessionSignal(lang, signal) {
-  request(pronunciationPath(lang, `session/${signal}`), { method: "POST", keepalive: true }).catch(
-    () => {},
-  );
+  request(sessionPath(lang, signal), { method: "POST", keepalive: true }).catch(() => {});
 }
 
 // The same signal while the page itself goes away (`pagehide`): a beacon, else a keepalive POST
 export function sessionBeacon(lang, signal) {
-  const path = pronunciationPath(lang, `session/${signal}`);
+  const path = sessionPath(lang, signal);
   if (typeof navigator.sendBeacon === "function" && navigator.sendBeacon(path)) return;
   sessionSignal(lang, signal);
 }

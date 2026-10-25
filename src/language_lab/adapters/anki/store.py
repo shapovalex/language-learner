@@ -194,25 +194,41 @@ def _matching(infos: list[dict[str, Any]], name: str, value: str) -> Iterator[di
     return (info for info in infos if _field(info, name).strip() == value)
 
 
+def _id_list(reply: Any) -> list[int]:
+    """A `findCards`/`findNotes` reply: a list of int ids, else `ANKI_UNAVAILABLE`."""
+    if not isinstance(reply, list) or not all(is_int(entry_id) for entry_id in reply):
+        raise AppError(ErrorCode.ANKI_UNAVAILABLE)
+    return reply
+
+
+def _present_entries(reply: Any, expected: int) -> list[dict[str, Any]]:
+    """A `cardsInfo`/`notesInfo` reply's entries, one per id asked: an entry deleted since the
+    find (`{}`) skipped; `ANKI_UNAVAILABLE` on a wrong length or a non-dict entry.
+    """
+    if not isinstance(reply, list) or len(reply) != expected:
+        raise AppError(ErrorCode.ANKI_UNAVAILABLE)
+    entries: list[dict[str, Any]] = []
+    for entry in reply:
+        if entry == {}:
+            continue
+        if not isinstance(entry, dict):
+            raise AppError(ErrorCode.ANKI_UNAVAILABLE)
+        entries.append(entry)
+    return entries
+
+
 def _queued_cards(infos: Any, expected: int) -> list[dict[str, Any]]:
     """The `cardsInfo` entries still in the queue: each well formed, a card deleted since
     `findCards` (`{}`) skipped, a suspended or buried one (negative `queue`) dropped;
     `ANKI_UNAVAILABLE` on a malformed reply.
     """
-    if not isinstance(infos, list) or len(infos) != expected:
-        raise AppError(ErrorCode.ANKI_UNAVAILABLE)
+    keys = ("cardId", "note", "type", "queue", "due", "reps")
     queued: list[dict[str, Any]] = []
-    for info in infos:
-        if info == {}:
-            continue
-        if not isinstance(info, dict):
-            raise AppError(ErrorCode.ANKI_UNAVAILABLE)
-        keys = ("cardId", "note", "type", "queue", "due", "reps")
+    for info in _present_entries(infos, expected):
         if not all(is_int(info.get(key)) for key in keys):
             raise AppError(ErrorCode.ANKI_UNAVAILABLE)
-        if info["queue"] < 0:
-            continue
-        queued.append(info)
+        if info["queue"] >= 0:
+            queued.append(info)
     return queued
 
 
@@ -220,13 +236,9 @@ def _notes_by_id(infos: Any, expected: int) -> dict[int, dict[str, Any]]:
     """`notesInfo` entries by note id, a note deleted in between (`{}`) left out;
     `ANKI_UNAVAILABLE` on a malformed reply.
     """
-    if not isinstance(infos, list) or len(infos) != expected:
-        raise AppError(ErrorCode.ANKI_UNAVAILABLE)
     by_id: dict[int, dict[str, Any]] = {}
-    for info in infos:
-        if info == {}:
-            continue
-        if not isinstance(info, dict) or not is_int(info.get("noteId")):
+    for info in _present_entries(infos, expected):
+        if not is_int(info.get("noteId")):
             raise AppError(ErrorCode.ANKI_UNAVAILABLE)
         by_id[info["noteId"]] = info
     return by_id
@@ -561,9 +573,7 @@ class AnkiConnectStore:
                 query = pronounce_queue_query(
                     manifest, manifest.card_deck(model, PRONOUNCE_ORD), model, PRONOUNCE_ORD + 1
                 )
-                ids = await self._client.invoke("findCards", query=query)
-                if not isinstance(ids, list) or not all(is_int(card_id) for card_id in ids):
-                    raise AppError(ErrorCode.ANKI_UNAVAILABLE)
+                ids = _id_list(await self._client.invoke("findCards", query=query))
                 for card_id in ids:
                     found.setdefault(card_id, category)
             if not found:
@@ -605,10 +615,9 @@ class AnkiConnectStore:
         """Answer one Pronounce Card unless its `reps` moved on (then True: alreadyAnswered).
 
         The card must be ord 3 of one of the Language's Item note types, unsuspended and
-        unburied, in its Pronunciation deck, else `NOT_FOUND`; its
-        `reps` and the answer share one lock hold. `answerCards` must answer `[true]`, else
-        `ANKI_UNAVAILABLE`. Raises `AppError(NOT_FOUND | SETUP_REQUIRED | ANKI_UNAVAILABLE |
-        ANKI_BUSY)`.
+        unburied, in its Pronunciation deck, else `NOT_FOUND`; its `reps` and the answer share
+        one lock hold. `answerCards` must answer `[true]`, else `ANKI_UNAVAILABLE`. Raises
+        `AppError(NOT_FOUND | SETUP_REQUIRED | ANKI_UNAVAILABLE | ANKI_BUSY)`.
         """
         manifest = self._require_manifest()
         models = {manifest.item_note_type(language, category) for category in Category}
@@ -618,12 +627,16 @@ class AnkiConnectStore:
                 raise AppError(ErrorCode.ANKI_UNAVAILABLE)
             info = infos[0]
             model, queue = info.get("modelName"), info.get("queue")
-            if model not in models or info.get("ord") != PRONOUNCE_ORD:
-                raise AppError(ErrorCode.NOT_FOUND)  # `{}` too: a card Anki doesn't have
-            # Suspended, buried or moved out of its Pronunciation deck since the queue read
-            if not is_int(queue) or queue < 0:
-                raise AppError(ErrorCode.NOT_FOUND)
-            if info.get("deckName") != manifest.card_deck(model, PRONOUNCE_ORD):
+            # `{}` too (a card Anki doesn't have), or one suspended, buried or moved out of its
+            # Pronunciation deck since the queue read
+            in_scope = (
+                model in models
+                and info.get("ord") == PRONOUNCE_ORD
+                and is_int(queue)
+                and queue >= 0
+                and info.get("deckName") == manifest.card_deck(model, PRONOUNCE_ORD)
+            )
+            if not in_scope:
                 raise AppError(ErrorCode.NOT_FOUND)
             current = info.get("reps")
             if not is_int(current):
@@ -677,22 +690,10 @@ class AnkiConnectStore:
         deleted in between; `ANKI_UNAVAILABLE` on a malformed reply.
         """
         query = note_query(manifest, model)
-        ids = await self._client.invoke("findNotes", query=query)
-        if not isinstance(ids, list) or not all(is_int(note_id) for note_id in ids):
-            raise AppError(ErrorCode.ANKI_UNAVAILABLE)
+        ids = _id_list(await self._client.invoke("findNotes", query=query))
         if not ids:
             return []
-        infos = await self._client.invoke("notesInfo", notes=ids)
-        if not isinstance(infos, list) or len(infos) != len(ids):
-            raise AppError(ErrorCode.ANKI_UNAVAILABLE)
-        entries: list[dict[str, Any]] = []
-        for info in infos:
-            if info == {}:  # a note deleted since `findNotes`
-                continue
-            if not isinstance(info, dict):
-                raise AppError(ErrorCode.ANKI_UNAVAILABLE)
-            entries.append(info)
-        return entries
+        return _present_entries(await self._client.invoke("notesInfo", notes=ids), len(ids))
 
     async def _find_capture(self, manifest: Manifest, capture_id: str) -> Capture | None:
         """The stored Capture whose decoded CaptureId is `capture_id`, from the exact Capture
