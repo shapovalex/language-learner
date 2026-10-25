@@ -26,6 +26,11 @@
 // first asks GET /api/items/<lang>/duplicates (story 4.3): a match opens the duplicate sheet,
 // whose Create anyway saves, Cancel returns to the editor, and Open existing goes, once the
 // router's unsaved alert allows, to the match's Item detail.
+//
+// "Make an Item" beside Save Capture opens the same pane at /captures/make for the compose text,
+// with no Capture: nothing is saved, read or deleted. Its Draft is at /captures/make/draft and
+// goes through the same lifecycle; a Save returns to /captures with the success banner and clears
+// the compose box, while leaving the pane or the Draft keeps the compose text.
 
 import {
   blankDraft,
@@ -69,15 +74,29 @@ const DELETE_BODY = "This removes the Capture from Anki. Items you made from it 
 const DELETE_CONFIRM = "Delete permanently";
 const NOT_DELETED_TITLE = "Not deleted — Anki isn't reachable";
 const NOT_DELETED_BODY = "Make sure Anki Desktop is open on the Mac mini, then try again.";
-const MODEL_UNREACHABLE = ["Couldn't reach the model", "Your Capture is unchanged."];
+const MODEL_UNREACHABLE = "Couldn't reach the model";
 const NOT_GENERATED = "Couldn't generate a Draft";
-const INVALID_TWICE = "The model's answer failed the checks twice. Your Capture is unchanged.";
+const INVALID_TWICE = "The model's answer failed the checks twice.";
+const CAPTURE_UNCHANGED = "Your Capture is unchanged.";
+const NOTHING_SAVED = "Nothing has been saved yet.";
+const MAKE_PATH = "/captures/make";
+const MAKE_DRAFT_PATH = "/captures/make/draft";
 
 function capturePath(captureId) {
   return `/captures/${encodeURIComponent(captureId)}`;
 }
 
-function savedFlash(target) {
+// The pane a Draft came from: its Capture's detail, or the compose text's pane
+function panePath(captureId) {
+  return captureId === null ? MAKE_PATH : capturePath(captureId);
+}
+
+function draftPath(captureId) {
+  return captureId === null ? MAKE_DRAFT_PATH : `${capturePath(captureId)}/new`;
+}
+
+function savedFlash(target, captureId) {
+  if (captureId === null) return `Saved “${target}” to Anki.`;
   return `Saved “${target}” to Anki. Make another Item from this Capture, or delete it.`;
 }
 
@@ -94,12 +113,13 @@ function freshChoice() {
   };
 }
 
-// A Draft of `capture` in `picked`'s Language and Category, with `fields` (its ItemId, values
-// and, for a generated one, its generation)
-function newDraft(capture, picked, fields) {
+// A Draft of `source` (a Capture, or {captureId: null, text} for the compose text) in
+// `picked`'s Language and Category, with `fields` (its ItemId, values and, for a generated one,
+// its generation). `captureText` is null when there is no Capture
+function newDraft(source, picked, fields) {
   return {
-    captureId: capture.captureId,
-    captureText: capture.text,
+    captureId: source.captureId,
+    captureText: source.captureId === null ? null : source.text,
     language: picked.language,
     category: picked.category,
     busy: false,
@@ -164,10 +184,14 @@ function failureCopy(error, unreachable, title) {
   return isApiError(error, "anki_unavailable") ? unreachable : [title, errorMessage(error)];
 }
 
-// [title, body] of a failed generation (EXPERIENCE.md State Patterns)
-function generationFailure(error) {
-  if (isApiError(error, "llm_failed")) return MODEL_UNREACHABLE;
-  if (isApiError(error, "llm_invalid_output")) return [NOT_GENERATED, INVALID_TWICE];
+// [title, body] of a failed generation (EXPERIENCE.md State Patterns); with no Capture
+// (`captureId` null) the body says nothing was saved instead
+function generationFailure(error, captureId) {
+  const unchanged = captureId === null ? NOTHING_SAVED : CAPTURE_UNCHANGED;
+  if (isApiError(error, "llm_failed")) return [MODEL_UNREACHABLE, unchanged];
+  if (isApiError(error, "llm_invalid_output")) {
+    return [NOT_GENERATED, `${INVALID_TWICE} ${unchanged}`];
+  }
   return [NOT_GENERATED, errorMessage(error)];
 }
 
@@ -197,7 +221,10 @@ export function mount(root, params = {}) {
   const alertSlot = element("div", "compose-alert-slot");
   const save = element("button", "button button-primary", "Save Capture");
   save.type = "button";
-  card.append(label, alertSlot, save);
+  // The pane for the compose text, with no Capture (follows Save Capture's enabled rule)
+  const make = element("button", "button button-secondary", "Make an Item");
+  make.type = "button";
+  card.append(label, alertSlot, save, make);
 
   // The list: header, then the skeleton, the empty state, the load error or the rows
   const listSection = element("section", "captures-list-section");
@@ -230,6 +257,8 @@ export function mount(root, params = {}) {
     deleteError: null,
     token: 0,
   };
+  // At /captures/make: the pane is for the compose text, and no Capture is open
+  let making = false;
   // The Make an Item pane's choices for the open Capture
   let choice = freshChoice();
   // The Draft, from "Generate Draft" or "Write it myself" until it's saved or left; `editing`
@@ -299,8 +328,22 @@ export function mount(root, params = {}) {
   }
 
   function renderDetail() {
-    layout.classList.toggle("captures-detail-open", open.id !== null);
+    layout.classList.toggle("captures-detail-open", open.id !== null || making);
     markOpenRow();
+    if (making) {
+      const article = element("article", "capture-detail");
+      const content = element("div", "capture-detail-content");
+      content.append(element("p", "capture-detail-text", box.value.trim()));
+      article.append(content);
+      const actions = element("div", "capture-detail-actions narrow-only");
+      actions.append(backLink());
+      detailPane.replaceChildren(
+        actions,
+        article,
+        makeItemPane(choice, { onGenerate, onWrite, blank: !box.value.trim() }),
+      );
+      return;
+    }
     if (open.id === null) {
       detailPane.replaceChildren(element("p", "captures-hint wide-only", NO_SELECTION));
       return;
@@ -338,16 +381,26 @@ export function mount(root, params = {}) {
     if (open.status === "shown") detailPane.append(makeItemPane(choice, { onGenerate, onWrite }));
   }
 
-  // The text a Draft of `capture` starts from, or null while the pane can't make one yet
-  function draftTarget(capture) {
-    const target = chosenText(choice, capture.text);
-    if (choice.busy || target === null || !choice.language || !choice.category) return null;
+  // What the pane makes a Draft from: the open Capture, or the compose text at /captures/make
+  function paneSource() {
+    return making ? { captureId: null, text: box.value.trim() } : open.capture;
+  }
+
+  // Whether the pane still shows `source` after an await
+  function paneHolds(source) {
+    return source.captureId === null ? making : open.capture === source;
+  }
+
+  // The text a Draft of `source` starts from, or null while the pane can't make one yet
+  function draftTarget(source) {
+    const target = chosenText(choice, source.text);
+    if (choice.busy || !target || !choice.language || !choice.category) return null;
     return target;
   }
 
   // "Write it myself": a blank Draft of the chosen text, Language and Category
   async function onWrite() {
-    const capture = open.capture;
+    const capture = paneSource();
     const target = draftTarget(capture);
     if (target === null) return;
     const picked = { ...choice };
@@ -356,12 +409,12 @@ export function mount(root, params = {}) {
     renderDetail();
     try {
       const { itemId } = await blankDraft();
-      if (!mounted || open.capture !== capture) return;
+      if (!mounted || !paneHolds(capture)) return;
       choice.busy = false;
       draft = newDraft(capture, picked, { itemId, values: blankValues(picked.category, target) });
-      navigate(`${capturePath(capture.captureId)}/new`);
+      navigate(draftPath(capture.captureId));
     } catch (error) {
-      if (!mounted || open.capture !== capture) return;
+      if (!mounted || !paneHolds(capture)) return;
       choice.busy = false;
       choice.error = errorMessage(error);
       renderDetail();
@@ -370,7 +423,7 @@ export function mount(root, params = {}) {
 
   // "Generate Draft": open the Draft route at once, then ask the model
   async function onGenerate() {
-    const capture = open.capture;
+    const capture = paneSource();
     const target = draftTarget(capture);
     if (target === null) return;
     choice.error = null;
@@ -389,7 +442,7 @@ export function mount(root, params = {}) {
       },
     });
     const pending = draft;
-    await navigate(`${capturePath(capture.captureId)}/new`);
+    await navigate(draftPath(capture.captureId));
     // The route didn't open the editor (the leave was refused): there is no Draft to fill
     if (!mounted || draft !== pending || !editing) {
       if (draft === pending) draft = null;
@@ -443,7 +496,7 @@ export function mount(root, params = {}) {
     if (!draft.values) {
       const { screen, title, retry } = generatingScreen(draft, {
         onRetry: () => generate(draft),
-        alertFor: generationFailure,
+        alertFor: (error) => generationFailure(error, draft.captureId),
       });
       draftRoot.replaceChildren(screen);
       if (focus === "title") title.focus();
@@ -454,7 +507,7 @@ export function mount(root, params = {}) {
       onEdit: syncDirty,
       onSave: saveDraft,
       // The router asks about the Draft before it goes
-      onDiscard: () => navigate(capturePath(draft.captureId)),
+      onDiscard: () => navigate(panePath(draft.captureId)),
       alertFor: saveFailure,
     });
     draftRoot.replaceChildren(screen);
@@ -534,7 +587,15 @@ export function mount(root, params = {}) {
     }
     if (!mounted || draft !== saving) return;
     setDirty(null);
-    navigate(capturePath(saving.captureId), { flash: savedFlash(item.target) });
+    if (saving.captureId === null) {
+      // Made from the compose text: it's used, so the box starts afresh
+      box.value = "";
+      renderButtons();
+      await navigate("/captures", { flash: savedFlash(item.target, null) });
+      if (mounted) box.focus();
+      return;
+    }
+    navigate(capturePath(saving.captureId), { flash: savedFlash(item.target, saving.captureId) });
   }
 
   function openSheet(saving, matches) {
@@ -654,11 +715,13 @@ export function mount(root, params = {}) {
     renderDetail();
   }
 
-  function show(captureId) {
+  function show(captureId, makeItem = false) {
+    making = makeItem;
     open.id = captureId ?? null;
     open.deleteError = null;
     choice = freshChoice();
     if (open.id === null) {
+      // Making from the compose text, or no Capture open
       ++open.token;
       open.capture = null;
       open.status = null;
@@ -682,6 +745,7 @@ export function mount(root, params = {}) {
   function renderButtons() {
     const blocked = state.busy || !box.value.trim();
     save.disabled = blocked;
+    make.disabled = blocked;
     if (again) again.disabled = blocked;
   }
 
@@ -708,6 +772,8 @@ export function mount(root, params = {}) {
   function onInput() {
     syncDirty();
     renderButtons();
+    // The pane shows the compose text, and its actions wait while the box is blank
+    if (making && !editing) renderDetail();
   }
 
   async function submit() {
@@ -728,6 +794,8 @@ export function mount(root, params = {}) {
       state.captureId = crypto.randomUUID();
       state.busy = false;
       render();
+      // Saved from beside the make pane (desktop): the pane's text is now a Capture, so show it
+      if (making) navigate(capturePath(saved.captureId));
       box.focus();
     } catch (error) {
       if (!mounted) return;
@@ -742,10 +810,18 @@ export function mount(root, params = {}) {
 
   box.addEventListener("input", onInput);
   save.addEventListener("click", submit);
+  make.addEventListener("click", () => {
+    if (!make.disabled) navigate(MAKE_PATH);
+  });
   render();
   renderList();
-  // A Draft route with nothing in memory shows its Capture (AD-13)
-  if (params.draft) redirect(capturePath(open.id));
+  if (params.make) {
+    // A fresh mount has no compose text to make an Item from
+    redirect("/captures");
+  } else if (params.draft) {
+    // A Draft route with nothing in memory shows its Capture (AD-13)
+    redirect(capturePath(open.id));
+  }
   show(open.id);
   loadList();
 
@@ -758,22 +834,35 @@ export function mount(root, params = {}) {
   };
   // The route moved within Captures: open another Capture, or none
   unmount.update = (next) => {
-    const id = next.captureId ?? null;
+    let makeItem = Boolean(next.make);
+    const id = makeItem ? null : (next.captureId ?? null);
     if (next.draft) {
-      if (draft?.captureId === id) {
+      if (draft && draft.captureId === id) {
         if (!editing) openEditor();
         return;
       }
-      redirect(capturePath(id));
+      if (makeItem) {
+        makeItem = Boolean(box.value.trim());
+        redirect(makeItem ? MAKE_PATH : "/captures");
+      } else {
+        redirect(capturePath(id));
+      }
+    } else if (makeItem && !box.value.trim()) {
+      // The pane needs compose text (a forward after a Save cleared it)
+      makeItem = false;
+      redirect("/captures");
     }
     if (editing) closeEditor();
-    if (id === open.id) return;
+    if (id === open.id && makeItem === making) return;
     const previous = open.id;
-    show(id);
+    const wasMaking = making;
+    show(id, makeItem);
     if (twoPanes.matches) return;
     // Below 1024px the row or the back link that was clicked is hidden now: move focus on
-    if (id !== null) {
+    if (id !== null || makeItem) {
       detailPane.querySelector(".back-link")?.focus();
+    } else if (wasMaking) {
+      make.focus();
     } else if (previous !== null) {
       const row = [...listBody.querySelectorAll("a[data-capture-id]")].find(
         (link) => link.dataset.captureId === previous,

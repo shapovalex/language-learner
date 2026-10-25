@@ -5,7 +5,8 @@
 // `update(params)`, on that function or that object, stays mounted while the route moves
 // within it (`/captures` ↔ `/captures/<id>`), so its unsaved state survives and no unsaved
 // alert is asked (story 3.2). A Draft is the exception: it lives only at its route
-// (`/captures/<id>/new`, AD-13), so any move off that path asks about it (story 4.1).
+// (`/captures/<id>/new`, or `/captures/make/draft` with no Capture; AD-13), so any move off that
+// path asks about it (story 4.1).
 // `confirmDestructive` is the delete confirmation (S-Delete, story 3.3): a sibling of the
 // unsaved alert that shares only its focus cycling, so Capture and Item delete both use it.
 
@@ -22,8 +23,16 @@ function decoded(segment) {
 
 const ROUTES = [
   [/^\/captures$/, "captures", () => ({})],
-  [/^\/captures\/([^/]+)$/, "captures", (m) => ({ captureId: decoded(m[1]) })],
-  [/^\/captures\/([^/]+)\/new$/, "captures", (m) => ({ captureId: decoded(m[1]), draft: true })],
+  // The Make an Item pane and Draft for the compose text, with no Capture: before the CaptureId
+  // routes, which never read "make" as a CaptureId
+  [/^\/captures\/make$/, "captures", () => ({ make: true })],
+  [/^\/captures\/make\/draft$/, "captures", () => ({ make: true, draft: true })],
+  [/^\/captures\/(?!make(?:\/|$))([^/]+)$/, "captures", (m) => ({ captureId: decoded(m[1]) })],
+  [
+    /^\/captures\/(?!make\/)([^/]+)\/new$/,
+    "captures",
+    (m) => ({ captureId: decoded(m[1]), draft: true }),
+  ],
   [/^\/(en|fr)\/items$/, "items", (m) => ({ lang: m[1] })],
   [/^\/(en|fr)\/items\/([^/]+)$/, "item-detail", (m) => ({ lang: m[1], itemId: decoded(m[2]) })],
   [/^\/(en|fr)\/pronunciation$/, "pronunciation", (m) => ({ lang: m[1] })],

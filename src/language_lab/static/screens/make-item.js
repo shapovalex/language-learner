@@ -33,6 +33,7 @@ const WRITING = "Writing your Draft…";
 const CLEAR = "Clear";
 const CHOOSE_REASON = "Choose a Language and Category.";
 const CUSTOM_REASON = "Enter the custom value.";
+const TEXT_REASON = "Type the text in New Capture.";
 const REQUIRED_REASON = "Enter the Target text and Russian meaning.";
 const COMMA_REASON = "An alternative can't contain a comma. Put each one on its own line.";
 const DRAFT_CHIP = "Draft — not saved yet";
@@ -42,6 +43,8 @@ const OPEN_EXISTING = "Open existing";
 const CANCEL = "Cancel";
 const CREATE_ANYWAY = "Create anyway";
 const BACK = "‹ Capture";
+// A Draft made with no Capture goes back to its pane
+const BACK_TO_PANE = "‹ Make an Item";
 const UNREACHABLE_TITLE = "Not saved — Anki isn't reachable";
 const MAKING_AUDIO = "Making audio…";
 const AUTO_ERROR = "Couldn't make the audio. The Draft will save without audio.";
@@ -168,8 +171,9 @@ function picker(label, choices, chosen, onChoose) {
 
 // The Make an Item pane. `choice` is {source, custom, language, category, context, busy, error},
 // which the pane changes in place as the user picks; `onGenerate()` runs on "Generate Draft" and
-// `onWrite()` on "Write it myself"
-export function makeItemPane(choice, { onGenerate, onWrite }) {
+// `onWrite()` on "Write it myself". `blank` is true while the text Use as is takes is empty (the
+// compose text, when there is no Capture)
+export function makeItemPane(choice, { onGenerate, onWrite, blank = false }) {
   const headingId = uniqueId("make-item-heading");
   const section = element("section", "make-item");
   section.setAttribute("aria-labelledby", headingId);
@@ -257,6 +261,8 @@ export function makeItemPane(choice, { onGenerate, onWrite }) {
     let why = null;
     if (!choice.language || !choice.category) {
       why = CHOOSE_REASON;
+    } else if (choice.source !== "custom" && blank) {
+      why = TEXT_REASON;
     } else if (choice.source === "custom" && !choice.custom.trim()) {
       why = CUSTOM_REASON;
     }
@@ -271,13 +277,18 @@ export function makeItemPane(choice, { onGenerate, onWrite }) {
 }
 
 function backLink(draft, className) {
+  if (draft.captureId === null) {
+    const back = element("a", `back-link ${className}`, BACK_TO_PANE);
+    back.href = "/captures/make";
+    return back;
+  }
   const back = element("a", `back-link ${className}`, BACK);
   back.href = `/captures/${encodeURIComponent(draft.captureId)}`;
   return back;
 }
 
-// The Draft's header: its Capture, `target` as the title, and the Language and Category, with
-// the "not saved yet" chip once there is a Draft to save
+// The Draft's header: its Capture (none when it has no Capture), `target` as the title, and the
+// Language and Category, with the "not saved yet" chip once there is a Draft to save
 function draftHeader(draft, target, { chip }) {
   const header = element("header", "draft-header");
   const title = element("h1", "draft-title", target);
@@ -287,11 +298,10 @@ function draftHeader(draft, target, { chip }) {
     element("span", null, `${languageName(draft.language)} ${categoryName(draft.category)}`),
   );
   if (chip) meta.append(element("span", "chip chip-accent", DRAFT_CHIP));
-  header.append(
-    element("p", "draft-source", `From Capture “${draft.captureText}”`),
-    title,
-    meta,
-  );
+  if (draft.captureId !== null) {
+    header.append(element("p", "draft-source", `From Capture “${draft.captureText}”`));
+  }
+  header.append(title, meta);
   return { header, title };
 }
 
@@ -372,7 +382,7 @@ export function editorFields(category, values, { busy, onChange }) {
   return { fields, inputs };
 }
 
-// The Draft editor. `draft` is {captureId, captureText, language, category, itemId, values,
+// The Draft editor. `draft` is {captureId (null with no Capture), captureText, language, category, itemId, values,
 // busy, error}; edits go into `draft.values` and `onEdit()` runs after each. `onSave()` and
 // `onDiscard()` run on Save to Anki and Discard; `alertFor(error)` gives a failed Save's
 // [title, body]
