@@ -8,7 +8,14 @@
 // autoplays: /api/media/<name> is requested on the first tap only (FR-31). A Rating posts the
 // Card's cardId and reps; once Anki confirms, the queue is read again for the next Card and the
 // chip. A failed Rating keeps the Card current with an inline alert whose Try again resends the
-// same Rating (AD-20). One usable Assessment unlocks neutral Ratings for this Card.
+// same Rating (AD-20).
+//
+// Record captures one Attempt of the current Card's Target (AttemptRecorder, at most
+// MAX_ATTEMPT_SECONDS) and posts it to /api/pronunciation/<lang>/attempt; nothing of it is kept.
+// The Assessment shows the overall score, the sub-scores the locale has, the word pills with the
+// weakest one selected and that word's feedback: phonemes for English, where in the word for
+// French. One usable Assessment unlocks the neutral Ratings for this Card; a denied microphone,
+// silence, a failed assessment or an oversize recording each get their own inline alert.
 //
 // The session end is sent when the screen unmounts, when the page is hidden or goes away
 // (`pagehide`, as a beacon), and when the queue is empty. A page shown again after being hidden
@@ -40,6 +47,24 @@ const PROMPT = "How did that feel? You decide.";
 const RATING_FAILED = "Rating not saved — Anki isn't reachable.";
 const EMPTY_BODY = "No new or due Pronounce Cards right now.";
 const REFERENCE = "Play reference audio";
+const RECORD_LABELS = {
+  idle: "Record",
+  permission: "Opening microphone…",
+  recording: "Listening… tap to stop",
+  assessing: "Checking…",
+  result: "Try again",
+};
+// [title, message] per attempt warning
+const ATTEMPT_ALERTS = {
+  mic: ["LanguageLab can't hear you", "Allow microphone access for this site in Safari, then reload the page."],
+  nothing: ["Couldn't hear that Attempt", "Record again closer to the microphone."],
+  failed: ["Couldn't assess that Attempt", "This Card isn't answered yet. Record again, or leave and come back later."],
+  size: ["Recording is too large", "Record again with a shorter Attempt."],
+};
+const ERROR_LABELS = new Map([
+  ["Mispronunciation", "mispronounced"],
+  ["None", "no pronunciation error"],
+]);
 const SVG = "http://www.w3.org/2000/svg";
 
 function speakerIcon() {
@@ -105,8 +130,17 @@ export function mount(root, params) {
     playerFor = null;
   }
 
+  // The microphone is opening or open: Reference stays silent meanwhile
+  function capturing() {
+    return attemptState === "recording" || attemptState === "permission";
+  }
+
+  function focusRecord() {
+    body.querySelector('[data-control="record"]')?.focus();
+  }
+
   function playReference(card) {
-    if (attemptState === "recording" || attemptState === "permission") return;
+    if (capturing()) return;
     if (playerFor !== card.cardId) {
       dropPlayer();
       player = element("audio");
@@ -136,17 +170,13 @@ export function mount(root, params) {
       reference.type = "button";
       reference.setAttribute("aria-label", REFERENCE);
       reference.dataset.control = "reference";
-      reference.disabled = attemptState === "recording" || attemptState === "permission";
+      reference.disabled = capturing();
       reference.append(speakerIcon(), element("span", null, "Reference"));
       reference.addEventListener("click", () => playReference(card));
       actions.append(reference);
     }
-    const labels = {
-      idle: "Record", permission: "Opening microphone…", recording: "Listening… tap to stop",
-      assessing: "Checking…", result: "Try again",
-    };
     if (!attemptWarning || attemptWarning === "mic") {
-      const record = action(labels[attemptState] ?? "Record", "record", () => {
+      const record = action(RECORD_LABELS[attemptState] ?? "Record", "record", () => {
         if (attemptState === "recording") recorder?.stop();
         else startRecording(card);
       });
@@ -191,7 +221,7 @@ export function mount(root, params) {
   }
 
   function startRecording(card) {
-    if (busy || ["recording", "permission", "assessing"].includes(attemptState)) return;
+    if (busy || capturing() || attemptState === "assessing") return;
     discardAttempt();
     dropPlayer();
     const token = attemptSeq;
@@ -203,7 +233,7 @@ export function mount(root, params) {
         if (!current()) return;
         attemptState = "recording";
         render();
-        body.querySelector('[data-control="record"]')?.focus();
+        focusRecord();
       },
       level: value => {
         if (!current()) return;
@@ -224,28 +254,27 @@ export function mount(root, params) {
         // The helper owns the upload body. The screen keeps neither Blob nor FormData.
         const pending = assessAttempt(lang, card.itemId, blob, attemptRequest.signal);
         blob = null;
-        pending.then(result => {
+        // The request settled, as a result or a failure: show it and keep focus on Record
+        const settle = update => {
           if (!current()) return;
           attemptRequest = null;
+          attemptState = "result";
+          update();
+          render();
+          focusRecord();
+        };
+        pending.then(result => settle(() => {
           assessment = result.assessment;
           attemptWarning = result.nothingHeard ? "nothing" : null;
-          attemptState = "result";
           if (assessment) {
             eligible = true;
             selectedWord = assessment.words.reduce((weakest, word, index, words) =>
               word.score < words[weakest].score ? index : weakest, 0);
             announcement.textContent = `Overall score ${assessment.overall}. Weakest word: ${assessment.words[selectedWord].text}.`;
           }
-          render();
-          body.querySelector('[data-control="record"]')?.focus();
-        }).catch(() => {
-          if (!current()) return;
-          attemptRequest = null;
+        })).catch(() => settle(() => {
           attemptWarning = "failed";
-          attemptState = "result";
-          render();
-          body.querySelector('[data-control="record"]')?.focus();
-        });
+        }));
       },
       error: reason => {
         if (!current()) return;
@@ -253,20 +282,14 @@ export function mount(root, params) {
         attemptState = "idle";
         attemptWarning = reason === "size" ? "size" : "mic";
         render();
-        body.querySelector('[data-control="record"]')?.focus();
+        focusRecord();
       },
     });
     recorder.start();
   }
 
   function attemptAlert(card) {
-    const copy = {
-      mic: ["LanguageLab can't hear you", "Allow microphone access for this site in Safari, then reload the page."],
-      nothing: ["Couldn't hear that Attempt", "Record again closer to the microphone."],
-      failed: ["Couldn't assess that Attempt", "This Card isn't answered yet. Record again, or leave and come back later."],
-      size: ["Recording is too large", "Record again with a shorter Attempt."],
-    };
-    const [title, message] = copy[attemptWarning];
+    const [title, message] = ATTEMPT_ALERTS[attemptWarning];
     const alert = alertBox("review-alert", element("strong", null, title), element("p", null, message));
     if (attemptWarning !== "failed") {
       alert.className = "inline-alert-warning review-alert";
@@ -281,7 +304,10 @@ export function mount(root, params) {
   }
 
   function feedbackClass(score) {
-    return score === null ? "feedback-empty" : score >= 80 ? "feedback-good" : score >= 60 ? "feedback-fair" : "feedback-poor";
+    if (score === null) return "feedback-empty";
+    if (score >= 80) return "feedback-good";
+    if (score >= 60) return "feedback-fair";
+    return "feedback-poor";
   }
 
   function scoresCard() {
@@ -294,7 +320,7 @@ export function mount(root, params) {
     const scores = element("div", "review-subscores");
     for (const label of ["Accuracy", "Fluency", "Completeness", "Prosody"]) {
       const value = assessment[label.toLowerCase()];
-      if (value === null || (lang === "fr" && label === "Prosody")) continue;
+      if (value === null) continue; // French Prosody: the domain sends null
       const row = element("div", "review-subscore");
       const number = element("span", null, String(value));
       number.setAttribute("aria-label", label);
@@ -318,7 +344,7 @@ export function mount(root, params) {
     const detail = element("section", "review-word-detail");
     detail.lang = assessment.locale;
     detail.setAttribute("aria-label", "Word feedback");
-    const error = word.errorType === "Mispronunciation" ? "mispronounced" : word.errorType === "None" ? "no pronunciation error" : word.errorType.toLowerCase();
+    const error = ERROR_LABELS.get(word.errorType) ?? word.errorType.toLowerCase();
     detail.append(element("h2", null, `${word.text} · ${word.score} · ${error}`));
     const units = element("div", "review-position-strip");
     if (lang === "fr") {
@@ -347,14 +373,12 @@ export function mount(root, params) {
     section.setAttribute("aria-label", "Rating");
     const buttons = element("div", "review-rating-buttons");
     for (const [rating, label] of RATINGS) {
-      const button = element("button", "button review-rating-button", label);
-      button.type = "button";
-      button.dataset.control = `rating-${rating}`;
-      button.disabled = !eligible;
-      button.addEventListener("click", () => {
+      const button = action(label, `rating-${rating}`, () => {
         if (busy || !eligible) return;
         submit({ cardId: card.cardId, reps: card.reps, rating });
       });
+      button.classList.add("review-rating-button");
+      button.disabled = !eligible;
       buttons.append(button);
     }
     section.append(element("p", "review-prompt", PROMPT), buttons);

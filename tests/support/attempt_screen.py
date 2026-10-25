@@ -19,6 +19,7 @@ from urllib.parse import urlparse
 
 from playwright.sync_api import Locator, Page, Request, Route
 
+from tests.support.assessment import FIXTURES
 from tests.support.captures_screen import main
 from tests.support.pronunciation_screen import ReviewApi, review_card
 
@@ -30,7 +31,6 @@ NOTHING_TITLE = "Couldn't hear that Attempt"
 NOTHING_BODY = "Record again closer to the microphone."
 FAILED_TITLE = "Couldn't assess that Attempt"
 FAILED_BODY = "This Card isn't answered yet. Record again, or leave and come back later."
-SAMPLES = Path(__file__).resolve().parents[1] / "fixtures/azure-assessment"
 
 
 def assessment(locale: str = "en-US", *, overall: int = 79) -> dict[str, Any]:
@@ -97,7 +97,7 @@ def level_meter(page: Page) -> Locator:
 def install_microphone(page: Page, *, denied: bool = False, mp4: bool = False) -> bytes:
     """A real stream plus deterministic MediaRecorder events carrying native probe bytes."""
     name = "en-weather.mp4-aac.mp4" if mp4 else "en-weather.webm-opus.webm"
-    data = (SAMPLES / name).read_bytes()
+    data = (FIXTURES / name).read_bytes()
     script = Path(__file__).with_name("fake_microphone.js").read_text()
     replacements = {
         "__PAYLOAD__": json.dumps(base64.b64encode(data).decode()),

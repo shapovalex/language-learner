@@ -11,7 +11,7 @@ from typing import Annotated, Literal, Self
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
-from language_lab.domain.catalog import Category
+from language_lab.domain.catalog import Category, Language
 
 
 class Rating(StrEnum):
@@ -53,6 +53,11 @@ class PronunciationQueue:
     new: int
     cards: tuple[PronounceCard, ...]
 
+
+AssessmentLocale = Literal["en-US", "fr-CA"]
+
+ASSESSMENT_LOCALE: dict[Language, AssessmentLocale] = {Language.EN: "en-US", Language.FR: "fr-CA"}
+"""The one assessment locale per Language (not the Voice locales in `catalog.LOCALES`)."""
 
 Score = Annotated[float, Field(ge=0, le=100, allow_inf_nan=False)]
 
@@ -98,7 +103,7 @@ class AssessedWord(_Feedback):
 class Assessment(_Feedback):
     """Validated, ephemeral feedback. Locale policy lives here, outside the provider/UI."""
 
-    locale: Literal["en-US", "fr-CA"]
+    locale: AssessmentLocale
     overall: Score
     accuracy: Score
     fluency: Score
@@ -160,6 +165,7 @@ class Assessment(_Feedback):
             accuracy=best["AccuracyScore"],
             fluency=best["FluencyScore"],
             completeness=best["CompletenessScore"],
+            # Before validation: a French ProsodyScore is never read, so it can't fail the reply
             prosody=best.get("ProsodyScore") if locale == "en-US" else None,
             words=words,
         )

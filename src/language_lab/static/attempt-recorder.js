@@ -1,5 +1,6 @@
 // Native, ephemeral microphone capture. dispose() also invalidates pending permission replies.
 export const MAX_ATTEMPT_BYTES = 5 * 1024 * 1024;
+export const MAX_ATTEMPT_SECONDS = 30;
 
 export class AttemptRecorder {
   constructor(callbacks) {
@@ -68,7 +69,7 @@ export class AttemptRecorder {
         this.animation = requestAnimationFrame(meter);
       };
       this.recorder.start(250);
-      this.timer = setTimeout(() => this.stop(), 30_000);
+      this.timer = setTimeout(() => this.stop(), MAX_ATTEMPT_SECONDS * 1000);
       this.callbacks?.recording();
       meter();
     } catch {
