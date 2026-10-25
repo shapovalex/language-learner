@@ -5,15 +5,16 @@ the real app on its own live server, with a FakeAnkiStore seeded per Language (o
 Pronounce Card with Reference audio, one new one) and a FakeSpeech whose Assessment is the real
 Azure reply fixture parsed by the real Azure adapter. The only browser double is the fake
 microphone. The journey acts only through roles and labels and observes only the page: the
-chip, the Target, the score ring, Word feedback, the Rating buttons and the empty state. An
-in-page probe records which source the Reference player was asked to play, because that is what
-the learner hears. The manual acceptance on the released wheel is
+chip, the Target, the score ring, Word feedback, the Rating buttons and the empty state, plus
+the browser's own media request when Reference is tapped, which names the clip the learner
+hears. The manual acceptance on the released wheel is
 _bmad-output/test-artifacts/acceptance/pronunciation-review-acceptance-7-4.md.
 """
 
 import uuid
 from collections.abc import Iterator
 from dataclasses import dataclass
+from urllib.parse import urlparse
 
 import httpx
 import pytest
@@ -45,6 +46,7 @@ from tests.support.pronunciation_screen import (
     EMPTY_TITLE,
     LANGUAGES,
     RATINGS,
+    is_media,
     queue_chip,
     rating_button,
     reference_button,
@@ -66,16 +68,6 @@ SEEDS = {
 }
 WIDTHS = {"phone": viewports.PHONE, "desktop": viewports.DESKTOP}
 
-# Records each source a media element is asked to play, before the browser may refuse it.
-PLAYED_PROBE = """(() => {
-  window.__played = [];
-  const play = HTMLMediaElement.prototype.play;
-  HTMLMediaElement.prototype.play = function (...args) {
-    window.__played.push(this.currentSrc || this.src);
-    return play.apply(this, args);
-  };
-})();"""
-
 
 def real_assessment(seed: Seed) -> Assessment:
     """The real Azure reply fixture, parsed by the real adapter over the offline replay."""
@@ -84,8 +76,10 @@ def real_assessment(seed: Seed) -> Assessment:
     return Assessment.model_validate(wire)
 
 
-def seeded_store(language: Language, seed: Seed) -> FakeAnkiStore:
-    """One due Card (with its Reference clip in media) and one new Card, in `language`."""
+def seeded_store(language: Language, seed: Seed) -> tuple[FakeAnkiStore, str]:
+    """One due Card (with its Reference clip in media) and one new Card, in `language`.
+
+    Returns the store and the due Card's clip name."""
     store = FakeAnkiStore()
     due_id, new_id = str(uuid.uuid4()), str(uuid.uuid4())
     clip = managed_name(due_id)
@@ -97,11 +91,17 @@ def seeded_store(language: Language, seed: Seed) -> FakeAnkiStore:
         (language, True, PronounceCard(1001, due_id, 3, Category.VOCABULARY, seed.due, clip)),
         (language, False, PronounceCard(1002, new_id, 0, Category.VOCABULARY, seed.new, None)),
     ]
-    return store
+    return store, clip
+
+
+@dataclass(frozen=True)
+class Seeded:
+    server: LiveServer
+    clip: str  # the due Card's Reference clip name
 
 
 @pytest.fixture
-def seeded_server(request: pytest.FixtureRequest) -> Iterator[LiveServer]:
+def seeded_server(request: pytest.FixtureRequest) -> Iterator[Seeded]:
     """A fresh seeded app per case, on its own socket, so no case sees another's Ratings."""
     lang = request.node.callspec.params["language"]
     seed = SEEDS[lang]
@@ -116,21 +116,9 @@ def seeded_server(request: pytest.FixtureRequest) -> Iterator[LiveServer]:
         azure_speech_region="e2e-region",
         openrouter_api_key="e2e-openrouter-key",
     )
-    store = seeded_store(Language(lang), seed)
+    store, clip = seeded_store(Language(lang), seed)
     with run_live_server(settings, sock, anki_store=store, speech=speech) as server:
-        yield server
-
-
-def played_bytes(page: Page) -> list[bytes]:
-    """The clips the page asked a player to play, fetched from their sources, in order."""
-    arrays = page.evaluate(
-        """async () => Promise.all(window.__played.map(async source => {
-          const response = await fetch(source);
-          if (!response.ok) return [];
-          return Array.from(new Uint8Array(await response.arrayBuffer()));
-        }))"""
-    )
-    return [bytes(value) for value in arrays]
+        yield Seeded(server, clip)
 
 
 def expect_feedback(page: Page, lang: str) -> None:
@@ -158,25 +146,24 @@ def expect_feedback(page: Page, lang: str) -> None:
 @pytest.mark.parametrize("width", WIDTHS)
 @pytest.mark.parametrize("language", LANGUAGES)
 def test_one_review_session_from_queue_to_empty_state(
-    page: Page, seeded_server: LiveServer, language: str, width: str
+    page: Page, seeded_server: Seeded, language: str, width: str
 ) -> None:
     """[P0] Queue → Reference → Attempt → retry → Rating → next Card → empty state, UI only."""
     page.set_viewport_size(WIDTHS[width])
     seed = SEEDS[language]
     install_microphone(page)
-    page.add_init_script(script=PLAYED_PROBE)
 
     # Open: the chip counts the seeded queue; the due Card is first; Ratings wait for an Attempt.
-    page.goto(f"{seeded_server.url}/{language}/pronunciation")
+    page.goto(f"{seeded_server.server.url}/{language}/pronunciation")
     expect(queue_chip(page, 1, 1)).to_have_text("1 due · 1 new")
     expect(target_text(page, seed.due)).to_be_visible()
     for name in RATINGS:
         expect(rating_button(page, name)).to_be_disabled()
 
-    # Reference: the player is given the seeded clip.
-    reference_button(page).click()
-    page.wait_for_function("window.__played.length > 0")
-    assert played_bytes(page) == [MP3]
+    # Reference: the browser loads the seeded clip for the player.
+    with page.expect_request(is_media) as played:
+        reference_button(page).click()
+    assert urlparse(played.value.url).path == f"/api/media/{seeded_server.clip}"
 
     # Attempt: the real fixture's feedback in this Language's form.
     finish_attempt(page)
