@@ -37,21 +37,23 @@ class AzureSpeech:
         except httpx.HTTPError, TimeoutError:
             raise AppError(ErrorCode.TTS_FAILED) from None
 
-    async def voices(self, locale: str) -> list[Voice]:
+    async def voices(self, locales: tuple[str, ...]) -> list[Voice]:
         try:
             rows = json.loads(await self._request("GET", "/cognitiveservices/voices/list"))
             if not isinstance(rows, list):
                 raise ValueError
-            return [
+            found = [
                 Voice(row["ShortName"], row["Locale"], row["DisplayName"])
                 for row in rows
-                if row.get("Locale") == locale
+                if row.get("Locale") in locales
                 and row.get("VoiceType") == "Neural"
                 and all(
                     isinstance(row.get(key), str) and row[key]
                     for key in ("ShortName", "Locale", "DisplayName")
                 )
             ]
+            # Stable: each locale keeps the provider's order within it
+            return sorted(found, key=lambda voice: locales.index(voice.locale))
         except ValueError, KeyError, TypeError, AttributeError:
             raise AppError(ErrorCode.TTS_FAILED) from None
 

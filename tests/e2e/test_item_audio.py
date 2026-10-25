@@ -14,7 +14,20 @@ from playwright.sync_api import BrowserContext, Page, Route, expect
 
 from tests.support import viewports
 from tests.support.audio import MP3, PREVIEW_API, SECOND_MP3
-from tests.support.audio_screen import EN_SECOND, STALE_AUDIO, TTS_ERROR, is_preview
+from tests.support.audio_screen import (
+    EN_FIRST,
+    EN_SECOND,
+    FR_FIRST,
+    FR_GROUPS,
+    FRANCE_SECOND,
+    LEGACY_FR_KEY,
+    STALE_AUDIO,
+    TTS_ERROR,
+    VOICE_KEYS,
+    is_preview,
+    storage_values,
+    voice_groups,
+)
 from tests.support.captures_screen import main
 from tests.support.duplicates import on_wire, sentence
 from tests.support.item_audio_screen import (
@@ -381,3 +394,75 @@ class TestExistingItemAudioMatrix:
         save_and_wait(page)
         (saved,) = api.saves
         assert (saved.item["audio"], saved.audio_file) == ("keep", None)
+
+
+# French Voices from fr-CA and fr-FR (plan-french-voices-fr-ca-and-fr-fr.md): the Item card
+# shares the Draft's picker, so it groups and remembers French Voices the same way.
+
+WIDTHS = {"phone": viewports.PHONE, "desktop": viewports.DESKTOP}
+
+
+@pytest.mark.p1
+@pytest.mark.parametrize("viewport", WIDTHS.values(), ids=WIDTHS.keys())
+def test_a_french_item_lists_canada_then_france_voices_in_two_groups(page: Page, viewport) -> None:
+    """Matrix "French list": the Item card's picker has the Canada then the France group."""
+    api = ItemAudioApi(page, french_item(), lang="fr")
+    open_item(page, api, viewport)
+    assert voice_groups(item_voice(page)) == FR_GROUPS
+    expect(item_voice(page)).to_have_value(FR_FIRST)
+    assert api.voice_requests == ["fr"]
+    assert page.evaluate("document.documentElement.scrollWidth <= innerWidth")
+
+
+@pytest.mark.p1
+@pytest.mark.parametrize("viewport", WIDTHS.values(), ids=WIDTHS.keys())
+def test_an_english_item_lists_only_us_voices_without_groups(page: Page, viewport) -> None:
+    """Matrix "English": en-US only, no groups."""
+    api = ItemAudioApi(page, stored_item(has_audio=True))
+    open_item(page, api, viewport)
+    assert voice_groups(item_voice(page)) == {}
+    values = item_voice(page).locator("option").evaluate_all("os => os.map(o => o.value)")
+    assert values == [EN_FIRST, EN_SECOND]
+    assert api.voice_requests == ["en"]
+
+
+@pytest.mark.p0
+@pytest.mark.parametrize("viewport", WIDTHS.values(), ids=WIDTHS.keys())
+def test_a_france_voice_regenerates_and_saves_the_items_audio(page: Page, viewport) -> None:
+    """Matrix "fr-FR Voice" / "Preference": the France Voice is stored under the French key,
+    regenerates the clip and Save uploads it."""
+    row = french_item()
+    api = ItemAudioApi(page, row, lang="fr")
+    open_item(page, api, viewport)
+    item_voice(page).select_option(FRANCE_SECOND)
+    regenerate(page, api)
+    card_button(page, USE_PREVIEW).click()
+    save_and_wait(page)
+    assert api.preview_requests[-1]["voice"] == FRANCE_SECOND
+    assert api.preview_requests[-1]["language"] == "fr"
+    (saved,) = api.saves
+    assert (saved.item["audio"], saved.audio_file) == ("replace", MP3)
+    assert storage_values(page) == {VOICE_KEYS["fr"]: FRANCE_SECOND}
+
+
+@pytest.mark.p1
+@pytest.mark.parametrize(
+    "key,stored,shown",
+    [
+        (VOICE_KEYS["fr"], FRANCE_SECOND, FRANCE_SECOND),
+        (LEGACY_FR_KEY, "fr-CA-JeanNeural", "fr-CA-JeanNeural"),
+        (VOICE_KEYS["fr"], "fr-FR-RetiredNeural", FR_FIRST),
+    ],
+    ids=["french-key", "old-canada-key", "unavailable"],
+)
+@pytest.mark.parametrize("viewport", WIDTHS.values(), ids=WIDTHS.keys())
+def test_a_french_item_preselects_the_remembered_french_voice(
+    page: Page, key: str, stored: str, shown: str, viewport
+) -> None:
+    """Matrix "Preference" / "Old preference": the stored French Voice is preselected; an
+    unavailable one falls back to the first listed."""
+    page.add_init_script(f"localStorage.setItem({key!r}, {stored!r})")
+    api = ItemAudioApi(page, french_item(), lang="fr")
+    open_item(page, api, viewport)
+    expect(item_voice(page)).to_have_value(shown)
+    assert api.preview_requests == []

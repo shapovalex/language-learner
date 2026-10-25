@@ -15,7 +15,6 @@ import { CATEGORIES, LANGUAGES, categoryName, languageName } from "../catalog.js
 import { errorMessage, isApiError } from "../api.js";
 import { alertBox, element, skeleton, tryAgain } from "../dom.js";
 import {
-  audioLocale,
   loadVoices as loadVoiceList,
   releasePlayer,
   requestPreview,
@@ -525,7 +524,7 @@ export function disposeDraftAudio(draft) {
 }
 
 function referenceAudio(draft) {
-  const locale = audioLocale(draft.language);
+  const language = draft.language;
   const first = !draft.audio;
   const state = draft.audio ??= {
     voices: [], voice: null, loading: true, voiceError: false,
@@ -571,7 +570,7 @@ function referenceAudio(draft) {
     state.players.clear();
     body.replaceChildren();
     const locked = state.loading || !state.voices.length || draft.busy || state.previewing;
-    body.append(...voicePicker(state, locale, loadVoices, locked));
+    body.append(...voicePicker(state, language, loadVoices, locked));
     const previewButton = button(state.previewing ? MAKING_AUDIO : "Preview", preview);
     previewButton.disabled = draft.busy || state.previewing || state.loading || !state.voice || !draft.values.target.trim();
     body.append(previewButton);
@@ -607,9 +606,9 @@ function referenceAudio(draft) {
   // Once the Voices first load, the Draft's audio is made automatically (AD-14). A Save
   // waits on `autoPending` from the start of that Voice load to the end of the Preview
   function loadVoices() {
-    if (state.autoDone) return loadVoiceList(state, locale, () => state.render());
+    if (state.autoDone) return loadVoiceList(state, language, () => state.render());
     return track((async () => {
-      await loadVoiceList(state, locale, () => state.render());
+      await loadVoiceList(state, language, () => state.render());
       if (state.disposed || state.voiceError) return;
       state.autoDone = true;
       await synthesize();

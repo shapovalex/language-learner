@@ -25,4 +25,8 @@ class Exercise(StrEnum):
     PRONOUNCE = "pronounce"
 
 
-LOCALES = {Language.EN: "en-US", Language.FR: "fr-CA"}
+# The Voice locales of each Language, in list order: one French list holds Canada then France
+LOCALES: dict[Language, tuple[str, ...]] = {
+    Language.EN: ("en-US",),
+    Language.FR: ("fr-CA", "fr-FR"),
+}

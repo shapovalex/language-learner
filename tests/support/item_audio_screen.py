@@ -174,12 +174,12 @@ class ItemAudioApi:
         if route.request.method != "GET":
             route.fallback()
             return
-        locale = parse_qs(urlparse(route.request.url).query).get("locale", [""])[0]
-        self.voice_requests.append(locale)
+        language = parse_qs(urlparse(route.request.url).query).get("language", [""])[0]
+        self.voice_requests.append(language)
         if self.voices_error:
             self._error(route, "tts_failed", 502)
             return
-        route.fulfill(json={"voices": CATALOG.get(locale, [])})
+        route.fulfill(json={"voices": CATALOG.get(language, [])})
 
     def _preview(self, route: Route) -> None:
         if route.request.method != "POST":

@@ -2,7 +2,8 @@
 
 These fixtures are **synthetic documented-contract examples**, not responses captured
 from a real Azure subscription. The catalog is deliberately mixed-locale so filtering
-can be observed. The example names do not claim to represent today's regional catalog.
+can be observed; its `fr-FR` row comes before `fr-CA`, so the French list's Canada-then-France
+order is the adapter's, not the reply's. The example names do not claim to represent today's regional catalog.
 The adapter must fetch the current catalog; it must not embed this fixture.
 
 The request paths, authentication header, SSML body and MP3 output header follow

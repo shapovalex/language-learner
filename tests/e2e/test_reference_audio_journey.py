@@ -16,7 +16,7 @@ import pytest
 from playwright.sync_api import Page, Route, ViewportSize, expect
 
 from tests.support import viewports
-from tests.support.audio import EN_VOICE, FR_VOICE, MP3, PREVIEW_API, SECOND_MP3
+from tests.support.audio import EN_VOICE, FR_FR_VOICE, FR_VOICE, MP3, PREVIEW_API, SECOND_MP3
 from tests.support.audio_screen import (
     STALE_AUDIO,
     audio_button,
@@ -59,8 +59,11 @@ def unsaved(page: Page):
     return main(page).get_by_text(ANY_UNSAVED)
 
 
-def make_item_with_audio(page: Page, language: str, target: str) -> bytes:
+def make_item_with_audio(
+    page: Page, language: str, target: str, chosen: str | None = None
+) -> bytes:
     """Capture → Draft → Preview → Use preview → Save; return the clip the Draft played.
+    `chosen` is the Voice to pick, by default the Language's first.
 
     The Draft first makes its automatic clip (decided 2026-10-25); the explicit Preview then
     replaces it through the compare."""
@@ -72,8 +75,9 @@ def make_item_with_audio(page: Page, language: str, target: str) -> bytes:
     choose(page, name, "Vocabulary")
     write_it_myself(page).click()
     field(page, "Russian meaning").fill("проверка аудио")
-    voice(page).select_option(VOICES[language])
-    expect(voice(page)).to_have_value(VOICES[language])
+    chosen = chosen or VOICES[language]
+    voice(page).select_option(chosen)
+    expect(voice(page)).to_have_value(chosen)
     preview_button(page).click()
     audio_button(page, USE_PREVIEW).click()
     expect(audio_button(page, USE_PREVIEW)).to_have_count(0)
@@ -200,3 +204,25 @@ def test_a_generated_draft_saves_its_automatic_audio_with_no_audio_clicks(
     open_item(page, language, target)
     expect(item_audio_card(page).locator("audio")).to_have_count(1)
     assert player_bytes(page) == [drafted]
+
+
+@pytest.mark.p0
+@pytest.mark.parametrize("width", WIDTHS)
+def test_a_french_draft_with_a_france_voice_saves_and_the_reopened_item_plays_it(
+    page: Page, width: str
+) -> None:
+    """[P0] French Draft → France Voice → Preview → Save → the reopened Item plays the clip.
+
+    French Voices from fr-CA and fr-FR (decided 2026-10-25), UI only, on the live server.
+    """
+    page.set_viewport_size(WIDTHS[width])
+    target = f"france voice {uuid.uuid4().hex[:12]}"
+    previewed = make_item_with_audio(page, "fr", target, chosen=FR_FR_VOICE)
+    assert previewed == MP3
+    open_item(page, "fr", target)
+    expect(item_audio_card(page).locator("audio")).to_have_count(1)
+    assert player_bytes(page) == [previewed]
+    # The Item card remembers the France Voice under the French preference
+    expect(item_voice(page)).to_have_value(FR_FR_VOICE)
+    france = item_voice(page).locator("optgroup[label=France] option")
+    assert france.evaluate_all("options => options.map(o => o.value)") == [FR_FR_VOICE]

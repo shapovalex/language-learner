@@ -48,7 +48,6 @@ import {
 import { categoryName, languageName } from "../catalog.js";
 import { alertBox, element, skeleton, tryAgain } from "../dom.js";
 import {
-  audioLocale,
   loadVoices as loadVoiceList,
   releasePlayer,
   requestPreview,
@@ -131,7 +130,6 @@ const AUDIO_COMPARE_HINT = "The old audio is removed only after Save succeeds.";
 // replace Save, the accepted Blob's URL), `offered` and `accepted` ({blob, url, target}) and
 // `removing`. Players are kept per URL, so a re-render moves them without stopping playback.
 function itemAudioCard({ language, audioName, target, values, busy, changed }) {
-  const locale = audioLocale(language);
   const state = {
     voices: [], voice: null, loading: true, voiceError: false,
     previewing: false, previewError: false, sequence: 0, disposed: false,
@@ -208,7 +206,7 @@ function itemAudioCard({ language, audioName, target, values, busy, changed }) {
     controls = [];
     nodes = {};
     body.replaceChildren();
-    body.append(...voicePicker(state, locale, loadVoices));
+    body.append(...voicePicker(state, language, loadVoices));
 
     const hasAudio = Boolean(state.current || state.accepted);
     const regenerateRow = element("div", "reference-audio-actions");
@@ -309,7 +307,7 @@ function itemAudioCard({ language, audioName, target, values, busy, changed }) {
   }
 
   function loadVoices() {
-    return loadVoiceList(state, locale, render);
+    return loadVoiceList(state, language, render);
   }
 
   // The only synthesis: the buffer's Target in the chosen Voice, kept in memory (NFR-4)

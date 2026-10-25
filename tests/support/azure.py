@@ -40,13 +40,15 @@ async def synthesize(replay: AzureReplay, target: str) -> bytes:
         await speech.aclose()
 
 
-async def voice_transition(replay: AzureReplay, locale: str) -> tuple[list[Any], list[Any]]:
+async def voice_transition(
+    replay: AzureReplay, locales: tuple[str, ...]
+) -> tuple[list[Any], list[Any]]:
     from language_lab.adapters.azure import AzureSpeech
 
     speech = AzureSpeech(AZURE_KEY, AZURE_REGION, transport=replay.transport)
     try:
-        before = await speech.voices(locale)
-        after = await speech.voices(locale)
+        before = await speech.voices(locales)
+        after = await speech.voices(locales)
         return before, after
     finally:
         await speech.aclose()

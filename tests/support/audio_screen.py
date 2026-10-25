@@ -55,17 +55,26 @@ EN_FIRST = "en-US-AndrewNeural"
 EN_SECOND = "en-US-AvaNeural"
 FR_FIRST = "fr-CA-SylvieNeural"
 FR_SECOND = "fr-CA-JeanNeural"
-LOCALE_KEYS = {"en-US": "languagelab.voice.en-US", "fr-CA": "languagelab.voice.fr-CA"}
+FRANCE_FIRST = "fr-FR-DeniseNeural"
+FRANCE_SECOND = "fr-FR-HenriNeural"
+# One preference key per Language (AD-13); French once used its fr-CA locale key
+VOICE_KEYS = {"en": "languagelab.voice.en-US", "fr": "languagelab.voice.fr"}
+LEGACY_FR_KEY = "languagelab.voice.fr-CA"
+# The French picker's groups, in order, and the Voice names each holds
+FR_GROUPS = {"Canada": [FR_FIRST, FR_SECOND], "France": [FRANCE_FIRST, FRANCE_SECOND]}
 
-# A synthetic two-locale catalog: it controls browser behavior, never claims to be live Azure.
+# A synthetic catalog per Language, as GET /api/audio/voices?language= lists it (French is
+# Canada then France). It controls browser behavior, never claims to be live Azure.
 CATALOG = {
-    "en-US": [
+    "en": [
         {"name": EN_FIRST, "locale": "en-US", "displayName": "Andrew"},
         {"name": EN_SECOND, "locale": "en-US", "displayName": "Ava"},
     ],
-    "fr-CA": [
+    "fr": [
         {"name": FR_FIRST, "locale": "fr-CA", "displayName": "Sylvie"},
         {"name": FR_SECOND, "locale": "fr-CA", "displayName": "Jean"},
+        {"name": FRANCE_FIRST, "locale": "fr-FR", "displayName": "Denise"},
+        {"name": FRANCE_SECOND, "locale": "fr-FR", "displayName": "Henri"},
     ],
 }
 
@@ -131,6 +140,15 @@ def rendered_audio_bytes(page: Page) -> list[bytes]:
         )
     )
     return [bytes(value) for value in arrays]
+
+
+def voice_groups(picker: Locator) -> dict[str, list[str]]:
+    """The picker's <optgroup> labels, in order, each with its option values. HTML gives an
+    optgroup no role Playwright can query by name, so its tag is used."""
+    return picker.evaluate(
+        """select => Object.fromEntries([...select.querySelectorAll('optgroup')].map(
+          group => [group.label, [...group.querySelectorAll('option')].map(o => o.value)]))"""
+    )
 
 
 def storage_values(page: Page) -> dict[str, str]:
@@ -216,12 +234,12 @@ class DraftAudioApi:
         if route.request.method != "GET":
             route.fallback()
             return
-        locale = parse_qs(urlparse(route.request.url).query).get("locale", [""])[0]
-        self.voice_requests.append(locale)
+        language = parse_qs(urlparse(route.request.url).query).get("language", [""])[0]
+        self.voice_requests.append(language)
         if self.voices_error:
             self._error(route, "tts_failed", 502)
             return
-        route.fulfill(json={"voices": CATALOG.get(locale, [])})
+        route.fulfill(json={"voices": CATALOG.get(language, [])})
 
     def _preview(self, route: Route) -> None:
         if route.request.method != "POST":
