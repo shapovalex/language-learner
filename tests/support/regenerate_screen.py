@@ -65,7 +65,8 @@ def pair_button(pair: Locator, name: str) -> Locator:
 
 
 def unsaved_chip(page: Page, count: int) -> Locator:
-    return main(page).get_by_text(f"{count} unsaved {'change' if count == 1 else 'changes'}")
+    label = f"{count} unsaved {'change' if count == 1 else 'changes'}"
+    return main(page).get_by_text(label, exact=True)
 
 
 class RegenerateApi:

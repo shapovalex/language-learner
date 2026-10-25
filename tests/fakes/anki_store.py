@@ -1,12 +1,11 @@
 """Fake AnkiStore: the port in memory, kept in step with `ports/anki_store.py` (AD-1)."""
 
 import asyncio
-import hashlib
 import re
 from collections.abc import Collection
 from datetime import datetime
 
-from language_lab.domain.audio import validate_mp3
+from language_lab.domain.audio import audio_upload, media_name
 from language_lab.domain.captures import Capture
 from language_lab.domain.catalog import UUID4, Category, Language
 from language_lab.domain.errors import AppError, ErrorCode
@@ -181,22 +180,18 @@ class FakeAnkiStore:
             raise AppError(ErrorCode.ANKI_UNAVAILABLE)
         if self.preview.state is not SetupState.READY:
             raise AppError(ErrorCode.SETUP_REQUIRED)
-        if audio is AudioIntent.REPLACE:
-            if audio_bytes is None:
-                raise AppError(ErrorCode.VALIDATION_FAILED)
-            validate_mp3(audio_bytes)
-            name = f"LanguageLab_{item_id}_{hashlib.sha256(audio_bytes).hexdigest()[:12]}.mp3"
-            self.media[name] = audio_bytes
+        data = audio_upload(audio, audio_bytes)
+        if data is not None:
+            name = media_name("LanguageLab", item_id, data)
+            self.media[name] = data
             old = self.audio.get(item_id)
             self.audio[item_id] = name
             if old and old != name:
                 self.media.pop(old, None)
-        elif audio is AudioIntent.REMOVE and audio_bytes is None:
+        elif audio is AudioIntent.REMOVE:
             old = self.audio.pop(item_id, None)
             if old:
                 self.media.pop(old, None)
-        elif audio is not AudioIntent.KEEP or audio_bytes is not None:
-            raise AppError(ErrorCode.VALIDATION_FAILED)
         self.items[item_id] = (language, content)
 
     async def get_media(self, name: str) -> bytes:

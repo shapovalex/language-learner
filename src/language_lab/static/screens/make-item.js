@@ -12,9 +12,15 @@
 // Try again. Before a Save, a duplicate opens the duplicate sheet (S-Duplicate, story 4.3).
 
 import { CATEGORIES, LANGUAGES, categoryName, languageName } from "../catalog.js";
-import { errorMessage, isApiError, getVoices, previewAudio } from "../api.js";
+import { errorMessage, isApiError } from "../api.js";
 import { alertBox, element, skeleton, tryAgain } from "../dom.js";
-import { readVoice, writeVoice } from "../voice-pref.js";
+import {
+  audioLocale,
+  loadVoices as loadVoiceList,
+  releasePlayer,
+  requestPreview,
+  voicePicker,
+} from "../reference-audio.js";
 
 const MAKE_AN_ITEM = "Make an Item";
 const USE_AS_IS = "Use as is";
@@ -505,13 +511,8 @@ export function disposeDraftAudio(draft) {
   const state = draft?.audio;
   if (!state) return;
   state.disposed = true;
-  state.sequence += 1;
   state.render = null;
-  for (const player of state.players) {
-    player.pause();
-    player.removeAttribute("src");
-    player.load();
-  }
+  for (const player of state.players) releasePlayer(player);
   state.players.clear();
   for (const clip of [state.accepted, state.offered]) {
     if (clip) URL.revokeObjectURL(clip.url);
@@ -520,7 +521,7 @@ export function disposeDraftAudio(draft) {
 }
 
 function referenceAudio(draft) {
-  const locale = draft.language === "fr" ? "fr-CA" : "en-US";
+  const locale = audioLocale(draft.language);
   const first = !draft.audio;
   const state = draft.audio ??= {
     voices: [], voice: null, loading: true, voiceError: false,
@@ -561,28 +562,8 @@ function referenceAudio(draft) {
     for (const player of state.players) player.pause();
     state.players.clear();
     body.replaceChildren();
-    const label = element("label", "draft-label", "Voice");
-    const select = element("select", "compose-field reference-audio-voice");
-    select.setAttribute("aria-label", "Voice");
-    select.disabled = state.loading || !state.voices.length || draft.busy || state.previewing;
-    for (const voice of state.voices) {
-      const option = element("option", null, voice.displayName);
-      option.value = voice.name;
-      select.append(option);
-    }
-    select.value = state.voice ?? "";
-    select.addEventListener("change", () => {
-      state.voice = select.value;
-      writeVoice(locale, state.voice);
-    });
-    label.append(select);
-    body.append(label);
-    if (state.loading) body.append(element("p", "make-item-hint", "Loading voices…"));
-    if (state.voiceError) {
-      body.append(alertBox("reference-audio-error", "Couldn't load voices", tryAgain(loadVoices)));
-    } else if (!state.loading && !state.voices.length) {
-      body.append(element("p", "make-item-hint", "No voices available for this language."));
-    }
+    const locked = state.loading || !state.voices.length || draft.busy || state.previewing;
+    body.append(...voicePicker(state, locale, loadVoices, locked));
     const previewButton = button(state.previewing ? "Making audio…" : "Preview", preview);
     previewButton.disabled = draft.busy || state.previewing || state.loading || !state.voice || !draft.values.target.trim();
     body.append(previewButton);
@@ -610,39 +591,24 @@ function referenceAudio(draft) {
     }
   }
 
-  async function loadVoices() {
-    state.loading = true;
-    state.voiceError = false;
-    state.render();
-    try {
-      const { voices } = await getVoices(locale);
-      if (state.disposed) return;
-      state.voices = voices;
-      const preferred = state.voice ?? readVoice(locale);
-      state.voice = voices.some((voice) => voice.name === preferred) ? preferred : voices[0]?.name ?? null;
-    } catch {
-      if (state.disposed) return;
-      state.voiceError = true;
-    }
-    state.loading = false;
-    state.render();
+  // state.render, not render: a rerendered card replaces it, and the reply updates the new one
+  function loadVoices() {
+    return loadVoiceList(state, locale, () => state.render());
   }
 
   async function preview() {
     if (state.previewing || !state.voice || !draft.values.target.trim() || draft.busy) return;
-    const sequence = ++state.sequence;
     const target = draft.values.target;
     const voice = state.voice;
     state.previewing = true;
     state.previewError = false;
     state.render();
     try {
-      const blob = await previewAudio({ language: draft.language, voice, target });
-      if (state.disposed || state.sequence !== sequence) return;
+      const blob = await requestPreview(state, { language: draft.language, voice, target });
+      if (!blob) return;
       if (state.offered) URL.revokeObjectURL(state.offered.url);
       state.offered = { blob, target, url: URL.createObjectURL(blob) };
     } catch {
-      if (state.disposed || state.sequence !== sequence) return;
       state.previewError = true;
     }
     state.previewing = false;

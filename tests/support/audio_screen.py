@@ -21,7 +21,7 @@ from urllib.parse import parse_qs, urlparse
 
 from playwright.sync_api import Locator, Page, Request, Route, ViewportSize
 
-from tests.support.audio import MP3
+from tests.support.audio import MP3, PREVIEW_API, VOICES_API
 from tests.support.captures_screen import API, CAPTURES_PATH, capture
 from tests.support.items_screen import (
     choose,
@@ -33,15 +33,12 @@ from tests.support.items_screen import (
     write_it_myself,
 )
 from tests.support.network import stub_api_json
+from tests.support.regenerate_screen import USE_PREVIEW
 
-VOICES_API = "/api/audio/voices"
-PREVIEW_API = "/api/audio/preview"
 AUDIO_REGION = "Reference audio"
 VOICE_ERROR = "Couldn't load voices"
 TTS_ERROR = "Couldn't make the audio. Current audio is unchanged."
 STALE_AUDIO = "Audio no longer matches the text."
-KEEP_CURRENT = "Keep current"
-USE_PREVIEW = "Use preview"
 
 EN_FIRST = "en-US-AndrewNeural"
 EN_SECOND = "en-US-AvaNeural"

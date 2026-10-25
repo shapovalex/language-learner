@@ -1,8 +1,10 @@
 """Reference audio values and bounded MP3 validation; bytes are never transformed."""
 
+import hashlib
 from dataclasses import dataclass
 
 from language_lab.domain.errors import AppError, ErrorCode
+from language_lab.domain.items import AudioIntent
 
 MAX_AUDIO_BYTES = 5 * 1024 * 1024
 
@@ -52,3 +54,22 @@ def validate_mp3(data: bytes) -> None:
         frames += 1
     if not frames or position != len(data):
         raise AppError(ErrorCode.VALIDATION_FAILED)
+
+
+def audio_upload(intent: AudioIntent, data: bytes | None) -> bytes | None:
+    """The bytes a Save stores: `replace` needs a valid MP3, `keep` and `remove` take no file.
+    Raises `AppError(VALIDATION_FAILED | PAYLOAD_TOO_LARGE)`.
+    """
+    if intent is AudioIntent.REPLACE:
+        if data is None:
+            raise AppError(ErrorCode.VALIDATION_FAILED)
+        validate_mp3(data)
+        return data
+    if data is not None:
+        raise AppError(ErrorCode.VALIDATION_FAILED)
+    return None
+
+
+def media_name(prefix: str, item_id: str, data: bytes) -> str:
+    """The managed media name of `data` for an Item: `<Prefix>_<ItemId>_<sha256[:12]>.mp3`."""
+    return f"{prefix}_{item_id}_{hashlib.sha256(data).hexdigest()[:12]}.mp3"
