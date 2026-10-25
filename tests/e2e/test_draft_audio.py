@@ -1,36 +1,45 @@
-"""Story 6.1 red-phase Draft Reference audio journeys at phone and desktop widths.
+"""Story 6.1 Draft Reference audio journeys at phone and desktop widths, and the automatic
+Draft audio (decided 2026-10-25, AD-14): a new Draft, generated or written by hand, makes one
+Preview once its Voice list loads and holds it as the accepted audio, so Save stores it.
 
 API responses are provider doubles. Every assertion observes the real client or its outgoing
-multipart body, not only the configured double. Python Playwright has no outer promise matcher:
-missing Voice/Preview controls currently stop the journey before its outcome assertion. That
-red-phase limitation is recorded for task activation; later transitions need re-observation.
+multipart body, not only the configured double. `DraftAudioApi.open` waits for the automatic
+clip, so the explicit Previews below never race it.
 """
 
 import json
+import re
+import time
+import uuid
 from collections.abc import Callable
 
 import pytest
-from playwright.sync_api import BrowserContext, Page, expect
+from playwright.sync_api import BrowserContext, Page, Route, ViewportSize, expect
 
 from tests.support import viewports
 from tests.support.audio import MP3, SECOND_MP3
 from tests.support.audio_screen import (
+    CATALOG,
     EN_FIRST,
     EN_SECOND,
     FR_FIRST,
     FR_SECOND,
     LOCALE_KEYS,
+    MAKING_AUDIO,
     STALE_AUDIO,
     DraftAudioApi,
     audio_button,
     audio_card,
+    auto_alert,
     is_preview,
     is_voice_list,
+    preview_button,
     rendered_audio_bytes,
     storage_values,
     tts_alert,
     voice,
     voice_alert,
+    waiting_save,
 )
 from tests.support.items_screen import (
     NOT_SAVED_TITLE,
@@ -44,6 +53,10 @@ from tests.support.regenerate_screen import KEEP_CURRENT, USE_PREVIEW
 from tests.support.unsaved import discard_button
 
 UNRELATED_EDIT = "a personal mnemonic kept through audio retries"
+WIDTHS = {"phone": viewports.PHONE, "desktop": viewports.DESKTOP}
+FIRST_VOICE = {"en": EN_FIRST, "fr": FR_FIRST}
+SECOND_VOICE = {"en": EN_SECOND, "fr": FR_SECOND}
+LOCALE = {"en": "en-US", "fr": "fr-CA"}
 
 
 def discard_draft(page: Page) -> None:
@@ -90,37 +103,40 @@ class TestDraftReferenceAudio:
         voice(other_page).select_option(FR_FIRST)
         assert storage_values(page)[LOCALE_KEYS["en-US"]] == EN_SECOND
         assert storage_values(page)[LOCALE_KEYS["fr-CA"]] == FR_SECOND
-        assert api.preview_requests == other.preview_requests == []
+        # Each new Draft made its automatic Preview with the Voice shown when it opened.
+        assert [call["voice"] for call in api.preview_requests] == [EN_FIRST, FR_FIRST, EN_SECOND]
+        assert [call["voice"] for call in other.preview_requests] == [FR_FIRST]
         assert api.saves == other.saves == []
 
     @pytest.mark.p1
-    def test_keep_current_discards_the_preview_and_save_uses_the_keep_intent(
+    def test_keep_current_discards_the_preview_and_save_keeps_the_automatic_audio(
         self, page: Page
     ) -> None:
-        """[P1] AC-5 Preview stays local; Keep current discards it and permits ordinary Save."""
-        # Given a phone Draft with an explicit Preview and an unrelated local edit.
+        """[P1] AC-5 Preview stays local; Keep current discards it and keeps the automatic clip."""
+        # Given a phone Draft with its automatic clip, an explicit Preview and a local edit.
         api = DraftAudioApi(page)
         item_id = api.open("en", viewports.PHONE)
         field(page, "Mnemonic").fill(UNRELATED_EDIT)
-        voice(page).select_option(EN_FIRST)
+        api.mp3 = SECOND_MP3
         api.synthesize()
+        assert rendered_audio_bytes(page) == [MP3, SECOND_MP3]
 
         # When the user rejects the candidate, the compare controls disappear.
         audio_button(page, KEEP_CURRENT).click()
 
-        # Then no candidate remains; Save retains its ordinary keep contract.
+        # Then only the automatic clip remains, and Save stores exactly it.
         expect(audio_button(page, USE_PREVIEW)).to_have_count(0)
-        assert rendered_audio_bytes(page) == []
+        assert rendered_audio_bytes(page) == [MP3]
         expect(field(page, "Mnemonic")).to_have_value(UNRELATED_EDIT)
         assert api.saves == []
         with page.expect_response(lambda response: is_item_save(response.request)):
             save_button(page).click()
         expect(banner(page, api.capture["text"])).to_be_visible()
         [saved] = api.saves
-        assert saved.item["audio"] == "keep"
+        assert saved.item["audio"] == "replace"
         assert saved.item["itemId"] == item_id
-        assert saved.audio_file is None
-        assert len(api.preview_requests) == 1
+        assert saved.audio_file == MP3
+        assert len(api.preview_requests) == 2
 
     @pytest.mark.p0
     def test_failed_binary_save_retains_the_candidate_and_retry_sends_the_same_bytes(
@@ -153,18 +169,16 @@ class TestDraftReferenceAudio:
         assert [upload.item["itemId"] for upload in api.saves] == [item_id, item_id]
         assert all(upload.item["mnemonic"] == UNRELATED_EDIT for upload in api.saves)
         assert all(upload.content_type.startswith("multipart/form-data;") for upload in api.saves)
-        assert len(api.preview_requests) == 1
+        assert len(api.preview_requests) == 2  # the automatic one, then the explicit one
 
     @pytest.mark.p1
     def test_changing_voice_keeps_the_candidate_until_an_explicit_new_preview(
         self, page: Page
     ) -> None:
         """[P1] AC-12 Voice selection alone never synthesizes or saves audio."""
-        # Given a desktop Draft with a successfully accepted clip.
+        # Given a desktop Draft with its automatic clip accepted.
         api = DraftAudioApi(page)
         api.open("en", viewports.DESKTOP)
-        voice(page).select_option(EN_FIRST)
-        api.preview_and_accept()
         api.mp3 = SECOND_MP3
 
         # When Voice changes, the accepted clip stays attached; only Preview makes a new call.
@@ -189,23 +203,29 @@ class TestDraftReferenceAudio:
         # Given the French Voice catalog is unavailable when the Draft opens.
         api = DraftAudioApi(page)
         api.voices_error = True
-        api.open("fr", viewports.PHONE)
+        api.open("fr", viewports.PHONE, auto=False)
         field(page, "Mnemonic").fill(UNRELATED_EDIT)
 
         # Then the error belongs to the audio card and preserves the editable Draft.
         expect(voice_alert(page)).to_be_visible()
         expect(field(page, "Mnemonic")).to_have_value(UNRELATED_EDIT)
 
-        # When the user explicitly retries, the locale options recover without a new Draft.
+        assert api.preview_requests == []
+
+        # When the user explicitly retries, the locale options recover without a new Draft,
+        # and the automatic audio follows the successful retry.
         api.voices_error = False
-        with page.expect_response(lambda response: is_voice_list(response.request)):
-            voice_alert(page).get_by_role("button", name="Try again", exact=True).click()
+        with page.expect_response(lambda response: is_preview(response.request)):
+            with page.expect_response(lambda response: is_voice_list(response.request)):
+                voice_alert(page).get_by_role("button", name="Try again", exact=True).click()
+        expect(preview_button(page)).to_be_visible()
         voice(page).select_option(FR_SECOND)
         expect(voice_alert(page)).to_have_count(0)
         expect(voice(page)).to_have_value(FR_SECOND)
         expect(field(page, "Mnemonic")).to_have_value(UNRELATED_EDIT)
         assert api.voice_requests == ["fr-CA", "fr-CA"]
-        assert api.preview_requests == []
+        assert [call["voice"] for call in api.preview_requests] == [FR_FIRST]
+        assert rendered_audio_bytes(page) == [MP3]
         assert api.saves == []
 
     @pytest.mark.p1
@@ -237,7 +257,7 @@ class TestDraftReferenceAudio:
         expect(tts_alert(page)).to_have_count(0)
         assert rendered_audio_bytes(page) == [SECOND_MP3]
         expect(field(page, "Mnemonic")).to_have_value(UNRELATED_EDIT)
-        assert len(api.preview_requests) == 3
+        assert len(api.preview_requests) == 4  # automatic, accepted, failed, retried
         assert api.saves == []
 
     @pytest.mark.p1
@@ -245,11 +265,9 @@ class TestDraftReferenceAudio:
         self, page: Page
     ) -> None:
         """[P1] AC-17 an accepted Preview cannot silently pass as audio for an edited Target."""
-        # Given a phone Draft with a selected and accepted Reference clip.
+        # Given a phone Draft with its automatic Reference clip.
         api = DraftAudioApi(page)
         api.open("en", viewports.PHONE)
-        voice(page).select_option(EN_FIRST)
-        api.preview_and_accept()
 
         # When Target changes, the accepted audio is visibly marked stale.
         field(page, "Target").fill("jump the gun")
@@ -289,7 +307,7 @@ def test_audio_can_be_played_and_saved_for_each_draft_at_all_widths(
 
 @pytest.mark.p1
 @pytest.mark.parametrize("stored", [None, "en-US-RetiredNeural", FR_FIRST])
-def test_missing_unavailable_or_other_locale_preference_falls_back_without_synthesis(page, stored):
+def test_missing_unavailable_or_other_locale_preference_falls_back_to_the_first_voice(page, stored):
     if stored:
         page.add_init_script(
             f"localStorage.setItem('languagelab.voice.en-US', {json.dumps(stored)})"
@@ -297,7 +315,8 @@ def test_missing_unavailable_or_other_locale_preference_falls_back_without_synth
     api = DraftAudioApi(page)
     api.open("en", viewports.TABLET)
     expect(voice(page)).to_have_value(EN_FIRST)
-    assert api.preview_requests == []
+    # The automatic Preview uses the fallback Voice and stores no preference of its own
+    assert [call["voice"] for call in api.preview_requests] == [EN_FIRST]
     assert storage_values(page) == ({LOCALE_KEYS["en-US"]: stored} if stored else {})
 
 
@@ -311,7 +330,7 @@ def test_storage_denial_does_not_break_draft_or_explicit_preview(page):
     voice(page).select_option(EN_SECOND)
     api.preview_and_accept()
     assert rendered_audio_bytes(page) == [MP3]
-    assert len(api.preview_requests) == 1
+    assert [call["voice"] for call in api.preview_requests] == [EN_FIRST, EN_SECOND]
 
 
 def install_url_probe(page):
@@ -330,13 +349,14 @@ def test_rejected_replaced_and_departed_clips_release_all_blob_urls(page):
     install_url_probe(page)
     api = DraftAudioApi(page)
     api.open("en", viewports.DESKTOP)
+    assert page.evaluate("audioUrls.created.length") == 1  # the automatic clip
     api.synthesize()
     audio_button(page, KEEP_CURRENT).click()
     assert page.evaluate("audioUrls.revoked.length") == 1
     api.preview_and_accept()
     api.mp3 = SECOND_MP3
     api.preview_and_accept()
-    assert page.evaluate("audioUrls.revoked.length") == 2
+    assert page.evaluate("audioUrls.revoked.length") == 3
     assert rendered_audio_bytes(page) == [SECOND_MP3]
     discard_draft(page)
     assert page.evaluate("audioUrls.created.slice().sort()") == page.evaluate(
@@ -346,8 +366,6 @@ def test_rejected_replaced_and_departed_clips_release_all_blob_urls(page):
 
 @pytest.mark.p1
 def test_late_preview_after_discard_does_not_create_a_blob_or_reopen_the_draft(page):
-    from tests.support.audio_screen import preview_button
-
     install_url_probe(page)
     api = DraftAudioApi(page)
     api.open("en", viewports.DESKTOP)
@@ -361,16 +379,19 @@ def test_late_preview_after_discard_does_not_create_a_blob_or_reopen_the_draft(p
     with page.expect_response(lambda response: is_preview(response.request)):
         pending[0].fulfill(content_type="audio/mpeg", body=MP3)
     expect(editor(page)).to_have_count(0)
-    assert page.evaluate("audioUrls.created") == []
+    # Only the automatic clip was ever created, and the Discard revoked it
+    assert page.evaluate("audioUrls.created.length") == 1
+    assert page.evaluate("audioUrls.created") == page.evaluate("audioUrls.revoked")
 
 
 @pytest.mark.p1
-def test_empty_current_catalog_disables_preview_but_keeps_ordinary_save(page):
-    from tests.support.audio_screen import preview_button
-
+@pytest.mark.parametrize("language", ["en", "fr"])
+@pytest.mark.parametrize("viewport", WIDTHS.values(), ids=WIDTHS.keys())
+def test_empty_current_catalog_disables_preview_but_keeps_ordinary_save(page, language, viewport):
+    """Matrix "no Voices": no automatic request; the Draft saves without audio."""
     api = DraftAudioApi(page)
     page.route("**/api/audio/voices?*", lambda route: route.fulfill(json={"voices": []}))
-    api.open("fr", viewports.PHONE)
+    api.open(language, viewport, auto=False)
     expect(audio_card(page).get_by_text("No voices available for this language.")).to_be_visible()
     expect(preview_button(page)).to_be_disabled()
     expect(save_button(page)).to_be_enabled()
@@ -378,6 +399,7 @@ def test_empty_current_catalog_disables_preview_but_keeps_ordinary_save(page):
     expect(editor(page)).to_have_count(0)
     assert api.saves[0].item["audio"] == "keep"
     assert api.saves[0].audio_file is None
+    assert api.preview_requests == []
 
 
 @pytest.mark.p1
@@ -401,7 +423,6 @@ def test_unintercepted_app_save_and_playback_preserve_preview_bytes(page, langua
     """Real browser multipart reaches app persistence; HTTP playback returns the same MP3."""
     import uuid
 
-    from tests.support.audio_screen import preview_button
     from tests.support.captures_screen import compose_box, is_save, rows
     from tests.support.items_screen import choose, write_it_myself
 
@@ -412,7 +433,9 @@ def test_unintercepted_app_save_and_playback_preserve_preview_bytes(page, langua
         page.get_by_role("button", name="Save Capture", exact=True).click()
     rows(page).filter(has_text=target).click()
     choose(page, name, "Vocabulary")
-    write_it_myself(page).click()
+    with page.expect_response(lambda response: is_preview(response.request)):
+        write_it_myself(page).click()  # the automatic Preview
+    expect(preview_button(page)).to_be_visible()
     field(page, "Russian meaning").fill("проверка аудио")
     with page.expect_response(lambda response: is_preview(response.request)) as previewed:
         preview_button(page).click()
@@ -431,3 +454,286 @@ def test_unintercepted_app_save_and_playback_preserve_preview_bytes(page, langua
     played = page.request.get(f"/api/media/{filename}")
     assert played.status == 200
     assert played.body() == preview_bytes
+
+
+# The automatic Draft audio (decided 2026-10-25): one test per I/O Matrix row of
+# plan-auto-draft-reference-audio.md, at phone and desktop widths, in English and French.
+
+PATHS = ["generate", "write"]
+
+
+def remember(page: Page, language: str, name: str) -> None:
+    key = LOCALE_KEYS[LOCALE[language]]
+    page.add_init_script(f"localStorage.setItem({json.dumps(key)}, {json.dumps(name)})")
+
+
+def hold_previews(page: Page) -> list[Route]:
+    """Hold every Preview until the test answers it (registered after DraftAudioApi's route,
+    so it wins)."""
+    held: list[Route] = []
+    page.route("**/api/audio/preview", lambda route: held.append(route))
+    return held
+
+
+def first_held(page: Page, held: list[Route], timeout_s: float = 10.0) -> Route:
+    deadline = time.monotonic() + timeout_s
+    while not held and time.monotonic() < deadline:
+        page.evaluate("0")  # a round trip lets Playwright deliver the route event
+    assert held, "the request was never held"
+    return held[0]
+
+
+def held_preview(page: Page, held: list[Route]) -> Route:
+    expect(audio_card(page).get_by_role("button", name=MAKING_AUDIO, exact=True)).to_be_visible()
+    return first_held(page, held)
+
+
+def open_draft(
+    api: DraftAudioApi, path: str, language: str, viewport: ViewportSize, *, auto: bool = True
+) -> str:
+    if path == "generate":
+        return api.generate(language, viewport, auto=auto)
+    return api.open(language, viewport, auto=auto)
+
+
+def fail(route: Route) -> None:
+    route.fulfill(
+        status=502,
+        json={"error": {"code": "tts_failed", "message": "x", "requestId": str(uuid.uuid4())}},
+    )
+
+
+def save_and_wait(page: Page, api: DraftAudioApi) -> None:
+    with page.expect_response(lambda response: is_item_save(response.request)):
+        save_button(page).click()
+    expect(banner(page, api.capture["text"])).to_be_visible()
+
+
+@pytest.mark.p0
+@pytest.mark.parametrize("path", PATHS)
+@pytest.mark.parametrize("language", ["en", "fr"])
+@pytest.mark.parametrize("viewport", WIDTHS.values(), ids=WIDTHS.keys())
+def test_a_new_draft_saves_its_automatic_audio_with_no_audio_clicks(
+    page: Page, path: str, language: str, viewport: ViewportSize
+) -> None:
+    """Matrix "Generated Draft" / "Written Draft": one Preview with the remembered Voice, a
+    paused player with the clip, nothing saved before Save, and Save stores exactly that clip.
+    """
+    remember(page, language, SECOND_VOICE[language])
+    api = DraftAudioApi(page)
+
+    item_id = open_draft(api, path, language, viewport)
+
+    expect(voice(page)).to_have_value(SECOND_VOICE[language])
+    assert api.preview_requests == [
+        {"language": language, "voice": SECOND_VOICE[language], "target": api.capture["text"]}
+    ]
+    assert rendered_audio_bytes(page) == [MP3]
+    assert audio_card(page).locator("audio").evaluate("audio => audio.paused && !audio.autoplay")
+    expect(audio_button(page, USE_PREVIEW)).to_have_count(0)
+    assert api.saves == []
+    save_and_wait(page, api)
+    [saved] = api.saves
+    assert (saved.item["itemId"], saved.item["audio"]) == (item_id, "replace")
+    assert saved.audio_file == MP3
+    assert len(api.preview_requests) == 1
+
+
+@pytest.mark.p1
+@pytest.mark.parametrize("language", ["en", "fr"])
+@pytest.mark.parametrize("viewport", WIDTHS.values(), ids=WIDTHS.keys())
+def test_a_blank_target_makes_no_audio_even_once_it_is_typed(
+    page: Page, language: str, viewport: ViewportSize
+) -> None:
+    """Matrix "Blank Target": no request when the Draft opens, none on the Target edit, and the
+    Draft saves without audio."""
+    api = DraftAudioApi(page, text="   ")
+    api.open(language, viewport, auto=False)
+    expect(voice(page)).to_have_value(FIRST_VOICE[language])
+    expect(preview_button(page)).to_be_disabled()
+    field(page, "Target").fill("jump to conclusions")
+    expect(preview_button(page)).to_be_enabled()
+    page.evaluate("0")
+    assert api.preview_requests == []
+    assert rendered_audio_bytes(page) == []
+    with page.expect_response(lambda response: is_item_save(response.request)):
+        save_button(page).click()
+    expect(editor(page)).to_have_count(0)
+    [saved] = api.saves
+    assert (saved.item["audio"], saved.audio_file) == ("keep", None)
+    assert api.preview_requests == []
+
+
+@pytest.mark.p1
+@pytest.mark.parametrize("path", PATHS)
+@pytest.mark.parametrize("language", ["en", "fr"])
+@pytest.mark.parametrize("viewport", WIDTHS.values(), ids=WIDTHS.keys())
+def test_a_failed_automatic_preview_shows_its_notice_and_the_draft_saves_without_audio(
+    page: Page, path: str, language: str, viewport: ViewportSize
+) -> None:
+    """Matrix "Failure": the notice with Try again; Save still works, without audio."""
+    api = DraftAudioApi(page)
+    api.preview_error = True
+    open_draft(api, path, language, viewport)
+    expect(auto_alert(page)).to_be_visible()
+    expect(auto_alert(page).get_by_role("button", name="Try again", exact=True)).to_be_enabled()
+    expect(tts_alert(page)).to_have_count(0)
+    assert rendered_audio_bytes(page) == []
+    expect(save_button(page)).to_be_enabled()
+    save_and_wait(page, api)
+    [saved] = api.saves
+    assert (saved.item["audio"], saved.audio_file) == ("keep", None)
+    assert len(api.preview_requests) == 1
+
+
+@pytest.mark.p1
+@pytest.mark.parametrize("path", PATHS)
+@pytest.mark.parametrize("language", ["en", "fr"])
+@pytest.mark.parametrize("viewport", WIDTHS.values(), ids=WIDTHS.keys())
+def test_try_again_after_a_failed_automatic_preview_makes_the_accepted_audio(
+    page: Page, path: str, language: str, viewport: ViewportSize
+) -> None:
+    """Matrix "Failure": a successful Try again becomes the accepted audio, saved with Save."""
+    api = DraftAudioApi(page)
+    api.preview_error = True
+    open_draft(api, path, language, viewport)
+    api.preview_error = False
+    with page.expect_response(lambda response: is_preview(response.request)):
+        auto_alert(page).get_by_role("button", name="Try again", exact=True).click()
+    expect(auto_alert(page)).to_have_count(0)
+    expect(audio_button(page, USE_PREVIEW)).to_have_count(0)
+    assert rendered_audio_bytes(page) == [MP3]
+    save_and_wait(page, api)
+    [saved] = api.saves
+    assert (saved.item["audio"], saved.audio_file) == ("replace", MP3)
+    assert len(api.preview_requests) == 2
+
+
+@pytest.mark.p0
+@pytest.mark.parametrize("outcome", ["made", "failed"])
+@pytest.mark.parametrize("path", PATHS)
+@pytest.mark.parametrize("language", ["en", "fr"])
+@pytest.mark.parametrize("viewport", WIDTHS.values(), ids=WIDTHS.keys())
+def test_a_save_pressed_while_the_audio_is_made_waits_for_it(
+    page: Page, outcome: str, path: str, language: str, viewport: ViewportSize
+) -> None:
+    """Matrix "In flight": Save shows "Making audio…" and stays busy, then saves with the clip,
+    or without audio if it failed."""
+    api = DraftAudioApi(page)
+    held = hold_previews(page)
+    open_draft(api, path, language, viewport, auto=False)
+    pending = held_preview(page, held)
+
+    save_button(page).click()
+
+    expect(waiting_save(page)).to_be_visible()
+    expect(waiting_save(page)).to_be_disabled()
+    page.evaluate("0")
+    assert api.saves == []
+    with page.expect_response(lambda response: is_item_save(response.request)):
+        if outcome == "made":
+            pending.fulfill(status=200, content_type="audio/mpeg", body=MP3)
+        else:
+            fail(pending)
+    expect(banner(page, api.capture["text"])).to_be_visible()
+    [saved] = api.saves
+    if outcome == "made":
+        assert (saved.item["audio"], saved.audio_file) == ("replace", MP3)
+    else:
+        assert (saved.item["audio"], saved.audio_file) == ("keep", None)
+    assert len(held) == 1
+
+
+@pytest.mark.p1
+@pytest.mark.parametrize("language", ["en", "fr"])
+@pytest.mark.parametrize("viewport", WIDTHS.values(), ids=WIDTHS.keys())
+def test_voice_and_target_edits_after_the_automatic_clip_make_no_new_audio(
+    page: Page, language: str, viewport: ViewportSize
+) -> None:
+    """Matrix "Edits": a Voice change only stores the preference; a Target change shows the
+    stale warning; neither makes a request."""
+    api = DraftAudioApi(page)
+    api.open(language, viewport)
+    voice(page).select_option(SECOND_VOICE[language])
+    expect(audio_card(page).get_by_text(STALE_AUDIO, exact=True)).to_have_count(0)
+    field(page, "Target").fill("jump the gun")
+    expect(audio_card(page).get_by_text(STALE_AUDIO, exact=True)).to_be_visible()
+    expect(preview_button(page)).to_be_enabled()
+    page.evaluate("0")
+    assert len(api.preview_requests) == 1
+    assert storage_values(page)[LOCALE_KEYS[LOCALE[language]]] == SECOND_VOICE[language]
+    assert rendered_audio_bytes(page) == [MP3]
+    assert api.saves == []
+
+
+@pytest.mark.p1
+@pytest.mark.parametrize("language", ["en", "fr"])
+@pytest.mark.parametrize("viewport", WIDTHS.values(), ids=WIDTHS.keys())
+def test_an_explicit_preview_after_the_automatic_clip_is_compared_before_use(
+    page: Page, language: str, viewport: ViewportSize
+) -> None:
+    """Matrix "Explicit Preview": the existing compare; Use preview replaces the automatic clip."""
+    api = DraftAudioApi(page)
+    api.open(language, viewport)
+    api.mp3 = SECOND_MP3
+    api.synthesize()
+    expect(audio_button(page, KEEP_CURRENT)).to_be_visible()
+    assert rendered_audio_bytes(page) == [MP3, SECOND_MP3]
+    audio_button(page, USE_PREVIEW).click()
+    expect(audio_button(page, USE_PREVIEW)).to_have_count(0)
+    assert rendered_audio_bytes(page) == [SECOND_MP3]
+    save_and_wait(page, api)
+    [saved] = api.saves
+    assert (saved.item["audio"], saved.audio_file) == ("replace", SECOND_MP3)
+
+
+@pytest.mark.p1
+@pytest.mark.parametrize("language", ["en", "fr"])
+@pytest.mark.parametrize("viewport", WIDTHS.values(), ids=WIDTHS.keys())
+def test_a_draft_discarded_while_its_audio_is_made_ignores_the_late_reply(
+    page: Page, language: str, viewport: ViewportSize
+) -> None:
+    """Matrix "Leave": the late automatic reply creates no Blob URL and reopens nothing."""
+    install_url_probe(page)
+    api = DraftAudioApi(page)
+    held = hold_previews(page)
+    api.open(language, viewport, auto=False)
+    pending = held_preview(page, held)
+    discard_draft(page)
+    expect(editor(page)).to_have_count(0)
+    with page.expect_response(lambda response: is_preview(response.request)):
+        pending.fulfill(status=200, content_type="audio/mpeg", body=MP3)
+    page.evaluate("0")
+    expect(editor(page)).to_have_count(0)
+    assert page.evaluate("audioUrls.created") == []
+    assert api.saves == []
+
+
+@pytest.mark.p0
+@pytest.mark.parametrize("path", PATHS)
+@pytest.mark.parametrize("language", ["en", "fr"])
+@pytest.mark.parametrize("viewport", WIDTHS.values(), ids=WIDTHS.keys())
+def test_a_save_pressed_while_the_voices_load_waits_for_the_automatic_audio(
+    page: Page, path: str, language: str, viewport: ViewportSize
+) -> None:
+    """Matrix "In flight": a Save pressed during "Loading voices…" also waits, then saves with
+    the automatic clip."""
+    api = DraftAudioApi(page)
+    held: list[Route] = []
+    page.route(re.compile(r"/api/audio/voices(?:\?.*)?$"), lambda route: held.append(route))
+    open_draft(api, path, language, viewport, auto=False)
+    expect(audio_card(page).get_by_text("Loading voices…", exact=True)).to_be_visible()
+    voices = first_held(page, held)
+
+    save_button(page).click()
+
+    expect(waiting_save(page)).to_be_disabled()
+    page.evaluate("0")
+    assert api.saves == []
+    assert api.preview_requests == []
+    with page.expect_response(lambda response: is_item_save(response.request)):
+        voices.fulfill(json={"voices": CATALOG[LOCALE[language]]})
+    expect(banner(page, api.capture["text"])).to_be_visible()
+    [saved] = api.saves
+    assert (saved.item["audio"], saved.audio_file) == ("replace", MP3)
+    assert [call["voice"] for call in api.preview_requests] == [FIRST_VOICE[language]]

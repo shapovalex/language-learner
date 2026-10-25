@@ -1,5 +1,9 @@
 """Story 6.1 browser audio contracts, provider doubles and Draft setup.
 
+Since 2026-10-25 a new Draft makes its Reference audio automatically: one Preview once its
+Voice list loads, accepted at once. `DraftAudioApi.open` and `.generate` wait for that clip
+unless told not to (`auto=False`), so later explicit Previews never race it.
+
 The proposed new region is named "Reference audio" (its visible heading can append
 "· optional"). EXPERIENCE.md fixes Voice, Keep current, Use preview, Play audio preview,
 and both error texts. "Preview" is the explicit synthesis action. These accessible names,
@@ -13,21 +17,26 @@ exposes no implicit audio role; no style or layout selector is used.
 
 import re
 import uuid
+from contextlib import AbstractContextManager, nullcontext
 from dataclasses import dataclass
 from email.parser import BytesParser
 from email.policy import HTTP
 from typing import Any
 from urllib.parse import parse_qs, urlparse
 
-from playwright.sync_api import Locator, Page, Request, Route, ViewportSize
+from playwright.sync_api import Locator, Page, Request, Route, ViewportSize, expect
 
 from tests.support.audio import MP3, PREVIEW_API, VOICES_API
 from tests.support.captures_screen import API, CAPTURES_PATH, capture
+from tests.support.drafts import drafted
 from tests.support.items_screen import (
+    GENERATE_API,
     choose,
     editor,
     field,
+    generate_draft,
     is_blank_draft,
+    is_generate,
     item_part,
     stub_duplicates,
     write_it_myself,
@@ -39,6 +48,8 @@ AUDIO_REGION = "Reference audio"
 VOICE_ERROR = "Couldn't load voices"
 TTS_ERROR = "Couldn't make the audio. Current audio is unchanged."
 STALE_AUDIO = "Audio no longer matches the text."
+AUTO_ERROR = "Couldn't make the audio. The Draft will save without audio."
+MAKING_AUDIO = "Making audio…"
 
 EN_FIRST = "en-US-AndrewNeural"
 EN_SECOND = "en-US-AvaNeural"
@@ -81,6 +92,16 @@ def voice_alert(page: Page) -> Locator:
 
 def tts_alert(page: Page) -> Locator:
     return audio_card(page).get_by_role("alert").filter(has_text=TTS_ERROR)
+
+
+def auto_alert(page: Page) -> Locator:
+    return audio_card(page).get_by_role("alert").filter(has_text=AUTO_ERROR)
+
+
+def waiting_save(page: Page) -> Locator:
+    """Save to Anki while it waits for the automatic audio: the form's submit button."""
+    making = editor(page).get_by_role("button", name=MAKING_AUDIO, exact=True)
+    return making.and_(editor(page).locator("button[type=submit]"))
 
 
 def is_preview(request: Request) -> bool:
@@ -141,9 +162,9 @@ def audio_upload(request: Request) -> AudioSave:
 class DraftAudioApi:
     """Per-page Voice, synthesis and multipart Save double, armed before any navigation."""
 
-    def __init__(self, page: Page) -> None:
+    def __init__(self, page: Page, text: str = "jump to conclusions") -> None:
         self.page = page
-        self.capture = capture("jump to conclusions", "2026-10-24T20:00:00Z")
+        self.capture = capture(text, "2026-10-24T20:00:00Z")
         self.voices_error = False
         self.preview_error = False
         self.save_error = False
@@ -234,16 +255,60 @@ class DraftAudioApi:
             return
         route.fulfill(json={"itemId": upload.item["itemId"]})
 
-    def open(self, language: str, viewport: ViewportSize, category: str = "Vocabulary") -> str:
-        """Use the implemented blank-Draft flow; its response is existing setup, not new API."""
+    def _auto(self, auto: bool) -> AbstractContextManager[Any]:
+        if not auto:
+            return nullcontext()
+        return self.page.expect_response(lambda response: is_preview(response.request))
+
+    def open(
+        self,
+        language: str,
+        viewport: ViewportSize,
+        category: str = "Vocabulary",
+        *,
+        auto: bool = True,
+    ) -> str:
+        """Use the implemented blank-Draft flow; its response is existing setup, not new API.
+
+        With `auto`, returns once the automatic Preview has answered and the card shows it.
+        """
         page = self.page
         page.set_viewport_size(viewport)
         page.goto(f"{CAPTURES_PATH}/{self.capture['captureId']}")
         choose(page, "English" if language == "en" else "French", category)
         with page.expect_response(lambda response: is_blank_draft(response.request)) as drafted:
-            write_it_myself(page).click()
+            with self._auto(auto):
+                write_it_myself(page).click()
+        if auto:
+            expect(preview_button(page)).to_be_visible()
         field(page, "Russian meaning").fill("делать поспешные выводы")
         return drafted.value.json()["itemId"]
+
+    def generate(
+        self,
+        language: str,
+        viewport: ViewportSize,
+        category: str = "Vocabulary",
+        *,
+        auto: bool = True,
+    ) -> str:
+        """Generate Draft with the generation stubbed; with `auto`, returns once the automatic
+        Preview has answered and the card shows it."""
+        page = self.page
+        item_id = str(uuid.uuid4())
+        reply = {"itemId": item_id, **drafted(category.lower(), self.capture["text"])}
+        stub_api_json(page, GENERATE_API, reply, status=201, method="POST")
+        page.set_viewport_size(viewport)
+        page.goto(f"{CAPTURES_PATH}/{self.capture['captureId']}")
+        choose(page, "English" if language == "en" else "French", category)
+        with page.expect_response(lambda response: is_generate(response.request)):
+            with self._auto(auto):
+                generate_draft(page).click()
+        if auto:
+            expect(preview_button(page)).to_be_visible()
+        else:
+            expect(field(page, "Russian meaning")).to_be_visible()
+        return item_id
 
     def synthesize(self) -> None:
         with self.page.expect_response(lambda response: is_preview(response.request)):

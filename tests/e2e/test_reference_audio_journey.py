@@ -20,6 +20,7 @@ from tests.support.audio import EN_VOICE, FR_VOICE, MP3, PREVIEW_API, SECOND_MP3
 from tests.support.audio_screen import (
     STALE_AUDIO,
     audio_button,
+    audio_card,
     preview_button,
     rendered_audio_bytes,
     voice,
@@ -37,7 +38,9 @@ from tests.support.item_audio_screen import (
 from tests.support.items_screen import (
     banner,
     choose,
+    editor,
     field,
+    generate_draft,
     items_back_link,
     save_button,
     write_it_myself,
@@ -57,7 +60,10 @@ def unsaved(page: Page):
 
 
 def make_item_with_audio(page: Page, language: str, target: str) -> bytes:
-    """Capture → Draft → Preview → Use preview → Save; return the clip the Draft played."""
+    """Capture → Draft → Preview → Use preview → Save; return the clip the Draft played.
+
+    The Draft first makes its automatic clip (decided 2026-10-25); the explicit Preview then
+    replaces it through the compare."""
     name, _ = LANGUAGES[language]
     page.goto("/captures")
     compose_box(page).fill(target)
@@ -159,3 +165,38 @@ def test_one_items_reference_audio_from_preview_to_deletion(
         no_match = f"No {name} Items match “{edited}”."
         expect(main(page).get_by_text(no_match, exact=True)).to_be_visible()
     expect(item_row(page, edited)).to_have_count(0)
+
+
+@pytest.mark.p0
+@pytest.mark.parametrize("width", WIDTHS)
+@pytest.mark.parametrize("language", LANGUAGES)
+def test_a_generated_draft_saves_its_automatic_audio_with_no_audio_clicks(
+    page: Page, language: str, width: str
+) -> None:
+    """[P0] Generate Draft → Save to Anki, no audio clicks → the reopened Item plays the clip.
+
+    The automatic Draft audio (decided 2026-10-25), UI only, on the live server.
+    """
+    page.set_viewport_size(WIDTHS[width])
+    name, _ = LANGUAGES[language]
+    target = f"automatic audio {uuid.uuid4().hex[:12]}"
+    page.goto("/captures")
+    compose_box(page).fill(target)
+    main(page).get_by_role("button", name=SAVE, exact=True).click()
+    rows(page).filter(has_text=target).click()
+    choose(page, name, "Vocabulary")
+    generate_draft(page).click()
+
+    # The Draft shows its own clip with no audio click, and no compare to answer.
+    expect(editor(page)).to_be_visible()
+    expect(audio_card(page).locator("audio")).to_have_count(1)
+    expect(preview_button(page)).to_be_visible()
+    expect(audio_button(page, USE_PREVIEW)).to_have_count(0)
+    [drafted] = rendered_audio_bytes(page)
+    assert drafted == MP3
+    save_button(page).click()
+    expect(banner(page, target)).to_be_visible()
+
+    open_item(page, language, target)
+    expect(item_audio_card(page).locator("audio")).to_have_count(1)
+    assert player_bytes(page) == [drafted]

@@ -163,7 +163,8 @@ def test_clear_removes_the_example_before_save(page: Page) -> None:
     expect(page).to_have_url(path_pattern(f"{CAPTURES_PATH}/{CAPTURE_ID}"))
     saved = item_part(sent.value)
     assert (saved["example"], saved["exampleRussian"]) == ("", "")
-    assert (saved["itemId"], saved["audio"]) == (ITEM_ID, "keep")
+    # The Draft's automatic Reference audio (decided 2026-10-25) is saved with it
+    assert (saved["itemId"], saved["audio"]) == (ITEM_ID, "replace")
     assert saved["russian"] == GENERATED_VOCABULARY["russian"]
 
 
