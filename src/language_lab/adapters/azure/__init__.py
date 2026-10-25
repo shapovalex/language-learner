@@ -1,6 +1,7 @@
 """Azure Speech REST; backend credentials, escaped SSML and bounded requests."""
 
 import asyncio
+import base64
 import json
 import re
 from xml.sax.saxutils import escape, quoteattr
@@ -9,12 +10,17 @@ import httpx
 
 from language_lab.domain.audio import MAX_AUDIO_BYTES, Voice, validate_mp3
 from language_lab.domain.errors import AppError, ErrorCode
+from language_lab.domain.pronunciation import Assessment
 
 
 class AzureSpeech:
     def __init__(self, key: str, region: str, *, transport: httpx.AsyncBaseTransport | None = None):
         self._configured = bool(key and re.fullmatch(r"[a-z0-9-]+", region))
         host_region = region if self._configured else "unconfigured"
+        self._assessment_url = (
+            f"https://{host_region}.stt.speech.microsoft.com"
+            "/speech/recognition/conversation/cognitiveservices/v1"
+        )
         self._client = httpx.AsyncClient(
             base_url=f"https://{host_region}.tts.speech.microsoft.com",
             headers={"Ocp-Apim-Subscription-Key": key, "User-Agent": "LanguageLab"},
@@ -22,9 +28,11 @@ class AzureSpeech:
             transport=transport,
         )
 
-    async def _request(self, method: str, path: str, **kwargs) -> bytes:
+    async def _request(
+        self, method: str, path: str, *, failure: ErrorCode = ErrorCode.TTS_FAILED, **kwargs
+    ) -> bytes:
         if not self._configured:
-            raise AppError(ErrorCode.TTS_FAILED)
+            raise AppError(failure)
         try:
             async with asyncio.timeout(30), self._client.stream(method, path, **kwargs) as response:
                 response.raise_for_status()
@@ -32,10 +40,10 @@ class AzureSpeech:
                 async for chunk in response.aiter_bytes():
                     result.extend(chunk)
                     if len(result) > MAX_AUDIO_BYTES:
-                        raise AppError(ErrorCode.TTS_FAILED)
+                        raise AppError(failure)
                 return bytes(result)
         except httpx.HTTPError, TimeoutError:
-            raise AppError(ErrorCode.TTS_FAILED) from None
+            raise AppError(failure) from None
 
     async def voices(self, locales: tuple[str, ...]) -> list[Voice]:
         try:
@@ -80,3 +88,31 @@ class AzureSpeech:
 
     async def aclose(self) -> None:
         await self._client.aclose()
+
+    async def assess(self, locale: str, target: str, wav: bytes) -> Assessment | None:
+        header = {
+            "ReferenceText": target,
+            "GradingSystem": "HundredMark",
+            "Granularity": "Phoneme",
+            "Dimension": "Comprehensive",
+            "EnableMiscue": True,
+        }
+        if locale == "en-US":
+            header.update(PhonemeAlphabet="IPA", EnableProsodyAssessment=True)
+        try:
+            reply = await self._request(
+                "POST",
+                self._assessment_url,
+                failure=ErrorCode.ASSESSMENT_FAILED,
+                params={"language": locale, "format": "detailed"},
+                content=wav,
+                headers={
+                    "Content-Type": "audio/wav; codecs=audio/pcm; samplerate=16000",
+                    "Pronunciation-Assessment": base64.b64encode(
+                        json.dumps(header, ensure_ascii=True).encode()
+                    ).decode("ascii"),
+                },
+            )
+            return Assessment.from_azure(locale, json.loads(reply))
+        except ValueError, KeyError, IndexError, TypeError, AttributeError:
+            raise AppError(ErrorCode.ASSESSMENT_FAILED) from None

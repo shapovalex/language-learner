@@ -14,6 +14,12 @@ import pytest
 from playwright.sync_api import Page, expect
 
 from tests.support import viewports
+from tests.support.attempt_screen import (
+    assessment,
+    finish_attempt,
+    install_microphone,
+    record_button,
+)
 from tests.support.captures_screen import main
 from tests.support.navigation import language_nav, screen_heading
 from tests.support.pronunciation_screen import (
@@ -33,6 +39,20 @@ from tests.support.pronunciation_screen import (
     review_card,
     target_text,
 )
+
+
+@pytest.fixture(autouse=True)
+def attempt_boundary(page: Page) -> None:
+    """Ratings still exercise the real UI gate, with native microphone/API boundaries."""
+    install_microphone(page)
+    page.route(
+        "**/api/pronunciation/*/attempt",
+        lambda route: route.fulfill(
+            status=200,
+            content_type="application/json",
+            body=json.dumps({"assessment": assessment(), "nothingHeard": False}),
+        ),
+    )
 
 
 class TestReviewLoop:
@@ -97,6 +117,8 @@ class TestReviewLoop:
             reference_button(page).click()
 
         assert urlparse(played.value.url).path == f"/api/media/{with_audio['audio']}"
+        finish_attempt(page)
+
         rating_button(page, "Good").click()
         expect(target_text(page, "butter")).to_be_visible()
         expect(reference_button(page)).to_have_count(0)
@@ -111,14 +133,16 @@ class TestReviewLoop:
         api = ReviewApi(page, lang="en", due=[first], new=[second])
         page.goto("/en/pronunciation")
 
+        finish_attempt(page)
+
         rating_button(page, "Good").click()
 
         expect(target_text(page, "Je voudrais un café.")).to_be_visible()
         assert api.ratings == [{"cardId": first["cardId"], "reps": 4, "rating": "good"}]
         expect(target_text(page, "squirrel")).to_have_count(0)
         expect(queue_chip(page, 0, 1)).to_have_text("0 due · 1 new")
-        for name in RATINGS:  # always enabled until 7.2 adds the Attempt gate
-            expect(rating_button(page, name)).to_be_enabled()
+        for name in RATINGS:
+            expect(rating_button(page, name)).to_be_disabled()
 
     @pytest.mark.p0
     def test_a_failed_rating_keeps_the_card_current_and_try_again_resends_it(
@@ -131,6 +155,8 @@ class TestReviewLoop:
         api = ReviewApi(page, lang="en", due=[first, second])
         api.rating_error = True
         page.goto("/en/pronunciation")
+
+        finish_attempt(page)
 
         rating_button(page, "Hard").click()
 
@@ -234,6 +260,8 @@ class TestReviewLoopGreenPhase:
         page.goto("/fr/pronunciation")
         expect(target_text(page, "merci")).to_be_visible()
 
+        finish_attempt(page)
+
         rating_button(page, "Easy").click()
 
         expect(main(page).get_by_text(EMPTY_BODY)).to_be_visible()
@@ -320,6 +348,8 @@ class TestReviewLoopGreenPhase:
         api.gone.add(gone["cardId"])
         page.goto("/en/pronunciation")
 
+        finish_attempt(page)
+
         rating_button(page, "Good").click()
 
         expect(target_text(page, "anemone")).to_be_visible()
@@ -327,16 +357,17 @@ class TestReviewLoopGreenPhase:
         assert api.ratings == [{"cardId": gone["cardId"], "reps": 1, "rating": "good"}]
 
     @pytest.mark.p1
-    def test_keyboard_focus_stays_on_the_rating_buttons_for_the_next_card(self, page: Page) -> None:
+    def test_keyboard_focus_moves_to_record_for_the_next_card(self, page: Page) -> None:
         page.set_viewport_size(viewports.DESKTOP)
         ReviewApi(page, lang="en", due=[review_card("water"), review_card("butter")])
         page.goto("/en/pronunciation")
 
+        finish_attempt(page)
         rating_button(page, "Good").focus()
         page.keyboard.press("Enter")
 
         expect(target_text(page, "butter")).to_be_visible()
-        expect(rating_button(page, "Good")).to_be_focused()
+        expect(record_button(page)).to_be_focused()
 
     @pytest.mark.p1
     def test_a_page_hidden_before_the_first_card_starts_its_session_when_shown(
