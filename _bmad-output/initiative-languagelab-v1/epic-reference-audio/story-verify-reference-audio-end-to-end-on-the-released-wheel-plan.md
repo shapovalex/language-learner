@@ -3,14 +3,14 @@ title: 'Verify Reference audio end to end on the released wheel'
 type: 'chore'
 ticket: '4'
 created: '2026-10-25'
-status: 'in-progress'
+status: 'built'
 baseline_revision: '99a4b49c54d5fb6b307354603ae99e719874b17a'
 route: 'full'
 route_source: 'auto'
 risk: 'medium'
-review: ''
-review_source: ''
-lenses_ran: []
+review: 'quick'
+review_source: 'pinned'
+lenses_ran: ['quick']
 review_loop_iteration: 0
 context: []
 ---
@@ -64,6 +64,21 @@ context: []
 **Acceptance Criteria:**
 - Given the new journey, when it runs in Chromium and WebKit, then all four cases pass, and the test makes no `page.request` calls and has no Anki or `/api` assertions.
 - Given the checklist, when it is read, then every check can be done by tapping or clicking in LanguageLab, Anki Desktop or AnkiMobile, and every listed criterion has a row.
+
+## Review Triage Log
+
+Pass 1 (quick, 2026-10-25): high 0, medium 2, low 4, false 0, maybe-false 0.
+
+| Finding | Verdict | Route | Evidence/action |
+|---|---|---|---|
+| Journey never picks a Voice in the Create step | low | patch | `make_item_with_audio` goes from Russian meaning straight to Preview, so the Matrix "Voice" step is never exercised. Select the locale Voice explicitly. |
+| Checklist rows contradict each other on order and on which Item each uses | medium | patch | FR-24 can remove E's audio before DW5 deletes it, which defeats DW5's media check. Fix the run order and name the Item in each row. |
+| Failure check creates an untracked third Item | low | patch | The Draft retry saves an Item that S5 doesn't list and nothing deletes. Add it as D and a cleanup step. |
+| DW2's post-note-write leftovers clause has no row | medium | patch | No row covers AD-6 leftovers that Setup repairs. Add a row pointing to the automated failure injection, plus the Setup orphan-repair observation. |
+| AC21 review-history removal is assumed, not checked | low | patch | Add before/after `rated:1` Browse searches. |
+| French AC15 plays audio left stale by DW4 | low | patch | Fixed by the run order: FR-23 regenerates F before AC15. |
+
+After the patches (commit 3011466), verification on my side: journey 8 passed in Chromium and WebKit; `make test` 1183 passed; `make lint` and `git diff --check` clean. Nothing deferred.
 
 ## Design Notes
 
