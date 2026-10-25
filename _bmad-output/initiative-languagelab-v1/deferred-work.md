@@ -41,3 +41,9 @@
 - source_plan: `_bmad-output/initiative-languagelab-v1/plan-ci-test-speed.md`
   summary: Make `closed_port()` and `released_app` port allocation race-free now that tests run in parallel under pytest-xdist.
   evidence: maybe-false, unverified medium. Both free a bound port before using it, so a concurrent xdist worker could take it. A burn-in or CI failure that names a refused-connection or released-app bind test would prove it.
+- source_plan: `_bmad-output/initiative-languagelab-v1/epic-pronunciation-review/story-verify-pronunciation-review-end-to-end-on-the-released-wheel-plan.md`
+  summary: Add the `language-lab-record-fixtures anki` subcommand that records the real AnkiConnect pronunciation exchanges (queue `findCards`/`cardsInfo`, `answerCards`) as `tests/fixtures/anki/` files, and test the simulator against them.
+  evidence: The user decided on 2026-10-25 ("keep acceptance small and UI oriented", as in 6.4) that story 7.4 sends no API requests to Anki, so the ticket's recorder subcommand was dropped. The hand-built AnkiConnect exchanges behind `tests/integration` pronunciation tests remain unchecked against real Anki.
+- source_plan: `_bmad-output/initiative-languagelab-v1/epic-pronunciation-review/story-verify-pronunciation-review-end-to-end-on-the-released-wheel-plan.md`
+  summary: Compare a sanitized live Azure pronunciation-assessment reply (`en-US` and `fr-CA`) with the `tests/fixtures/azure-assessment/` fixtures the adapter is tested against.
+  evidence: Dropped from story 7.4 by the same 2026-10-25 decision: the manual run (`_bmad-output/test-artifacts/acceptance/pronunciation-review-acceptance-7-4.md`) only looks at the feedback in the UI, so a change in Azure's reply shape would show only as wrong or missing feedback, not as a fixture diff.

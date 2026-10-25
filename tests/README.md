@@ -41,7 +41,7 @@ tests/
   fakes/               one in-memory fake per port (AD-1)
   fixtures/            recorded inputs from real externals (Tailscale status and Serve headers, AnkiConnect exchanges under anki/; see its README)
   support/
-    live_server.py     run_live_server(): uvicorn in a thread on a pre-bound socket, FakeAnkiStore() injected; bind_free_port(); closed_port() (refused at once)
+    live_server.py     run_live_server(): uvicorn in a thread on a pre-bound socket, FakeAnkiStore() and FakeSpeech() injected (or the seeded anki_store= / speech= given); bind_free_port(); closed_port() (refused at once)
     app_env.py         config_values() factory, write_dotenv(), dotenv_keys(), isolated_environ() (ANKI_CONNECT_URL on a refused port, so no subprocess Syncs a real Anki)
     network.py         stub_api_error() (AD-15 envelope, returned), stub_api_json() (a canned 200 body), HeldRoute (hold a request, see the loading state, then fulfill_json()); each takes method= to act on one HTTP method only, record_requests(), record_resources() (with resource type), record_json_bodies() (JSON body of each non-GET to a path)
     design_tokens.py   DESIGN.md front matter -> expected --color/--space/--radius/--font-* properties; css_custom_properties()
