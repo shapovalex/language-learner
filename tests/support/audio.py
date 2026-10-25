@@ -18,11 +18,11 @@ from language_lab.domain.catalog import Language
 from language_lab.domain.items import AudioIntent
 from language_lab.settings import Settings
 from tests.fakes.llm import FakeLlm
-from tests.support.anki_state import Collection
+from tests.support.anki_state import Collection, item_note
 from tests.support.captures import MANIFEST
 from tests.support.hosts import app_client
 from tests.support.item_delete import ObservedLock, wired_delete
-from tests.support.items import VOCABULARY, content
+from tests.support.items import VOCABULARY, content, note_type_of, stored_fields
 
 FIXTURES = Path(__file__).resolve().parents[1] / "fixtures" / "azure"
 MP3 = (FIXTURES / "preview.mp3").read_bytes()
@@ -111,3 +111,25 @@ async def replace_audio(store: Any, item_id: str, data: bytes = MP3) -> None:
     await store.save_item(
         item_id, Language.EN, content(VOCABULARY), AudioIntent.REPLACE, audio_bytes=data
     )
+
+
+def remove_parts(item_id: str, **overrides: Any) -> dict[str, Any]:
+    """Story 6.2 Save with audio=remove: only the `item` part, never an audioFile."""
+    payload = {**VOCABULARY, "itemId": item_id, "audio": "remove", **overrides}
+    return {"item": (None, json.dumps(payload), "application/json")}
+
+
+def stored_with_audio(collection: Collection, item_id: str, data: bytes = SECOND_MP3) -> str:
+    """Put a stored English Vocabulary Item referencing its managed clip; return the name.
+
+    The clip's bytes go to the MediaRig through its `media=` argument, not here.
+    """
+    name = managed_name(item_id, data)
+    fields = {**stored_fields(VOCABULARY, item_id), "Audio": f"[sound:{name}]"}
+    item_note(collection, MANIFEST, note_type_of("en", VOCABULARY), item_id, fields)
+    return name
+
+
+async def remove_audio(store: Any, item_id: str) -> None:
+    """The remove intent resolves inside settle, so today's refusal is an outcome to assert."""
+    await store.save_item(item_id, Language.EN, content(VOCABULARY), AudioIntent.REMOVE)

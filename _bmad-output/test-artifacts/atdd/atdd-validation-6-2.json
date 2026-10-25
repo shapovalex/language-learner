@@ -1,0 +1,99 @@
+{
+  "storyId": "6.2",
+  "runKey": "story-6-2",
+  "criterionRegistry": [
+    {
+      "id": "AC-1",
+      "idSource": "generated",
+      "text": "Opening an Item with saved Reference audio re-reads Anki and plays its current clip from /api/media in a labelled Reference audio card; an Item without audio shows no play control."
+    },
+    {
+      "id": "AC-2",
+      "idSource": "generated",
+      "text": "Regenerate audio is an explicit Preview that shows Current vs Preview; Keep current discards the Preview and leaves the Item and its audio unchanged."
+    },
+    {
+      "id": "AC-3",
+      "idSource": "generated",
+      "text": "After Use preview, Save changes uploads the exact previewed MP3 with audio=replace under the existing ItemId; nothing is written before Save."
+    },
+    {
+      "id": "AC-4",
+      "idSource": "generated",
+      "text": "Removing audio stays local as an unsaved change until Save changes, which sends audio=remove with no audio file."
+    },
+    {
+      "id": "AC-5",
+      "idSource": "generated",
+      "text": "Editing the Target of an Item with audio shows \"Audio no longer matches the text.\" with Regenerate audio, and Save changes still succeeds with audio=keep."
+    },
+    {
+      "id": "AC-6",
+      "idSource": "generated",
+      "text": "Save with audio=remove on an existing Item clears its Audio field and then deletes the superseded managed media, in AD-6 order under one Anki lock."
+    },
+    {
+      "id": "AC-7",
+      "idSource": "generated",
+      "text": "A failed note write during removal stops before any media deletion and preserves the previous Audio field and media."
+    },
+    {
+      "id": "AC-8",
+      "idSource": "generated",
+      "text": "A superseded-media cleanup failure after a successful note write reports an error without rollback, a retry succeeds, and Setup reports the leftover clip as a repairable orphan."
+    },
+    {
+      "id": "AC-9",
+      "idSource": "generated",
+      "text": "Changing Voice on Item detail never synthesizes or writes Anki; only the explicit Regenerate audio action requests a Preview, and it writes nothing."
+    },
+    {
+      "id": "AC-10",
+      "idSource": "generated",
+      "text": "A failed Save changes retains the edits and the pending audio change, and retry resends the same audio intent and bytes."
+    },
+    {
+      "id": "AC-11",
+      "idSource": "generated",
+      "text": "A failed audio Preview on Item detail shows \"Couldn't make the audio. Current audio is unchanged.\" and keeps the current clip playable."
+    }
+  ],
+  "leafCount": 11,
+  "criterionLeafMapping": {
+    "AC-1": "tests/e2e/test_item_audio.py::TestExistingItemAudio::test_opening_an_item_plays_its_current_saved_clip",
+    "AC-2": "tests/e2e/test_item_audio.py::TestExistingItemAudio::test_keep_current_discards_the_preview_and_save_keeps_the_audio",
+    "AC-3": "tests/e2e/test_item_audio.py::TestExistingItemAudio::test_use_preview_uploads_the_exact_clip_only_when_saved",
+    "AC-4": "tests/e2e/test_item_audio.py::TestExistingItemAudio::test_remove_audio_is_local_until_save_sends_the_remove_intent",
+    "AC-5": "tests/e2e/test_item_audio.py::TestExistingItemAudio::test_target_edit_warns_of_stale_audio_and_still_saves_with_keep",
+    "AC-6": "tests/api/test_item_audio_lifecycle.py::TestItemAudioRemoval::test_remove_clears_the_audio_field_then_deletes_the_superseded_clip",
+    "AC-7": "tests/integration/test_anki_audio_lifecycle.py::TestAudioRemovalFailures::test_failed_note_write_during_removal_keeps_the_field_and_clip",
+    "AC-8": "tests/integration/test_anki_audio_lifecycle.py::TestAudioRemovalFailures::test_cleanup_failure_after_the_note_write_is_retryable_and_setup_repairable",
+    "AC-9": "tests/e2e/test_item_audio.py::TestExistingItemAudio::test_changing_voice_never_synthesizes_or_writes",
+    "AC-10": "tests/e2e/test_item_audio.py::TestExistingItemAudio::test_failed_save_retains_the_pending_audio_and_retry_resends_it",
+    "AC-11": "tests/e2e/test_item_audio.py::TestExistingItemAudio::test_failed_preview_reports_and_keeps_the_current_clip"
+  },
+  "allScaffoldsSkipped": true,
+  "registryValidation": {
+    "workersMatch": true,
+    "oneLeafPerCriterion": true,
+    "p0": 7,
+    "p1": 4
+  },
+  "temporaryActivation": {
+    "result": "11 failed, 0 passed, 0 errors",
+    "api": {
+      "AC-6": "422 != 200"
+    },
+    "integration": {
+      "AC-7": "validation_failed != anki_unavailable",
+      "AC-8": "validation_failed != anki_unavailable"
+    },
+    "e2e": {
+      "AC-1": "player bytes [] != [SECOND_MP3]",
+      "others": "stop at missing Voice/card control"
+    }
+  },
+  "normalRun": "78 passed, 11 skipped",
+  "lint": "ruff check/format clean (330 files)",
+  "workflowStatus": "completed"
+}
