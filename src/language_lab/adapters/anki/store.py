@@ -347,11 +347,11 @@ class AnkiConnectStore:
     ) -> None:
         """Update the note whose decoded ItemId is `item_id` (matched in Python, AD-4), or add
         it to its Pronunciation deck and move cards 0-2 to their Study decks (AD-6), under one
-        lock hold. Replacement stores media first and cleans old managed media last. Raises
+        lock hold. Replacement stores media first and cleans old managed media last; removal
+        stores nothing, empties Audio, then cleans the old managed media last. A failure stops
+        the sequence with no compensation: leftovers are Setup's `orphanMedia` repairs. Raises
         `AppError(SETUP_REQUIRED | ANKI_UNAVAILABLE | ANKI_BUSY)`.
         """
-        if audio not in (AudioIntent.KEEP, AudioIntent.REPLACE):
-            raise AppError(ErrorCode.VALIDATION_FAILED)
         if audio is AudioIntent.REPLACE:
             if audio_bytes is None:
                 raise AppError(ErrorCode.VALIDATION_FAILED)
@@ -377,6 +377,8 @@ class AnkiConnectStore:
                 if result != name:
                     raise AppError(ErrorCode.ANKI_UNAVAILABLE)
                 fields[_AUDIO] = f"[sound:{name}]"
+            elif audio is AudioIntent.REMOVE:
+                fields[_AUDIO] = ""
             if stored is not None:
                 note_id = stored.get("noteId")
                 if not is_int(note_id):
@@ -406,7 +408,8 @@ class AnkiConnectStore:
                         await self._client.invoke(
                             "changeDeck", cards=[card_id], deck=manifest.card_deck(model, ord)
                         )
-            if name and old_name and name != old_name:
+            superseded = audio is AudioIntent.REMOVE or (name is not None and name != old_name)
+            if old_name and superseded:
                 await self._client.invoke("deleteMediaFile", filename=old_name)
 
     async def get_media(self, name: str) -> bytes:

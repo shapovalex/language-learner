@@ -20,7 +20,7 @@ class _SaveIntent(BaseModel):
     """The `item` part's keys beside ItemContent (Consistency Conventions, Binary payloads)."""
 
     item_id: str = Field(alias="itemId", pattern=UUID4)
-    audio: Literal[AudioIntent.KEEP, AudioIntent.REPLACE]
+    audio: Literal[AudioIntent.KEEP, AudioIntent.REPLACE, AudioIntent.REMOVE]
 
 
 class SavedBody(TypedDict):

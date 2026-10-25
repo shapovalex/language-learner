@@ -151,7 +151,8 @@ export function regenerateContent(body) {
 }
 
 // Save an Item (FR-20): `multipart/form-data` with the `item` JSON part, ItemContent plus
-// `itemId` and `audio` (Consistency Conventions). 200 `{itemId}`; a retry with the same ItemId
+// `itemId` and `audio` (Consistency Conventions): `replace` with `audioBlob` as `audioFile`,
+// `keep` or `remove` (AD-6, story 6.2) with none. 200 `{itemId}`; a retry with the same ItemId
 // updates the Item (AD-20). The part is a string field: a Blob would arrive as a file
 export function saveItem(lang, item, audioBlob = null) {
   const body = new FormData();
@@ -170,7 +171,8 @@ export function findDuplicates(lang, { category, target, itemId }) {
   return request(`/api/items/${encodeURIComponent(lang)}/duplicates?${query}`);
 }
 
-// One Item as Anki holds it now (FR-22): `{itemId, ...ItemContent}`; 404 `not_found` when
+// One Item as Anki holds it now (FR-22): `{itemId, ...ItemContent, audio}`, `audio` the managed
+// clip's name for /api/media or null; 404 `not_found` when
 // that Language has no Item with the ItemId
 export function getItem(lang, itemId) {
   return request(`/api/items/${encodeURIComponent(lang)}/${encodeURIComponent(itemId)}`);

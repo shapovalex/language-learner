@@ -1636,3 +1636,15 @@ button.segment {
 .reference-audio-voice, .reference-audio audio { width: 100%; min-width: 0; }
 .reference-audio-actions { display: flex; flex-wrap: wrap; gap: 12px; }
 .reference-audio-stale { color: var(--color-ink-muted); margin: 0; }
+
+/* Item detail Reference audio (S-ItemDetail, story 6.2): the stale warning beside Regenerate
+   audio, and the pending-removal note with its undo */
+.item-reference-audio .reference-audio-actions { align-items: center; }
+.item-reference-audio .reference-audio-stale[hidden] { display: none; }
+.reference-audio-removal {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 12px;
+}
+.reference-audio-removal-note { margin: 0; color: var(--color-ink-muted); }
