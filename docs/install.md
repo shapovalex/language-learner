@@ -20,7 +20,7 @@ release and runs it.
 Run this in a terminal on the host machine:
 
 ```sh
-uvx --from https://github.com/shapovalex/language-learner/releases/download/v1.2.0/language_lab-1.2.0-py3-none-any.whl language-lab
+uvx --from https://github.com/shapovalex/language-learner/releases/download/v1.2.1/language_lab-1.2.1-py3-none-any.whl language-lab
 ```
 
 `uvx` downloads the wheel attached to that GitHub release, installs it with its
