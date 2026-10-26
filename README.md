@@ -23,7 +23,7 @@ HTTPS. Browsers only allow microphone access over HTTPS.
 On the machine that hosts the app, with uv installed, start the current release:
 
 ```sh
-uvx --from https://github.com/shapovalex/language-learner/releases/download/v1.1.0/language_lab-1.1.0-py3-none-any.whl language-lab
+uvx --from https://github.com/shapovalex/language-learner/releases/download/v1.2.0/language_lab-1.2.0-py3-none-any.whl language-lab
 ```
 
 The first start asks for the service keys, creates `~/.config/language-lab/.env`, and prints the
