@@ -33,7 +33,7 @@ A variable set in the process environment overrides the same key in the file. Fo
 different port:
 
 ```sh
-LANGUAGE_LAB_PORT=8788 uvx --from https://github.com/shapovalex/language-learner/releases/download/v1.1.0/language_lab-1.1.0-py3-none-any.whl language-lab
+LANGUAGE_LAB_PORT=8788 uvx --from https://github.com/shapovalex/language-learner/releases/download/v1.2.0/language_lab-1.2.0-py3-none-any.whl language-lab
 ```
 
 Keys the app does not know are ignored.
