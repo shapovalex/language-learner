@@ -15,6 +15,7 @@ Defaults pinned here: `russian` and `russianAlternatives` are never null, nor is
 `example` or `exampleRussian` (one example by default, FR-14); every other field is nullable.
 """
 
+import re
 from typing import Any
 
 import pytest
@@ -112,6 +113,21 @@ def test_strict_json_schema_follows_the_strict_rules(category: str) -> None:
     assert "default" not in keys(schema)
 
 
+@pytest.mark.p0
+@pytest.mark.parametrize("category", FIELDS)
+def test_the_schema_tells_the_model_an_alternative_has_no_comma(category: str) -> None:
+    """Bug: the model wrote "стекло, которое исчезает" as an alternative twice, since the comma
+    rule (AD-10) was a validator the schema didn't carry. The schema's pattern is the rule.
+    """
+    pattern = re.compile(
+        schema_of(category)["properties"]["russianAlternatives"]["items"]["pattern"]
+    )
+
+    assert pattern.search("исчезающее стекло")
+    assert not pattern.search("стекло, которое исчезает")
+    assert not pattern.search(" \t")
+
+
 REFUSED = {
     "vocabulary-mnemonic": ("vocabulary", {**GENERATED_VOCABULARY, "mnemonic": "a leap"}),
     "vocabulary-target": ("vocabulary", {**GENERATED_VOCABULARY, "target": "jumped"}),
@@ -124,6 +140,7 @@ REFUSED = {
         "vocabulary",
         {**GENERATED_VOCABULARY, "russianAlternatives": ["спешить, торопиться"]},
     ),
+    "blank-alternative": ("sentence", {**GENERATED_SENTENCE, "russianAlternatives": [" "]}),
     "not-a-list": ("sentence", {**GENERATED_SENTENCE, "russianAlternatives": "спешить"}),
 }
 

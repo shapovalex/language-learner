@@ -47,6 +47,7 @@ def _with(**changes: Any) -> dict[str, Any]:
 REFUSED = {
     "comma-in-an-alternative": _with(russianAlternatives=["торопиться, спешить"]),
     "comma-in-a-sentence-alternative": {**SENTENCE, "russianAlternatives": ["не спеши, подумай"]},
+    "blank-alternative": _with(russianAlternatives=[" "]),
     "blank-target": _with(target=" \n "),
     "blank-russian": _with(russian=""),
     "unknown-category": _with(category="idiom"),

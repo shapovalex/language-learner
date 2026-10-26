@@ -135,6 +135,9 @@ INVALID: dict[str, Reply] = {
     "not-json": completion("Sure! Here is your Draft: {russian: ..."),
     "mnemonic": answer({**GENERATED_VOCABULARY, "mnemonic": "a leap over the facts"}),
     "missing-russian": answer({k: v for k, v in GENERATED_VOCABULARY.items() if k != "russian"}),
+    "comma-alternative": answer(
+        {**GENERATED_VOCABULARY, "russianAlternatives": ["стекло, которое исчезает"]}
+    ),
     "refusal": completion(None),
     "no-choices": no_choices,
 }

@@ -18,7 +18,7 @@ from dataclasses import dataclass
 from enum import StrEnum
 from typing import Annotated, Any, ClassVar, Literal
 
-from pydantic import AfterValidator, BaseModel, ConfigDict, Field
+from pydantic import AfterValidator, BaseModel, ConfigDict, Field, StringConstraints
 from pydantic.alias_generators import to_camel
 
 from language_lab.domain.catalog import Category
@@ -45,14 +45,10 @@ class AudioIntent(StrEnum):
     REMOVE = "remove"
 
 
-def _alternatives(alternatives: list[str]) -> list[str]:
-    for alternative in alternatives:
-        if not alternative.strip() or "," in alternative:
-            raise ValueError("an alternative is blank or contains a comma")
-    return alternatives
-
-
-_Alternatives = Annotated[list[str], AfterValidator(_alternatives)]
+# An alternative is not blank and holds no comma (AD-10). A pattern, not a validator, so the
+# strict schema carries the rule to the model and its answer can meet it (AD-11).
+_Alternative = Annotated[str, StringConstraints(pattern=r"^[^,]*[^,\s][^,]*$")]
+_Alternatives = list[_Alternative]
 
 
 class _Content(BaseModel):
