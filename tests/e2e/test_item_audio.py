@@ -83,6 +83,8 @@ def open_item(page: Page, api: ItemAudioApi, viewport) -> None:
     page.set_viewport_size(viewport)
     api.open()
     expect(item_voice(page)).to_be_enabled()
+    # The picker is enabled and empty while voices load: wait for them before reading options
+    expect(item_voice(page).locator("option").first).to_be_attached()
 
 
 class TestExistingItemAudio:
