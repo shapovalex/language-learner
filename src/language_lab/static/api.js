@@ -150,6 +150,28 @@ export function regenerateContent(body) {
   });
 }
 
+// The Target's grammar verdict: `{language, category, target}` in, 200 `{correct, corrected,
+// explanation}` out, `corrected` null when the Target is correct and the explanation in Russian;
+// `llm_failed` or `llm_invalid_output` when the model fails. Nothing is stored
+export function checkGrammar(body) {
+  return request("/api/helpers/grammar", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(body),
+  });
+}
+
+// Example sentences for a word or phrase: `{language, target, context}` in, 200 `{levels:
+// [{level, sentences: [{sentence, russian}] × 5}]}` out, A1 to C2 in order; `llm_failed` or
+// `llm_invalid_output` when the model fails. The context is used once, never stored
+export function exampleSentences(body) {
+  return request("/api/helpers/examples", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(body),
+  });
+}
+
 // Save an Item (FR-20): `multipart/form-data` with the `item` JSON part, ItemContent plus
 // `itemId` and `audio` (Consistency Conventions): `replace` with `audioBlob` as `audioFile`,
 // `keep` or `remove` (AD-6, story 6.2) with none. 200 `{itemId}`; a retry with the same ItemId

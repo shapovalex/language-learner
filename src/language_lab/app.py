@@ -43,6 +43,8 @@ from language_lab.features.captures.routes import captures_router
 from language_lab.features.captures.service import CaptureService
 from language_lab.features.drafts.routes import drafts_router
 from language_lab.features.drafts.service import DraftService
+from language_lab.features.helpers.routes import helpers_router
+from language_lab.features.helpers.service import HelperService
 from language_lab.features.items.routes import items_router, media_router
 from language_lab.features.items.service import ItemService
 from language_lab.features.pronunciation.routes import pronunciation_router
@@ -398,6 +400,7 @@ def create_app(
     app.include_router(captures_router(CaptureService(anki_store)))
     app.include_router(audio_router(AudioService(speech)))
     app.include_router(drafts_router(DraftService(llm)))
+    app.include_router(helpers_router(HelperService(llm)))
     app.include_router(items_router(ItemService(anki_store)))
     app.include_router(media_router(ItemService(anki_store)))
     app.include_router(

@@ -168,11 +168,16 @@ def _strict(node: Any) -> Any:
     return strict
 
 
-def strict_json_schema(category: Category) -> dict[str, Any]:
-    """The JSON Schema of `category`'s generated fields for strict structured output (AD-11):
-    closed objects, every property required, optional fields nullable, and no defaults.
+def strict_schema(model: type[BaseModel]) -> dict[str, Any]:
+    """`model`'s JSON Schema for strict structured output (AD-11): closed objects, every
+    property required, optional fields nullable, and no defaults.
     """
-    return _strict(generated_model(category).model_json_schema(by_alias=True))
+    return _strict(model.model_json_schema(by_alias=True))
+
+
+def strict_json_schema(category: Category) -> dict[str, Any]:
+    """The strict JSON Schema of `category`'s generated fields (see `strict_schema`)."""
+    return strict_schema(generated_model(category))
 
 
 def _is_edge(char: str) -> bool:

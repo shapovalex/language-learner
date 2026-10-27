@@ -5,8 +5,6 @@ tests/api/test_helpers_grammar.py, tests/api/test_helpers_examples.py).
 `GRAMMAR_CORRECT` and `GRAMMAR_INCORRECT` are grammar verdicts on the wire, explained in
 Russian. `EXAMPLES` is an examples answer on the wire: five French sentences with their Russian
 for each CEFR level, A1 to C2, in order. `examples_with(...)` derives a malformed one from it.
-`language_lab.domain.helpers` doesn't exist yet, so `FakeLlm`'s helper methods import it inside
-the methods and collection passes before it.
 """
 
 import copy

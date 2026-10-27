@@ -53,10 +53,6 @@ from tests.support.items_screen import (
 from tests.support.navigation import path_pattern
 from tests.support.network import record_json_bodies
 
-pytestmark = pytest.mark.skip(
-    reason="Target helpers RED scaffold: activate when implementing the plan"
-)
-
 MAKE_PATH = "/captures/make"
 MAKE_DRAFT_PATH = "/captures/make/draft"
 MODEL_UNREACHABLE = "Couldn't reach the model"

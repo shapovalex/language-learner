@@ -40,6 +40,11 @@ def use_correction(page: Page) -> Locator:
     return editor(page).get_by_role("button", name=USE_CORRECTION, exact=True)
 
 
+def item_editor(page: Page) -> Locator:
+    """Item edit's form: the same shared editor fields, Check grammar under Target."""
+    return main(page).get_by_role("form", name="Item", exact=True)
+
+
 def draft_title(page: Page, target: str) -> Locator:
     """The Draft's header title: its Target, as an h1."""
     return main(page).get_by_role("heading", level=1, name=target, exact=True)

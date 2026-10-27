@@ -25,10 +25,6 @@ from tests.support.helpers import (
     helpers_llm,
 )
 
-pytestmark = pytest.mark.skip(
-    reason="Target helpers RED scaffold: activate when implementing the plan"
-)
-
 
 @pytest.mark.p0
 def test_a_correct_target_is_correct_with_no_correction(settings_factory: SettingsFactory) -> None:
