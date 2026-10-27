@@ -26,10 +26,6 @@ from tests.support.helpers import (
     helpers_llm,
 )
 
-pytestmark = pytest.mark.skip(
-    reason="Target helpers RED scaffold: activate when implementing the plan"
-)
-
 
 @pytest.mark.p0
 def test_examples_are_six_levels_a1_to_c2_of_five_sentences(

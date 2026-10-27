@@ -48,10 +48,6 @@ from tests.support.openrouter import (
     timed_out,
 )
 
-pytestmark = pytest.mark.skip(
-    reason="Target helpers RED scaffold: activate when implementing the plan"
-)
-
 MODELS = ["openai/gpt-5.6-luna", "google/gemini-3.5-flash-lite"]
 
 

@@ -4,6 +4,7 @@ from typing import Any
 
 from language_lab.domain.catalog import Category, Language
 from language_lab.domain.errors import AppError, ErrorCode
+from language_lab.domain.helpers import ExampleSet, GrammarCheck
 from language_lab.domain.items import GeneratedFields, generated_model
 
 # A valid answer per Category, on the wire, when no `reply` is given
@@ -192,10 +193,9 @@ class FakeLlm:
         reply = _REPLIES[category] if self.reply is None else self.reply
         return generated_model(category).model_validate(reply)
 
-    async def check_grammar(self, language: Language, category: Category, target: str) -> Any:
-        # Imported here so the suite collects before `domain/helpers.py` exists (ATDD red phase)
-        from language_lab.domain.helpers import GrammarCheck
-
+    async def check_grammar(
+        self, language: Language, category: Category, target: str
+    ) -> GrammarCheck:
         self.grammar_requests.append((language, category, target))
         if self.error is not None:
             raise AppError(self.error)
@@ -204,9 +204,7 @@ class FakeLlm:
             reply = _GRAMMAR_CORRECTIONS.get(target, _GRAMMAR_CORRECT)
         return GrammarCheck.model_validate(reply)
 
-    async def examples(self, language: Language, target: str, context: str) -> Any:
-        from language_lab.domain.helpers import ExampleSet
-
+    async def examples(self, language: Language, target: str, context: str) -> ExampleSet:
         self.example_requests.append((language, target, context))
         if self.error is not None:
             raise AppError(self.error)

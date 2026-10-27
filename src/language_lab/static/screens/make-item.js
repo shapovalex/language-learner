@@ -12,7 +12,7 @@
 // Try again. Before a Save, a duplicate opens the duplicate sheet (S-Duplicate, story 4.3).
 
 import { CATEGORIES, LANGUAGES, categoryName, languageName } from "../catalog.js";
-import { errorMessage, isApiError } from "../api.js";
+import { checkGrammar, errorMessage, isApiError } from "../api.js";
 import { alertBox, element, skeleton, tryAgain } from "../dom.js";
 import {
   loadVoices as loadVoiceList,
@@ -47,6 +47,15 @@ const BACK_TO_PANE = "‹ Make an Item";
 const UNREACHABLE_TITLE = "Not saved — Anki isn't reachable";
 const MAKING_AUDIO = "Making audio…";
 const AUTO_ERROR = "Couldn't make the audio. The Draft will save without audio.";
+const CHECK_GRAMMAR = "Check grammar";
+const CHECKING_GRAMMAR = "Checking grammar…";
+const USE_CORRECTION = "Use correction";
+const GRAMMAR_CORRECT = "Looks correct";
+const GRAMMAR_WRONG = "Suggested correction";
+const MODEL_UNREACHABLE = "Couldn't reach the model";
+const NOT_CHECKED = "Couldn't check the grammar";
+const INVALID_TWICE = "The model's answer failed the checks twice.";
+const TARGET_UNCHANGED = "Your Target is unchanged.";
 const UNREACHABLE_BODY =
   "Make sure Anki Desktop is open on the Mac mini, then try again. Your text is still here.";
 
@@ -142,7 +151,9 @@ export function chosenText(choice, captureText) {
   return choice.custom.trim() || null;
 }
 
-function picker(label, choices, chosen, onChoose) {
+// A segmented picker: the `label` caption over one `aria-pressed` button per [value, name] of
+// `choices`. Returns [group, mark], `mark(value)` pressing that value's button
+export function picker(label, choices, chosen, onChoose) {
   const group = element("div", "make-item-group");
   const labelId = uniqueId("make-item-label");
   const caption = element("p", "make-item-label", label);
@@ -171,7 +182,8 @@ function picker(label, choices, chosen, onChoose) {
 // The Make an Item pane. `choice` is {source, custom, language, category, context, busy, error},
 // which the pane changes in place as the user picks; `onGenerate()` runs on "Generate Draft" and
 // `onWrite()` on "Write it myself". `blank` is true while the text Use as is takes is empty (the
-// compose text, when there is no Capture)
+// compose text, when there is no Capture). A `choice.language` set beforehand shows preselected
+// (an example sentence's Make an Item picks the examples Language)
 export function makeItemPane(choice, { onGenerate, onWrite, blank = false }) {
   const headingId = uniqueId("make-item-heading");
   const section = element("section", "make-item");
@@ -330,13 +342,125 @@ export function generatingScreen(draft, { onRetry, alertFor }) {
   return { screen, title, retry: again };
 }
 
+// Check grammar's state per edit buffer, kept across re-renders of the same `values`:
+// {busy, result, error, target, token, render}. Never stored or sent anywhere else
+const grammarStates = new WeakMap();
+
+function grammarFailure(error) {
+  if (isApiError(error, "llm_failed")) return [MODEL_UNREACHABLE, TARGET_UNCHANGED];
+  if (isApiError(error, "llm_invalid_output")) {
+    return [NOT_CHECKED, `${INVALID_TWICE} ${TARGET_UNCHANGED}`];
+  }
+  return [NOT_CHECKED, errorMessage(error)];
+}
+
+// Check grammar under the Target (plan target-grammar-check-and-cefr-examples): asks the model
+// for a verdict on `values.target` in `language` and `category`, and shows it under the field.
+// Only Use correction changes anything: it runs `onUse(corrected)`. Editing the Target drops
+// the verdict, which no longer matches it
+function grammarRow(language, category, values, { busy, onUse }) {
+  let state = grammarStates.get(values);
+  if (!state) {
+    state = { busy: false, result: null, error: null, target: null, token: 0, render: null };
+    grammarStates.set(values, state);
+  }
+  const row = element("div", "grammar-check");
+  const button = element("button", "button-link grammar-check-button", CHECK_GRAMMAR);
+  button.type = "button";
+  const panel = element("div", "grammar-result");
+  panel.setAttribute("aria-live", "polite");
+  row.append(button, panel);
+
+  async function check() {
+    const target = values.target;
+    if (state.busy || busy || !target.trim()) return;
+    const token = ++state.token;
+    state.busy = true;
+    state.error = null;
+    state.result = null;
+    state.target = target;
+    state.render?.();
+    try {
+      const result = await checkGrammar({ language, category, target });
+      if (token !== state.token) return;
+      state.result = result;
+    } catch (error) {
+      if (token !== state.token) return;
+      state.error = error;
+    }
+    state.busy = false;
+    state.render?.();
+  }
+
+  function render() {
+    button.disabled = busy || state.busy || !values.target.trim();
+    if (state.busy) {
+      panel.replaceChildren(skeleton(CHECKING_GRAMMAR));
+      return;
+    }
+    if (state.error) {
+      const [title, body] = grammarFailure(state.error);
+      panel.replaceChildren(
+        alertBox(
+          "grammar-alert",
+          element("p", "compose-alert-title", title),
+          element("p", "draft-alert-body", body),
+          tryAgain(check, "secondary"),
+        ),
+      );
+      return;
+    }
+    const result = state.result;
+    if (!result) {
+      panel.replaceChildren();
+      return;
+    }
+    const verdict = element("div", `grammar-verdict ${result.correct ? "is-correct" : "is-wrong"}`);
+    const explanation = element("p", "grammar-explanation", result.explanation);
+    if (result.correct || !result.corrected) {
+      verdict.append(element("p", "grammar-verdict-title", GRAMMAR_CORRECT), explanation);
+    } else {
+      const corrected = result.corrected;
+      const use = element("button", "button button-secondary grammar-use", USE_CORRECTION);
+      use.type = "button";
+      use.disabled = busy;
+      use.addEventListener("click", () => onUse(corrected));
+      verdict.append(
+        element("p", "grammar-verdict-title", GRAMMAR_WRONG),
+        element("p", "grammar-corrected", corrected),
+        explanation,
+        use,
+      );
+    }
+    panel.replaceChildren(verdict);
+  }
+
+  // The Target changed: a verdict or a check in flight is for the old text
+  function reset() {
+    if (state.busy || state.result || state.error) {
+      state.token += 1;
+      state.busy = false;
+      state.result = null;
+      state.error = null;
+    }
+    render();
+  }
+
+  button.addEventListener("click", check);
+  state.render = render;
+  render();
+  return { row, reset };
+}
+
 // The editable fields of a Category, shared by the Draft editor and Item detail: one labelled
 // input per field in `FIELDS` order, the alternatives one per line, and Clear on a Vocabulary
 // example. Edits go into `values`, then `onChange(key)` runs; while `busy` nothing is editable,
-// since an edit typed while the Save is in flight would never be sent
-export function editorFields(category, values, { busy, onChange }) {
+// since an edit typed while the Save is in flight would never be sent. With a `language`, the
+// Target has Check grammar under it
+export function editorFields(category, values, { busy, onChange, language = null }) {
   const fields = element("div", "draft-fields");
   const inputs = {};
+  let grammar = null;
   for (const [key, label, multiline, placeholder] of FIELDS[category]) {
     const id = uniqueId(`draft-${key}`);
     const wrap = element("div", "draft-field");
@@ -354,6 +478,7 @@ export function editorFields(category, values, { busy, onChange }) {
     if (placeholder) input.placeholder = placeholder;
     input.addEventListener("input", () => {
       values[key] = input.value;
+      if (key === "target") grammar?.reset();
       onChange(key);
     });
     inputs[key] = input;
@@ -376,6 +501,19 @@ export function editorFields(category, values, { busy, onChange }) {
     } else {
       wrap.append(caption, input);
     }
+    if (key === "target" && language) {
+      grammar = grammarRow(language, category, values, {
+        busy,
+        onUse: (corrected) => {
+          values.target = corrected;
+          input.value = corrected;
+          grammar.reset();
+          onChange("target");
+          input.focus();
+        },
+      });
+      wrap.append(grammar.row);
+    }
     fields.append(wrap);
   }
   return { fields, inputs };
@@ -397,6 +535,7 @@ export function draftEditor(draft, { onEdit, onSave, onDiscard, alertFor }) {
 
   const { fields } = editorFields(draft.category, draft.values, {
     busy: draft.busy,
+    language: draft.language,
     onChange: (key) => {
       if (key === "target") title.textContent = draft.values.target;
       refresh();

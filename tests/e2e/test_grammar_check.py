@@ -20,22 +20,22 @@ from tests.support import viewports
 from tests.support.captures_screen import CAPTURES_PATH, compose_box, main
 from tests.support.examples_screen import examples_button
 from tests.support.grammar_screen import (
+    CHECK_GRAMMAR,
     CORRECTED_TARGET,
     EXPLANATION,
+    USE_CORRECTION,
     WRONG_TARGET,
     GrammarApi,
     check_grammar,
     draft_title,
     is_grammar_check,
+    item_editor,
     use_correction,
 )
-from tests.support.items_screen import choose, editor, field, pane, write_it_myself
+from tests.support.items_screen import TRY_AGAIN, choose, editor, field, pane, write_it_myself
+from tests.support.maintain_items_screen import EditableItemApi, edit_field, stored_item, stub_items
 from tests.support.navigation import path_pattern
 from tests.support.unsaved import discard_button
-
-pytestmark = pytest.mark.skip(
-    reason="Target helpers RED scaffold: activate when implementing the plan"
-)
 
 MAKE_PATH = "/captures/make"
 MAKE_DRAFT_PATH = "/captures/make/draft"
@@ -105,3 +105,57 @@ def test_check_grammar_and_example_sentences_are_disabled_while_blank(page: Page
     expect(examples_button(page)).to_be_disabled()
     compose_box(page).fill("jump to conclusions")
     expect(examples_button(page)).to_be_enabled()
+
+
+def open_item_edit(page: Page) -> dict:
+    """Desktop Item detail of a stored English Item whose Target is `WRONG_TARGET`."""
+    page.set_viewport_size(viewports.DESKTOP)
+    row = stored_item(target=WRONG_TARGET)
+    api = EditableItemApi(page, row)
+    stub_items(page, [row])
+    api.open(page)
+    expect(edit_field(page, "Target")).to_have_value(WRONG_TARGET)
+    return row
+
+
+@pytest.mark.p1
+def test_check_grammar_in_item_edit_and_use_correction_replaces_the_target(page: Page) -> None:
+    """[P1] AC-1 Item edit shares the editor: Check grammar shows the correction under Target;
+    Use correction replaces the Target input and the Item's title.
+    """
+    grammar = GrammarApi(page)
+    open_item_edit(page)
+    form = item_editor(page)
+    with page.expect_request(is_grammar_check):
+        form.get_by_role("button", name=CHECK_GRAMMAR, exact=True).click()
+
+    expect(form.get_by_text(CORRECTED_TARGET, exact=True)).to_be_visible()
+
+    expect(form).to_contain_text(EXPLANATION)
+    expect(edit_field(page, "Target")).to_have_value(WRONG_TARGET)
+    assert grammar.requests == [
+        {"language": "en", "category": "vocabulary", "target": WRONG_TARGET}
+    ]
+    form.get_by_role("button", name=USE_CORRECTION, exact=True).click()
+    expect(edit_field(page, "Target")).to_have_value(CORRECTED_TARGET)
+    expect(draft_title(page, CORRECTED_TARGET)).to_be_visible()
+
+
+@pytest.mark.p1
+def test_a_failed_grammar_check_shows_try_again_and_keeps_the_target(page: Page) -> None:
+    """[P1] AC-5 the grammar helper answers 502 llm_failed: an alert with Try again under
+    Target, the Target unchanged.
+    """
+    grammar = GrammarApi(page, error="llm_failed")
+    open_item_edit(page)
+    form = item_editor(page)
+    with page.expect_request(is_grammar_check):
+        form.get_by_role("button", name=CHECK_GRAMMAR, exact=True).click()
+
+    alert = form.get_by_role("alert").filter(has_text="Couldn't reach the model")
+    expect(alert.get_by_role("button", name=TRY_AGAIN, exact=True)).to_be_visible()
+
+    expect(edit_field(page, "Target")).to_have_value(WRONG_TARGET)
+    expect(draft_title(page, WRONG_TARGET)).to_be_visible()
+    expect(form.get_by_role("button", name=USE_CORRECTION, exact=True)).to_have_count(0)
+    assert len(grammar.requests) == 1

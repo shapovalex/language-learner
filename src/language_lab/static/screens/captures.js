@@ -31,12 +31,20 @@
 // with no Capture: nothing is saved, read or deleted. Its Draft is at /captures/make/draft and
 // goes through the same lifecycle; a Save returns to /captures with the success banner and clears
 // the compose box, while leaving the pane or the Draft keeps the compose text.
+//
+// "Example sentences" beside them opens /captures/examples for the compose text (plan
+// target-grammar-check-and-cefr-examples): pick a Language, optionally add context, and
+// Generate asks POST /api/helpers/examples for five sentences per CEFR level A1 to C2, each with
+// its Russian. The results live only in this module's memory (AD-13), so a fresh mount at that
+// route goes to /captures; the context is used once. A sentence's "Make an Item" puts it into
+// the compose box and opens the Make an Item pane at /captures/make with that Language chosen.
 
 import {
   blankDraft,
   createCapture,
   deleteCapture,
   errorMessage,
+  exampleSentences,
   findDuplicates,
   generateDraft,
   getCapture,
@@ -56,8 +64,10 @@ import {
   generatingScreen,
   itemPart,
   makeItemPane,
+  picker,
   saveFailure,
 } from "./make-item.js";
+import { LANGUAGES } from "../catalog.js";
 
 const LABEL = "New Capture";
 const PLACEHOLDER = "Paste or type a word, phrase or sentence";
@@ -80,6 +90,16 @@ const INVALID_TWICE = "The model's answer failed the checks twice.";
 const CAPTURE_UNCHANGED = "Your Capture is unchanged.";
 const NOTHING_SAVED = "Nothing has been saved yet.";
 const MAKE_PATH = "/captures/make";
+const EXAMPLES_PATH = "/captures/examples";
+const EXAMPLE_SENTENCES = "Example sentences";
+const EXAMPLES_CONTEXT = "Context · optional · used once, never saved";
+const GENERATE = "Generate";
+const WRITING_EXAMPLES = "Writing example sentences…";
+const NOT_WRITTEN = "Couldn't write example sentences";
+const COMPOSE_UNCHANGED = "Your text is unchanged.";
+const EXAMPLES_LANGUAGE_REASON = "Choose a Language.";
+const EXAMPLES_TEXT_REASON = "Type the text in New Capture.";
+const MAKE_AN_ITEM = "Make an Item";
 const MAKE_DRAFT_PATH = "/captures/make/draft";
 
 function capturePath(captureId) {
@@ -195,6 +215,15 @@ function generationFailure(error, captureId) {
   return [NOT_GENERATED, errorMessage(error)];
 }
 
+// [title, body] of a failed Example sentences generation
+function examplesFailure(error) {
+  if (isApiError(error, "llm_failed")) return [MODEL_UNREACHABLE, COMPOSE_UNCHANGED];
+  if (isApiError(error, "llm_invalid_output")) {
+    return [NOT_WRITTEN, `${INVALID_TWICE} ${COMPOSE_UNCHANGED}`];
+  }
+  return [NOT_WRITTEN, errorMessage(error)];
+}
+
 // The failed delete's alert: no Try again, since Delete Capture is right there
 function deleteAlert(error) {
   const [title, body] = failureCopy(error, [NOT_DELETED_TITLE, NOT_DELETED_BODY], "Not deleted");
@@ -222,9 +251,12 @@ export function mount(root, params = {}) {
   const save = element("button", "button button-primary", "Save Capture");
   save.type = "button";
   // The pane for the compose text, with no Capture (follows Save Capture's enabled rule)
-  const make = element("button", "button button-secondary", "Make an Item");
+  const make = element("button", "button button-secondary", MAKE_AN_ITEM);
   make.type = "button";
-  card.append(label, alertSlot, save, make);
+  // The Example sentences pane for the compose text (same enabled rule)
+  const examplesButton = element("button", "button button-secondary", EXAMPLE_SENTENCES);
+  examplesButton.type = "button";
+  card.append(label, alertSlot, save, make, examplesButton);
 
   // The list: header, then the skeleton, the empty state, the load error or the rows
   const listSection = element("section", "captures-list-section");
@@ -259,6 +291,21 @@ export function mount(root, params = {}) {
   };
   // At /captures/make: the pane is for the compose text, and no Capture is open
   let making = false;
+  // At /captures/examples: the Example sentences pane, and no Capture is open
+  let exploring = false;
+  // The Example sentences pane's state, kept while the screen is mounted (AD-13): the Language,
+  // the context (used once), and the last request with its reply or failure
+  const examples = {
+    language: null,
+    context: "",
+    request: null,
+    busy: false,
+    error: null,
+    result: null,
+    token: 0,
+  };
+  // The Language the next Make an Item pane opens with (from an example sentence), or null
+  let presetLanguage = null;
   // The Make an Item pane's choices for the open Capture
   let choice = freshChoice();
   // The Draft, from "Generate Draft" or "Write it myself" until it's saved or left; `editing`
@@ -328,8 +375,14 @@ export function mount(root, params = {}) {
   }
 
   function renderDetail() {
-    layout.classList.toggle("captures-detail-open", open.id !== null || making);
+    layout.classList.toggle("captures-detail-open", open.id !== null || making || exploring);
     markOpenRow();
+    if (exploring) {
+      const actions = element("div", "capture-detail-actions narrow-only");
+      actions.append(backLink());
+      detailPane.replaceChildren(actions, examplesPane());
+      return;
+    }
     if (making) {
       const article = element("article", "capture-detail");
       const content = element("div", "capture-detail-content");
@@ -379,6 +432,151 @@ export function mount(root, params = {}) {
     detailPane.replaceChildren(actions, article);
     if (open.deleteError) detailPane.append(deleteAlert(open.deleteError));
     if (open.status === "shown") detailPane.append(makeItemPane(choice, { onGenerate, onWrite }));
+  }
+
+  // The Example sentences pane: the compose text, the Language, the context and Generate, then
+  // the loading state, the failure with Try again, or one group per CEFR level
+  function examplesPane() {
+    const section = element("section", "make-item examples");
+    const headingId = "examples-heading";
+    section.setAttribute("aria-labelledby", headingId);
+    const title = element("h2", "make-item-heading", EXAMPLE_SENTENCES);
+    title.id = headingId;
+    title.tabIndex = -1;
+    const text = box.value.trim();
+    section.append(title);
+    if (text) section.append(element("p", "capture-detail-text examples-text", text));
+
+    const [languages] = picker("Language", LANGUAGES, examples.language, (value) => {
+      examples.language = value;
+      renderDetail();
+      // The pressed button was rebuilt: keep focus on it
+      detailPane.querySelector(`.examples .segment[data-value="${value}"]`)?.focus();
+    });
+
+    const contextGroup = element("div", "make-item-group");
+    const contextLabel = element("label", "make-item-label", EXAMPLES_CONTEXT);
+    contextLabel.htmlFor = "examples-context";
+    const context = element("textarea", "compose-field make-item-context");
+    context.id = "examples-context";
+    context.rows = 2;
+    context.value = examples.context;
+    context.addEventListener("input", () => {
+      examples.context = context.value;
+    });
+    contextGroup.append(contextLabel, context);
+
+    const actions = element("div", "make-item-actions");
+    const generate = element("button", "button button-primary", GENERATE);
+    generate.type = "button";
+    generate.addEventListener("click", onExamples);
+    const reason = element("p", "make-item-reason");
+    const why = !examples.language
+      ? EXAMPLES_LANGUAGE_REASON
+      : !text
+        ? EXAMPLES_TEXT_REASON
+        : null;
+    reason.textContent = why ?? "";
+    reason.hidden = why === null;
+    generate.disabled = why !== null || examples.busy;
+    actions.append(generate, reason);
+    section.append(languages, contextGroup, actions, examplesResults());
+    return section;
+  }
+
+  function examplesResults() {
+    const results = element("div", "examples-results");
+    if (examples.busy) {
+      results.append(skeleton(WRITING_EXAMPLES));
+      return results;
+    }
+    if (examples.error) {
+      const [title, body] = examplesFailure(examples.error);
+      results.append(
+        alertBox(
+          "examples-alert",
+          element("p", "compose-alert-title", title),
+          element("p", "draft-alert-body", body),
+          tryAgain(() => runExamples(examples.request), "secondary"),
+        ),
+      );
+      return results;
+    }
+    if (!examples.result) return results;
+    results.append(element("p", "examples-for", `For “${examples.request.target}”`));
+    for (const group of examples.result.levels) {
+      const block = element("div", "examples-level");
+      block.setAttribute("role", "group");
+      const levelId = `examples-level-${group.level}`;
+      block.setAttribute("aria-labelledby", levelId);
+      const levelHeading = element("h3", "examples-level-title", group.level);
+      levelHeading.id = levelId;
+      const ul = element("ul", "examples-list");
+      for (const { sentence, russian } of group.sentences) {
+        const li = element("li", "examples-item");
+        const words = element("div", "examples-item-body");
+        words.append(
+          element("p", "examples-sentence", sentence),
+          element("p", "examples-russian", russian),
+        );
+        const makeIt = element("button", "button-link examples-make", MAKE_AN_ITEM);
+        makeIt.type = "button";
+        makeIt.addEventListener("click", () => makeFromSentence(sentence));
+        li.append(words, makeIt);
+        ul.append(li);
+      }
+      block.append(levelHeading, ul);
+      results.append(block);
+    }
+    return results;
+  }
+
+  // Generate: the compose text in the chosen Language, with the context
+  function onExamples() {
+    const target = box.value.trim();
+    if (examples.busy || !target || !examples.language) return;
+    runExamples({ language: examples.language, target, context: examples.context });
+  }
+
+  // Ask for `request`'s example sentences; Try again asks the same again
+  async function runExamples(request) {
+    const token = ++examples.token;
+    examples.request = request;
+    examples.busy = true;
+    examples.error = null;
+    examples.result = null;
+    if (exploring && !editing) {
+      renderDetail();
+      // Generate or Try again was rebuilt: focus the pane's heading so it isn't lost
+      detailPane.querySelector(".examples .make-item-heading")?.focus();
+    }
+    try {
+      const result = await exampleSentences(request);
+      if (!mounted || token !== examples.token) return;
+      examples.result = result;
+      // Used once: the next Generate starts without it
+      examples.context = "";
+    } catch (error) {
+      if (!mounted || token !== examples.token) return;
+      examples.error = error;
+    }
+    examples.busy = false;
+    if (!exploring || editing) return;
+    renderDetail();
+    if (examples.error) detailPane.querySelector(".examples-alert button")?.focus();
+  }
+
+  // A sentence's Make an Item: it becomes the compose text (a new composition), and the Make an
+  // Item pane opens for it with the examples Language chosen. Nothing is saved
+  function makeFromSentence(sentence) {
+    if (state.busy) return;
+    box.value = sentence;
+    state.captureId = crypto.randomUUID();
+    state.error = null;
+    render();
+    syncDirty();
+    presetLanguage = examples.language;
+    navigate(MAKE_PATH);
   }
 
   // What the pane makes a Draft from: the open Capture, or the compose text at /captures/make
@@ -715,11 +913,14 @@ export function mount(root, params = {}) {
     renderDetail();
   }
 
-  function show(captureId, makeItem = false) {
+  function show(captureId, makeItem = false, explore = false) {
     making = makeItem;
+    exploring = explore;
     open.id = captureId ?? null;
     open.deleteError = null;
     choice = freshChoice();
+    if (makeItem && presetLanguage) choice.language = presetLanguage;
+    presetLanguage = null;
     if (open.id === null) {
       // Making from the compose text, or no Capture open
       ++open.token;
@@ -746,6 +947,7 @@ export function mount(root, params = {}) {
     const blocked = state.busy || !box.value.trim();
     save.disabled = blocked;
     make.disabled = blocked;
+    examplesButton.disabled = blocked;
     if (again) again.disabled = blocked;
   }
 
@@ -773,7 +975,7 @@ export function mount(root, params = {}) {
     syncDirty();
     renderButtons();
     // The pane shows the compose text, and its actions wait while the box is blank
-    if (making && !editing) renderDetail();
+    if ((making || exploring) && !editing) renderDetail();
   }
 
   async function submit() {
@@ -790,6 +992,7 @@ export function mount(root, params = {}) {
       if (box.value === text) {
         box.value = "";
         syncDirty();
+        if (exploring && !editing) renderDetail();
       }
       state.captureId = crypto.randomUUID();
       state.busy = false;
@@ -813,10 +1016,13 @@ export function mount(root, params = {}) {
   make.addEventListener("click", () => {
     if (!make.disabled) navigate(MAKE_PATH);
   });
+  examplesButton.addEventListener("click", () => {
+    if (!examplesButton.disabled) navigate(EXAMPLES_PATH);
+  });
   render();
   renderList();
-  if (params.make) {
-    // A fresh mount has no compose text to make an Item from
+  if (params.make || params.examples) {
+    // A fresh mount has no compose text to make an Item from or to find examples of
     redirect("/captures");
   } else if (params.draft) {
     // A Draft route with nothing in memory shows its Capture (AD-13)
@@ -835,7 +1041,8 @@ export function mount(root, params = {}) {
   // The route moved within Captures: open another Capture, or none
   unmount.update = (next) => {
     let makeItem = Boolean(next.make);
-    const id = makeItem ? null : (next.captureId ?? null);
+    let explore = Boolean(next.examples);
+    const id = makeItem || explore ? null : (next.captureId ?? null);
     if (next.draft) {
       if (draft && draft.captureId === id) {
         if (!editing) openEditor();
@@ -847,22 +1054,26 @@ export function mount(root, params = {}) {
       } else {
         redirect(capturePath(id));
       }
-    } else if (makeItem && !box.value.trim()) {
+    } else if ((makeItem || explore) && !box.value.trim()) {
       // The pane needs compose text (a forward after a Save cleared it)
       makeItem = false;
+      explore = false;
       redirect("/captures");
     }
     if (editing) closeEditor();
-    if (id === open.id && makeItem === making) return;
+    if (id === open.id && makeItem === making && explore === exploring) return;
     const previous = open.id;
     const wasMaking = making;
-    show(id, makeItem);
+    const wasExploring = exploring;
+    show(id, makeItem, explore);
     if (twoPanes.matches) return;
     // Below 1024px the row or the back link that was clicked is hidden now: move focus on
-    if (id !== null || makeItem) {
+    if (id !== null || makeItem || explore) {
       detailPane.querySelector(".back-link")?.focus();
     } else if (wasMaking) {
       make.focus();
+    } else if (wasExploring) {
+      examplesButton.focus();
     } else if (previous !== null) {
       const row = [...listBody.querySelectorAll("a[data-capture-id]")].find(
         (link) => link.dataset.captureId === previous,

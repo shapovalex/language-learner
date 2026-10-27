@@ -21,10 +21,6 @@ from tests.support.helpers import (
     MALFORMED_EXAMPLES,
 )
 
-pytestmark = pytest.mark.skip(
-    reason="Target helpers RED scaffold: activate when implementing the plan"
-)
-
 
 def grammar_check(reply: dict[str, Any]) -> Any:
     from language_lab.domain.helpers import GrammarCheck
@@ -72,11 +68,15 @@ def test_an_incorrect_verdict_carries_the_corrected_target() -> None:
     [
         {k: v for k, v in GRAMMAR_INCORRECT.items() if k != "explanation"},
         {**GRAMMAR_CORRECT, "confidence": 0.9},
+        {**GRAMMAR_INCORRECT, "corrected": None},
+        {**GRAMMAR_INCORRECT, "corrected": "  "},
     ],
-    ids=["explanation-missing", "extra-field"],
+    ids=["explanation-missing", "extra-field", "wrong-no-correction", "wrong-blank-correction"],
 )
 def test_a_verdict_outside_the_schema_is_invalid(reply: dict[str, Any]) -> None:
-    """[P1] M-4 a verdict missing a field or carrying one more is invalid output."""
+    """[P1] M-4 a verdict missing a field or carrying one more, or a wrong Target with no
+    correction, is invalid output.
+    """
     with pytest.raises(ValidationError):
         grammar_check(reply)
 

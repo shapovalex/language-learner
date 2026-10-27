@@ -1127,6 +1127,132 @@ button.segment {
   resize: vertical;
 }
 
+/* Check grammar under the Target (Draft editor and Item edit): the verdict panel */
+.grammar-check {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: var(--space-2);
+}
+
+.grammar-result:empty {
+  display: none;
+}
+
+.grammar-result,
+.grammar-result .skeleton,
+.grammar-alert {
+  align-self: stretch;
+  margin: 0;
+}
+
+.grammar-verdict {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: var(--space-2);
+  padding: var(--space-4) var(--space-5);
+  border-radius: var(--radius-inner);
+  background: var(--color-surface-sunken);
+}
+
+.grammar-verdict p {
+  margin: 0;
+}
+
+.grammar-verdict-title {
+  color: var(--color-ink-muted);
+  font-size: var(--font-size-label);
+  font-weight: var(--font-weight-label);
+}
+
+.grammar-corrected {
+  color: var(--color-ink);
+  font-weight: 600;
+}
+
+.grammar-explanation {
+  color: var(--color-ink-muted);
+  font-size: var(--font-size-body-sm);
+}
+
+/* Example sentences on the Captures screen: one group per CEFR level, a row per sentence */
+.examples-results {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-6);
+}
+
+.examples-results:empty {
+  display: none;
+}
+
+.examples-for {
+  margin: 0;
+  color: var(--color-ink-muted);
+  font-size: var(--font-size-body-sm);
+}
+
+.examples-level {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+}
+
+.examples-level-title {
+  align-self: flex-start;
+  margin: 0;
+  padding: var(--space-1) var(--space-3);
+  border-radius: var(--radius-full);
+  background: var(--color-accent-soft);
+  color: var(--color-on-accent-soft);
+  font-size: var(--font-size-label);
+  font-weight: var(--font-weight-label);
+}
+
+.examples-list {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.examples-item {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-1) var(--space-4);
+  padding: var(--space-3) 0;
+  border-bottom: 1px solid var(--color-border);
+}
+
+.examples-item:last-child {
+  border-bottom: 0;
+}
+
+.examples-item-body {
+  flex: 1 1 16rem;
+  min-width: 0;
+}
+
+.examples-sentence,
+.examples-russian {
+  margin: 0;
+  overflow-wrap: anywhere;
+}
+
+.examples-sentence {
+  font-weight: 500;
+}
+
+.examples-russian {
+  color: var(--color-ink-muted);
+  font-size: var(--font-size-body-sm);
+}
+
 /* A button that reads as a link: "Write it myself" (it can be disabled with a reason) */
 .button-link {
   min-height: var(--space-target-min);

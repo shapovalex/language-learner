@@ -491,6 +491,7 @@ export function mount(root, params) {
 
     const { fields, inputs } = editorFields(item.category, values, {
       busy,
+      language: lang,
       onChange: (key) => {
         if (key === "target") title.textContent = values.target;
         refresh();

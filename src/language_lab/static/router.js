@@ -23,13 +23,19 @@ function decoded(segment) {
 
 const ROUTES = [
   [/^\/captures$/, "captures", () => ({})],
-  // The Make an Item pane and Draft for the compose text, with no Capture: before the CaptureId
-  // routes, which never read "make" as a CaptureId
+  // The Make an Item pane and Draft for the compose text, with no Capture, and the Example
+  // sentences pane: before the CaptureId routes, which never read "make" or "examples" as a
+  // CaptureId
   [/^\/captures\/make$/, "captures", () => ({ make: true })],
   [/^\/captures\/make\/draft$/, "captures", () => ({ make: true, draft: true })],
-  [/^\/captures\/(?!make(?:\/|$))([^/]+)$/, "captures", (m) => ({ captureId: decoded(m[1]) })],
+  [/^\/captures\/examples$/, "captures", () => ({ examples: true })],
   [
-    /^\/captures\/(?!make\/)([^/]+)\/new$/,
+    /^\/captures\/(?!(?:make|examples)(?:\/|$))([^/]+)$/,
+    "captures",
+    (m) => ({ captureId: decoded(m[1]) }),
+  ],
+  [
+    /^\/captures\/(?!(?:make|examples)\/)([^/]+)\/new$/,
     "captures",
     (m) => ({ captureId: decoded(m[1]), draft: true }),
   ],
