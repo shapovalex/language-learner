@@ -7,9 +7,9 @@ First-time installation and configuration, in the order you need them.
 | [Install](install.md) | Requirements, the one command that starts a release, the first-start prompt, what the app prints, stopping it. |
 | [Configuration](configuration.md) | Where the `.env` lives, its permissions, environment overrides, every key. |
 | [Remote access](remote-access.md) | The one-time Tailscale Serve command and which hosts the app accepts. |
-| [Anki](anki.md) | The keyless-AnkiConnect warning, the Prefix, which deck to study, backups. |
+| [Anki](anki.md) | The keyless-AnkiConnect warning, the Prefix, which deck to study, the French reading rules deck, backups. |
 | [Setup](setup.md) | Running Setup, upgrading and migrating, never downgrading, the full-sync upload. |
-| [Development](development.md) | Running from a clone in dev mode, tests and lint. |
+| [Development](development.md) | Running from a clone in dev mode, tests and lint, regenerating the reading rules audio. |
 
 ## Setup documentation checklist
 

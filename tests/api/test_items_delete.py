@@ -17,7 +17,7 @@ def test_delete_item_answers_204_and_subsequent_reads_leave_it_out(
     settings_factory: SettingsFactory,
 ) -> None:
     """[P0] AC-12 DELETE answers 204, then detail is absent and the list keeps other Items."""
-    collection = managed_collection(MANIFEST)
+    collection = managed_collection(MANIFEST, reading_rules=False)
     item_id, note_id = put_item(collection)
     other_id, other_note = put_item(collection)
     store, _ = wired_delete(collection)
@@ -38,7 +38,7 @@ def test_delete_item_answers_204_and_subsequent_reads_leave_it_out(
 
 @pytest.mark.parametrize("item_id", ["not-an-id", "00000000-0000-1000-8000-000000000000"])
 def test_malformed_id_is_not_found_before_anki_is_called(settings_factory, item_id) -> None:
-    collection = managed_collection(MANIFEST)
+    collection = managed_collection(MANIFEST, reading_rules=False)
     store, replay = wired_delete(collection)
     response = client_over(settings_factory, store).delete(f"/api/items/en/{item_id}")
     assert response.status_code == 404
@@ -49,7 +49,7 @@ def test_malformed_id_is_not_found_before_anki_is_called(settings_factory, item_
 def test_unknown_language_is_422_without_anki_calls(settings_factory) -> None:
     import uuid
 
-    store, replay = wired_delete(managed_collection(MANIFEST))
+    store, replay = wired_delete(managed_collection(MANIFEST, reading_rules=False))
     response = client_over(settings_factory, store).delete(f"/api/items/de/{uuid.uuid4()}")
     assert response.status_code == 422
     assert replay.sent == []
@@ -70,7 +70,7 @@ def test_unknown_language_is_422_without_anki_calls(settings_factory) -> None:
 def test_delete_uses_the_existing_safe_error_envelope(
     settings_factory, state, replies, status, code
 ) -> None:
-    collection = managed_collection(MANIFEST)
+    collection = managed_collection(MANIFEST, reading_rules=False)
     item_id, note_id = put_item(collection)
     store, _ = wired_delete(collection, state=state, replies=replies)
     response = client_over(settings_factory, store).delete(f"/api/items/en/{item_id}")
@@ -82,7 +82,7 @@ def test_delete_uses_the_existing_safe_error_envelope(
 
 
 def test_french_delete_and_repeated_delete_are_empty_204(settings_factory) -> None:
-    collection = managed_collection(MANIFEST)
+    collection = managed_collection(MANIFEST, reading_rules=False)
     item_id, note_id = put_item(collection, language="fr")
     collection.media.update(media_names(item_id))
     store, _ = wired_delete(collection)

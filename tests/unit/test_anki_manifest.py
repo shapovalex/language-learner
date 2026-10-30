@@ -1,9 +1,13 @@
 """Story 2.4: the managed manifest, the one source of Anki names and structure (AD-3, A3).
 
-`build_manifest(prefix)` declares, from `ANKI_PREFIX`, the five note types and their fields, the
-card templates and CSS read from `adapters/anki/templates/`, the 28-deck tree, the card ord to
+`build_manifest(prefix)` declares, from `ANKI_PREFIX`, the six note types and their fields, the
+card templates and CSS read from `adapters/anki/templates/`, the 29-deck tree, the card ord to
 Exercise to deck mapping, the `<Prefix>` preset with its three bury flags, and the current
 SchemaVersion. Setup diffs Anki against it (entry 6) and every feature reads names from it.
+
+The French reading rules deck adds the sixth note type, `<Prefix> French Reading Rule` (one
+Read card, its `RuleId` hidden), and the `<Prefix>::Study::French::Reading Rules` deck, on the
+preset like every Study deck.
 
 Fields put Target (or Text) first, decided with the user on 2026-10-21: Anki sorts and marks
 duplicates by the first field. The ids and SchemaVersion are hidden: no template renders them.
@@ -20,7 +24,7 @@ from language_lab.adapters.anki.manifest import (
     SCHEMA_VERSION,
     build_manifest,
 )
-from language_lab.domain.catalog import Exercise
+from language_lab.domain.catalog import Category, Exercise, Language
 from tests.support.anki_connect import anki_fixture
 
 RELEASE = "LanguageLab"
@@ -58,6 +62,19 @@ SENTENCE_FIELDS = (
     "SchemaVersion",
 )
 CAPTURE_FIELDS = ("Text", "CreatedAt", "CaptureId", "SchemaVersion")
+READING_RULE_FIELDS = (
+    "Combination",
+    "Transcription",
+    "Note",
+    "Example1",
+    "Example1Audio",
+    "Example2",
+    "Example2Audio",
+    "Example3",
+    "Example3Audio",
+    "RuleId",
+    "SchemaVersion",
+)
 
 # What Anki substitutes itself; not field names
 SPECIAL_REFS = frozenset({"FrontSide", "Tags", "Type", "Deck", "Subdeck", "Card", "CardFlag"})
@@ -66,7 +83,7 @@ _REF = re.compile(r"\{\{([^{}]+)\}\}")
 
 def _note_type_names(prefix: str) -> tuple[str, ...]:
     items = tuple(f"{prefix} {lang} {word}" for lang in LANGUAGES for word, _ in CATEGORIES)
-    return (f"{prefix} Capture", *items)
+    return (f"{prefix} Capture", *items, f"{prefix} French Reading Rule")
 
 
 def _expected_decks(prefix: str) -> list[str]:
@@ -77,6 +94,7 @@ def _expected_decks(prefix: str) -> list[str]:
             study = f"{prefix}::Study::{lang}::{deck_word}"
             decks += [study, f"{prefix}::Pronunciation::{lang}::{deck_word}"]
             decks += [f"{study}::{exercise}" for exercise in STUDY_EXERCISES]
+    decks.append(f"{prefix}::Study::French::Reading Rules")
     return sorted(decks)
 
 
@@ -118,8 +136,10 @@ def test_every_manifest_name_derives_from_the_prefix_and_prefixes_never_overlap(
 
 
 @pytest.mark.p1
-def test_manifest_declares_five_note_types_with_their_fields() -> None:
-    """AC-2: Capture and four Item note types with the A3/AD-10 fields, ids and version hidden."""
+def test_manifest_declares_six_note_types_with_their_fields() -> None:
+    """AC-2: Capture, four Item note types with the A3/AD-10 fields and the French Reading
+    Rule, ids and version hidden.
+    """
     manifest = build_manifest(RELEASE)
     fields = {nt.name: tuple(f.name for f in nt.fields) for nt in manifest.note_types}
     hidden = {nt.name: {f.name for f in nt.fields if f.hidden} for nt in manifest.note_types}
@@ -131,6 +151,7 @@ def test_manifest_declares_five_note_types_with_their_fields() -> None:
         "LanguageLab English Sentence": SENTENCE_FIELDS,
         "LanguageLab French Vocabulary": VOCABULARY_FIELDS,
         "LanguageLab French Sentence": SENTENCE_FIELDS,
+        "LanguageLab French Reading Rule": READING_RULE_FIELDS,
     }
     assert hidden == {
         "LanguageLab Capture": {"CaptureId", "SchemaVersion"},
@@ -138,19 +159,23 @@ def test_manifest_declares_five_note_types_with_their_fields() -> None:
         "LanguageLab English Sentence": {"ItemId", "SchemaVersion"},
         "LanguageLab French Vocabulary": {"ItemId", "SchemaVersion"},
         "LanguageLab French Sentence": {"ItemId", "SchemaVersion"},
+        "LanguageLab French Reading Rule": {"RuleId", "SchemaVersion"},
     }
 
 
 @pytest.mark.p1
 def test_item_note_types_have_four_card_templates_and_capture_one() -> None:
-    """AC-3: Understand, Produce, Write, Pronounce at ord 0-3 per Item type; one Capture card."""
+    """AC-3: Understand, Produce, Write, Pronounce at ord 0-3 per Item type; one Capture card;
+    one Read card per reading rule.
+    """
     manifest = build_manifest(RELEASE)
     counts = {nt.name: len(nt.templates) for nt in manifest.note_types}
     cards = {nt.name: tuple((t.ord, t.name) for t in nt.templates) for nt in manifest.note_types}
-    capture, *items = _note_type_names(RELEASE)
+    capture, *items, reading_rule = _note_type_names(RELEASE)
 
-    assert counts == {capture: 1} | {name: 4 for name in items}
+    assert counts == {capture: 1, reading_rule: 1} | {name: 4 for name in items}
     assert cards[capture] == ((0, "Capture"),)
+    assert cards[reading_rule] == ((0, "Read"),)
     assert all(cards[name] == tuple(enumerate(EXERCISES)) for name in items)
 
 
@@ -158,7 +183,10 @@ def test_item_note_types_have_four_card_templates_and_capture_one() -> None:
 def test_card_ord_maps_to_its_exercise_and_deck() -> None:
     """AC-4: ord 0-2 go to Study::<Language>::<Category>::<Exercise>, ord 3 to Pronunciation."""
     manifest = build_manifest(RELEASE)
-    expected = {("LanguageLab Capture", 0): "LanguageLab::Captures"}
+    expected = {
+        ("LanguageLab Capture", 0): "LanguageLab::Captures",
+        ("LanguageLab French Reading Rule", 0): "LanguageLab::Study::French::Reading Rules",
+    }
     for lang in LANGUAGES:
         for word, deck_word in CATEGORIES:
             note_type = f"LanguageLab {lang} {word}"
@@ -182,12 +210,16 @@ def test_card_ord_maps_to_its_exercise_and_deck() -> None:
 
 
 @pytest.mark.p1
-def test_manifest_declares_the_28_deck_tree() -> None:
-    """AC-5: the root, Captures, the Study tree to each Exercise, and the Pronunciation tree."""
+def test_manifest_declares_the_29_deck_tree() -> None:
+    """AC-5: the root, Captures, the Study tree to each Exercise and the French Reading Rules,
+    and the Pronunciation tree.
+    """
     decks = build_manifest(RELEASE).decks
 
     assert sorted(decks) == _expected_decks(RELEASE)
-    assert len(decks) == len(set(decks)) == 28
+    assert len(decks) == len(set(decks)) == 29
+    write = decks.index("LanguageLab::Study::French::Sentences::Write")
+    assert decks[write + 1] == "LanguageLab::Study::French::Reading Rules"
     # parents before children, so creating in order never relies on Anki making a parent
     assert all(decks.index(d.rsplit("::", 1)[0]) < decks.index(d) for d in decks if "::" in d)
 
@@ -213,7 +245,8 @@ def test_preset_turns_off_the_three_bury_flags_on_every_study_and_pronunciation_
     assert sorted(manifest.preset.decks) == sorted(
         d for d in manifest.decks if any(_in_deck_scope(d, root) for root in branches)
     )
-    assert len(manifest.preset.decks) == 26
+    assert len(manifest.preset.decks) == 27
+    assert "LanguageLab::Study::French::Reading Rules" in manifest.preset.decks
 
 
 @pytest.mark.p2
@@ -238,7 +271,7 @@ def test_card_templates_and_css_come_from_template_files_and_render_only_shown_f
     missing = [(name, label) for name, label, text in texts if text not in file_texts]
 
     assert missing == []
-    capture, *items = manifest.note_types
+    capture, *items, _reading_rule = manifest.note_types
     for nt in manifest.note_types:
         declared = {f.name for f in nt.fields}
         hidden = {f.name for f in nt.fields if f.hidden}
@@ -249,7 +282,7 @@ def test_card_templates_and_css_come_from_template_files_and_render_only_shown_f
             assert front | back <= declared, (nt.name, t.name)  # no unknown field
             assert not (front | back) & hidden, (nt.name, t.name)
             assert front & shown, (nt.name, t.name)  # Anki makes no card from an empty front
-            if nt is not capture:  # every back shows the whole Item (FR-21), FrontSide included
+            if nt is not capture:  # every back shows the whole note (FR-21), FrontSide included
                 on_back = back | (front if "{{FrontSide}}" in t.back else set())
                 assert on_back == shown, (nt.name, t.name)
                 assert "RussianAlternatives" not in front, (nt.name, t.name)  # AD-10
@@ -283,7 +316,7 @@ STUDIO_HEXES = (
 def test_study_templates_place_russian_and_audio_per_fr21_and_css_uses_the_studio_tokens() -> None:
     """Story 4.4 (FR-21, AD-10): fronts, backs and audio placement; no script or IPA; Studio CSS."""
     manifest = build_manifest(RELEASE)
-    capture, *items = manifest.note_types
+    capture, *items, reading_rule = manifest.note_types
 
     for nt in items:
         understand, produce, write, _pronounce = nt.templates
@@ -303,7 +336,7 @@ def test_study_templates_place_russian_and_audio_per_fr21_and_css_uses_the_studi
                 assert "<script" not in text.lower(), (nt.name, t.name)
                 assert "ipa" not in text.lower(), (nt.name, t.name)
     css = capture.css
-    assert all(nt.css == css for nt in items)
+    assert all(nt.css == css for nt in (*items, reading_rule))
     assert [h for h in STUDIO_HEXES if h.lower() not in css.lower()] == []
     assert ".nightMode" in css
     assert "Figtree" in css
@@ -333,3 +366,57 @@ def test_card_deck_rejects_an_unknown_note_type_or_ord() -> None:
         manifest.card_deck("LanguageLab French Sentence", 4)
     with pytest.raises(ValueError):
         manifest.card_deck("LanguageLab Capture", 1)
+    with pytest.raises(ValueError):
+        manifest.card_deck("LanguageLab French Reading Rule", 1)
+
+
+@pytest.mark.p1
+def test_reading_rule_card_shows_the_combination_then_transcription_note_and_three_words() -> None:
+    """Reading rules AC-2: the front is the combination alone; the back adds the transcription,
+    any note, and each example word beside its own audio. Existing classes only.
+    """
+    manifest = build_manifest(RELEASE)
+    note_type = next(nt for nt in manifest.note_types if nt.name == manifest.reading_rule_note_type)
+    (read,) = note_type.templates
+
+    assert note_type.name == "LanguageLab French Reading Rule"
+    assert _field_refs(read.front) == {"Combination"}
+    assert "{{FrontSide}}" in read.back and '<hr id="answer">' in read.back
+    shown = {f.name for f in note_type.fields if not f.hidden}
+    assert _field_refs(read.back) == shown - {"Combination"}  # FrontSide shows it
+    assert '<div class="russian transcription">{{Transcription}}</div>' in read.back
+    assert "{{#Note}}" in read.back
+    for n in (1, 2, 3):
+        row = f'{{{{#Example{n}}}}}<div class="example">{{{{Example{n}}}}} {{{{Example{n}Audio}}}}'
+        assert row in read.back, n
+
+    def classes(html: str) -> set[str]:
+        return {c for cls in re.findall(r'class="([^"]+)"', html) for c in cls.split()}
+
+    existing = set(re.findall(r"\.([a-z][a-z-]*)", note_type.css)) | {
+        c
+        for nt in manifest.note_types
+        if nt is not note_type
+        for t in nt.templates
+        for c in classes(t.front + t.back)
+    }
+    assert classes(read.front + read.back) - existing == {"transcription"}  # a marker only
+
+
+@pytest.mark.p1
+def test_reading_rule_note_type_is_neither_an_item_nor_the_capture_type() -> None:
+    """The reading rules have a Language and no Category: `item_note_type` never names them, and
+    their one card goes to the Reading Rules deck, not Captures. The manifest carries the 46
+    seeded rules in data order.
+    """
+    manifest = build_manifest(DEV)
+    note_type = next(nt for nt in manifest.note_types if nt.name == manifest.reading_rule_note_type)
+
+    assert (note_type.language, note_type.category) == (Language.FR, None)
+    assert note_type.deck == "LanguageLabDev::Study::French::Reading Rules"
+    assert manifest.card_deck(note_type.name, 0) == note_type.deck
+    for language in Language:
+        for category in Category:
+            assert manifest.item_note_type(language, category) != note_type.name
+    assert len(manifest.reading_rules) == 46
+    assert manifest.reading_rules[0].combination == "ou"

@@ -63,6 +63,7 @@ DEV_MANIFEST = build_manifest(DEV)
 VOCABULARY = f"{PREFIX} English Vocabulary"
 SENTENCE = f"{PREFIX} French Sentence"
 DEV_VOCABULARY = f"{DEV} English Vocabulary"
+READING_RULE = f"{PREFIX} French Reading Rule"  # its seeded notes are at BASE too
 
 BASE = SCHEMA_VERSION  # what Anki was set up at
 NEXT = BASE + 1
@@ -150,7 +151,7 @@ def field_names_added(replay: AnkiConnectReplay) -> list[str]:
 @pytest.mark.p0
 def test_an_older_anki_previews_its_migration_as_migrate_rows() -> None:
     """AC-1: the field change is a Migrate noteType row, and each note type with older notes a
-    Migrate notes row; the state is needs_migration.
+    Migrate notes row (the seeded reading rules' included); the state is needs_migration.
     """
     store, _ = wired(older_anki(), migrations=to_v2())
 
@@ -161,6 +162,7 @@ def test_an_older_anki_previews_its_migration_as_migrate_rows() -> None:
         PlanItem(PlanAction.MIGRATE, ResourceKind.NOTE_TYPE, VOCABULARY),
         PlanItem(PlanAction.MIGRATE, notes, VOCABULARY),
         PlanItem(PlanAction.MIGRATE, notes, SENTENCE),
+        PlanItem(PlanAction.MIGRATE, notes, READING_RULE),
     }
     assert preview.state is SetupState.NEEDS_MIGRATION
 
@@ -337,7 +339,7 @@ def test_only_note_types_holding_older_notes_get_a_notes_row() -> None:
     preview = run(store.setup_preview())
 
     notes_rows = [i.name for i in preview.items if i.kind is ResourceKind.NOTES]
-    assert notes_rows == [VOCABULARY]
+    assert notes_rows == [VOCABULARY, READING_RULE]
 
 
 @pytest.mark.p1

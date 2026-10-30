@@ -53,7 +53,7 @@ class TestReferenceAudio:
     ) -> None:
         """[P0] AC-4 Preview returns uncached MP3 and leaves Anki and local files unchanged."""
         # Given a ready collection, a fake Speech port, and the normal composition root.
-        collection = managed_collection(MANIFEST)
+        collection = managed_collection(MANIFEST, reading_rules=False)
         rig, speech = MediaRig(collection), FakeSpeech()
         before = copy.deepcopy(collection)
         client = audio_client(_settings(settings_factory), rig.store, speech)
@@ -88,7 +88,7 @@ class TestReferenceAudio:
     ) -> None:
         """[P0] AC-6 accepted Preview bytes survive multipart Save and managed playback exactly."""
         # Given known fake synthesis bytes; the Preview setup response remains opaque.
-        collection = managed_collection(MANIFEST)
+        collection = managed_collection(MANIFEST, reading_rules=False)
         rig, speech = MediaRig(collection), FakeSpeech()
         client = audio_client(_settings(settings_factory), rig.store, speech)
         item_id = str(uuid.uuid4())
@@ -117,7 +117,7 @@ class TestReferenceAudio:
     ) -> None:
         """[P0] AC-7 backend naming ignores the client-chosen upload filename."""
         # Given a valid ItemId and an upload named outside the managed Prefix.
-        rig = MediaRig(managed_collection(MANIFEST))
+        rig = MediaRig(managed_collection(MANIFEST, reading_rules=False))
         client = audio_client(_settings(settings_factory), rig.store, FakeSpeech())
         item_id = str(uuid.uuid4())
 
@@ -139,7 +139,7 @@ class TestReferenceAudio:
         # Given a saved valid managed filename and clip.
         item_id = str(uuid.uuid4())
         name = managed_name(item_id)
-        rig = MediaRig(managed_collection(MANIFEST), media={name: MP3})
+        rig = MediaRig(managed_collection(MANIFEST, reading_rules=False), media={name: MP3})
         client = audio_client(_settings(settings_factory), rig.store, FakeSpeech())
 
         # When the browser asks the sole stored-audio route to play it.
@@ -170,7 +170,7 @@ class TestReferenceAudio:
     ) -> None:
         """[P1] AC-10 Item read exposes the persisted managed reference for later playback."""
         # Given an already-stored note, independent of the future replace endpoint.
-        collection = managed_collection(MANIFEST)
+        collection = managed_collection(MANIFEST, reading_rules=False)
         item_id = str(uuid.uuid4())
         name = managed_name(item_id)
         fields = {**stored_fields(VOCABULARY, item_id), "Audio": f"[sound:{name}]"}
@@ -194,7 +194,7 @@ class TestReferenceAudio:
     ) -> None:
         """[P0] AC-16 failed Preview has a typed envelope without credentials or user content."""
         # Given a successful binary request followed by a failing Speech-port call.
-        rig, speech = MediaRig(managed_collection(MANIFEST)), FakeSpeech()
+        rig, speech = MediaRig(managed_collection(MANIFEST, reading_rules=False)), FakeSpeech()
         client = audio_client(_settings(settings_factory), rig.store, speech)
         private_target = "private-target-do-not-log-6-1"
         client.post(PREVIEW_API, json=preview_body(target=private_target))  # opaque setup
@@ -225,7 +225,7 @@ class TestReferenceAudio:
 )
 def test_voice_catalog_rejects_unknown_languages(settings_factory, params):
     speech = FakeSpeech()
-    rig = MediaRig(managed_collection(MANIFEST))
+    rig = MediaRig(managed_collection(MANIFEST, reading_rules=False))
     client = audio_client(_settings(settings_factory), rig.store, speech)
     response = client.get(VOICES_API, params=params)
     assert response.status_code == 422
@@ -246,7 +246,7 @@ def test_voice_catalog_lists_every_locale_of_the_language_in_order(
 ):
     """English stays en-US only; French is one list, Canada then France, from one read."""
     speech = FakeSpeech()
-    rig = MediaRig(managed_collection(MANIFEST))
+    rig = MediaRig(managed_collection(MANIFEST, reading_rules=False))
     client = audio_client(_settings(settings_factory), rig.store, speech)
     response = client.get(VOICES_API, params={"language": language})
     assert response.status_code == 200
@@ -263,7 +263,7 @@ def test_voice_catalog_lists_every_locale_of_the_language_in_order(
 @pytest.mark.parametrize("voice,locale", [(FR_VOICE, "fr-CA"), (FR_FR_VOICE, "fr-FR")])
 def test_french_preview_synthesizes_in_the_voice_locale(settings_factory, voice, locale):
     speech = FakeSpeech()
-    rig = MediaRig(managed_collection(MANIFEST))
+    rig = MediaRig(managed_collection(MANIFEST, reading_rules=False))
     response = audio_client(_settings(settings_factory), rig.store, speech).post(
         PREVIEW_API, json=preview_body(language="fr", voice=voice, target="Bonjour")
     )
@@ -288,7 +288,7 @@ def test_french_preview_synthesizes_in_the_voice_locale(settings_factory, voice,
 )
 def test_invalid_preview_never_synthesizes_or_writes(settings_factory, overrides):
     speech = FakeSpeech()
-    rig = MediaRig(managed_collection(MANIFEST))
+    rig = MediaRig(managed_collection(MANIFEST, reading_rules=False))
     response = audio_client(_settings(settings_factory), rig.store, speech).post(
         PREVIEW_API, json=preview_body(**overrides)
     )
@@ -309,7 +309,7 @@ def test_invalid_preview_never_synthesizes_or_writes(settings_factory, overrides
     ],
 )
 def test_invalid_audio_upload_stops_before_anki(settings_factory, data):
-    rig = MediaRig(managed_collection(MANIFEST))
+    rig = MediaRig(managed_collection(MANIFEST, reading_rules=False))
     client = audio_client(_settings(settings_factory), rig.store, FakeSpeech())
     response = client.post("/api/items/en", files=replace_parts(str(uuid.uuid4()), data))
     assert response.status_code == 422
@@ -319,7 +319,7 @@ def test_invalid_audio_upload_stops_before_anki(settings_factory, data):
 
 @pytest.mark.p0
 def test_audio_larger_than_five_megabytes_returns_413(settings_factory):
-    rig = MediaRig(managed_collection(MANIFEST))
+    rig = MediaRig(managed_collection(MANIFEST, reading_rules=False))
     client = audio_client(_settings(settings_factory), rig.store, FakeSpeech())
     response = client.post(
         "/api/items/en", files=replace_parts(str(uuid.uuid4()), b"x" * (5 * 1024 * 1024 + 1))
@@ -334,7 +334,7 @@ def test_audio_larger_than_five_megabytes_returns_413(settings_factory):
     "intent,file_present", [("keep", True), ("replace", False), ("remove", True)]
 )
 def test_inconsistent_audio_parts_are_rejected(settings_factory, intent, file_present):
-    rig = MediaRig(managed_collection(MANIFEST))
+    rig = MediaRig(managed_collection(MANIFEST, reading_rules=False))
     parts = replace_parts(str(uuid.uuid4()), audio=intent)
     if not file_present:
         parts.pop("audioFile")
@@ -348,7 +348,9 @@ def test_inconsistent_audio_parts_are_rejected(settings_factory, intent, file_pr
 @pytest.mark.parametrize("state", ["needs_setup", "needs_migration", "newer_schema"])
 def test_replace_is_setup_gated_but_media_reads_remain_available(settings_factory, state):
     name = managed_name(str(uuid.uuid4()))
-    rig = MediaRig(managed_collection(MANIFEST), state=state, media={name: MP3})
+    rig = MediaRig(
+        managed_collection(MANIFEST, reading_rules=False), state=state, media={name: MP3}
+    )
     client = audio_client(_settings(settings_factory), rig.store, FakeSpeech())
     saved = client.post("/api/items/en", files=replace_parts(str(uuid.uuid4())))
     assert saved.status_code == 409
@@ -362,7 +364,7 @@ def test_replace_is_setup_gated_but_media_reads_remain_available(settings_factor
 def test_missing_or_malformed_anki_media_fails_safely(settings_factory, value, status):
     name = managed_name(str(uuid.uuid4()))
     rig = MediaRig(
-        managed_collection(MANIFEST),
+        managed_collection(MANIFEST, reading_rules=False),
         replies={"retrieveMediaFile": {"result": value, "error": None}},
     )
     response = audio_client(_settings(settings_factory), rig.store, FakeSpeech()).get(
@@ -382,7 +384,7 @@ def test_voice_provider_failure_uses_safe_retryable_envelope(settings_factory, m
 
     speech = FakeSpeech()
     monkeypatch.setattr(speech, "voices", fail)
-    rig = MediaRig(managed_collection(MANIFEST))
+    rig = MediaRig(managed_collection(MANIFEST, reading_rules=False))
     response = audio_client(_settings(settings_factory), rig.store, speech).get(
         VOICES_API, params={"language": "en"}
     )

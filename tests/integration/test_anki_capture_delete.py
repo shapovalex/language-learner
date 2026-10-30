@@ -68,7 +68,7 @@ def test_delete_capture_deletes_only_the_note_with_that_capture_id() -> None:
     else: other Captures, other managed notes and another Prefix's Capture with the same
     CaptureId stay. The CaptureId is matched in Python, never sent in a query (AD-4).
     """
-    collection = managed_collection(MANIFEST)
+    collection = managed_collection(MANIFEST, reading_rules=False)
     capture_id = str(uuid.uuid4())
     edited_id = f"<div>{capture_id}</div>"  # as Anki's editor leaves it
     target = capture_note(collection, MANIFEST, edited_id, "gone", CREATED_AT_FIELD)
@@ -77,7 +77,7 @@ def test_delete_capture_deletes_only_the_note_with_that_capture_id() -> None:
         for _ in range(2)
     ]
     others.append(managed_note(collection, MANIFEST, VOCABULARY, str(MANIFEST.schema_version)))
-    apply_manifest(collection, DEV_MANIFEST)
+    apply_manifest(collection, DEV_MANIFEST, reading_rules=False)
     others.append(capture_note(collection, DEV_MANIFEST, capture_id, "dev", CREATED_AT_FIELD))
     store, replay = wired(collection)
 
@@ -94,7 +94,7 @@ def test_a_repeated_delete_succeeds_and_sends_no_write() -> None:
     """AC-2: deleting a Capture that is already gone succeeds (a retried delete), sends no
     `deleteNotes`, and leaves every other note.
     """
-    collection = managed_collection(MANIFEST)
+    collection = managed_collection(MANIFEST, reading_rules=False)
     capture_id = str(uuid.uuid4())
     capture_note(collection, MANIFEST, capture_id, "gone", CREATED_AT_FIELD)
     kept = capture_note(collection, MANIFEST, str(uuid.uuid4()), "kept", CREATED_AT_FIELD)
@@ -114,7 +114,7 @@ def test_a_gated_anki_refuses_delete_capture_and_keeps_the_note(state: str) -> N
     """AC-3: unless the SetupState is `ready`, delete_capture is `setup_required`, no write is
     sent and the Capture stays (AD-19).
     """
-    collection = managed_collection(MANIFEST)
+    collection = managed_collection(MANIFEST, reading_rules=False)
     capture_id = str(uuid.uuid4())
     note_id = capture_note(collection, MANIFEST, capture_id, "kept", CREATED_AT_FIELD)
     store, replay = wired(collection, state=state)
@@ -132,7 +132,7 @@ def test_a_gated_anki_refuses_delete_capture_and_keeps_the_note(state: str) -> N
 @pytest.mark.p1
 def test_anki_down_is_anki_unavailable_for_delete() -> None:
     """AC-1: an unreachable Anki is `anki_unavailable`."""
-    store, _ = wired(managed_collection(MANIFEST), failure=refused)
+    store, _ = wired(managed_collection(MANIFEST, reading_rules=False), failure=refused)
 
     outcome = settle(store.delete_capture(str(uuid.uuid4())))
 
@@ -143,7 +143,7 @@ def test_anki_down_is_anki_unavailable_for_delete() -> None:
 @pytest.mark.parametrize("state", GATED_STATES)
 def test_a_gated_anki_with_nothing_to_delete_succeeds(state: str) -> None:
     """AC-3: with no such Capture there is nothing to write, so a gated Anki succeeds too."""
-    collection = managed_collection(MANIFEST)
+    collection = managed_collection(MANIFEST, reading_rules=False)
     kept = capture_note(collection, MANIFEST, str(uuid.uuid4()), "kept", CREATED_AT_FIELD)
     store, replay = wired(collection, state=state)
 
@@ -158,7 +158,7 @@ def test_a_capture_deleted_since_find_notes_is_skipped() -> None:
     """AC-2: a `{}` notesInfo entry (the note deleted since `findNotes`) is already gone, so
     nothing is written.
     """
-    collection = managed_collection(MANIFEST)
+    collection = managed_collection(MANIFEST, reading_rules=False)
     capture_id = str(uuid.uuid4())
     note_id = capture_note(collection, MANIFEST, capture_id, "gone", CREATED_AT_FIELD)
     notes_info = notes_info_with(collection, note_id, lambda _: {})
@@ -172,7 +172,7 @@ def test_a_capture_deleted_since_find_notes_is_skipped() -> None:
 @pytest.mark.p1
 def test_a_malformed_note_id_is_anki_unavailable() -> None:
     """AC-1: a matching entry without an integer `noteId` is `anki_unavailable`, with no write."""
-    collection = managed_collection(MANIFEST)
+    collection = managed_collection(MANIFEST, reading_rules=False)
     capture_id = str(uuid.uuid4())
     note_id = capture_note(collection, MANIFEST, capture_id, "kept", CREATED_AT_FIELD)
     notes_info = notes_info_with(collection, note_id, lambda info: info | {"noteId": "1"})

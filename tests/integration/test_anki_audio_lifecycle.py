@@ -31,7 +31,7 @@ class TestAudioRemovalFailures:
     def test_failed_note_write_during_removal_keeps_the_field_and_clip(self) -> None:
         """[P0] AC-7 a refused note write stops removal before any media deletion."""
         # Given a stored Item and clip; Anki rejects the note update.
-        collection = managed_collection(MANIFEST)
+        collection = managed_collection(MANIFEST, reading_rules=False)
         item_id = str(uuid.uuid4())
         old_name = stored_with_audio(collection, item_id, SECOND_MP3)
         before_notes = copy.deepcopy(collection.notes)
@@ -58,7 +58,7 @@ class TestAudioRemovalFailures:
     ) -> None:
         """[P0] AC-8 failed clip cleanup reports, keeps the note write, retries, then repairs."""
         # Given a stored Item and clip; Anki refuses only the media deletion.
-        collection = managed_collection(MANIFEST)
+        collection = managed_collection(MANIFEST, reading_rules=False)
         item_id = str(uuid.uuid4())
         old_name = stored_with_audio(collection, item_id, SECOND_MP3)
         rig = MediaRig(
@@ -92,7 +92,7 @@ class TestAudioReplacementCleanupFailure:
     @pytest.mark.p0
     def test_replace_cleanup_failure_is_retryable_and_setup_repairable(self) -> None:
         """[P0] AC-8 replace: failed old-clip cleanup reports, the note stands, retry succeeds."""
-        collection = managed_collection(MANIFEST)
+        collection = managed_collection(MANIFEST, reading_rules=False)
         item_id = str(uuid.uuid4())
         old_name = stored_with_audio(collection, item_id, SECOND_MP3)
         new_name = managed_name(item_id, MP3)

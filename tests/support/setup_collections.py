@@ -23,6 +23,9 @@ MANIFEST = build_manifest(PREFIX)
 VOCABULARY = f"{PREFIX} English Vocabulary"
 SENTENCE = f"{PREFIX} French Sentence"
 STUDY_LEAF = f"{PREFIX}::Study::English::Vocabulary::Produce"
+READING_RULE = f"{PREFIX} French Reading Rule"
+READING_RULES_DECK = f"{PREFIX}::Study::French::Reading Rules"
+DELETED_RULE = MANIFEST.reading_rules[1]  # "ou + vowel"
 
 
 def as_tuples(items: Any) -> set[tuple[str, str, str]]:
@@ -85,3 +88,11 @@ def user_options(c: Collection) -> None:
 
 def field_removed(c: Collection) -> None:
     c.models[VOCABULARY].fields.remove("Mnemonic")
+
+
+def rule_deleted(c: Collection) -> None:
+    """The user deleted one reading rule's note (and so its card) in Anki; its media stay."""
+    (note_id,) = (i for i, n in c.notes.items() if n.fields.get("RuleId") == DELETED_RULE.id)
+    del c.notes[note_id]
+    for card_id in [i for i, card in c.cards.items() if card.note == note_id]:
+        del c.cards[card_id]

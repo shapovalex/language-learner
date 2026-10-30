@@ -3,8 +3,9 @@ Setup, J5; mockups S-Setup).
 
 Below the readiness card the screen shows "What will change in Anki" with "Nothing changes
 until you apply." and one change row per resource kind and action, in the mockup's order:
-Decks, Note types, Card templates and CSS, Deck options. Each row names the kind, lists its
-resources as muted detail and ends in a chip with the action and the count ("Create 28").
+Decks, Note types, Card templates and CSS, Deck options, French reading rules. Each row names
+the kind, lists its resources as muted detail and ends in a chip with the action and the count
+("Create 29").
 Grouped rows were decided with the user on 2026-10-21. Rows are read-only.
 
 An empty plan shows the info callout "Nothing to change. Everything LanguageLab manages is
@@ -20,6 +21,7 @@ tests/integration/test_anki_setup_preview.py and the route in tests/api/test_set
 import pytest
 from playwright.sync_api import Page, expect
 
+from language_lab.domain.reading_rules import reading_rules
 from tests.support.network import stub_api_error, stub_api_json
 from tests.support.setup_screen import (
     CHANGES_HEADING,
@@ -47,19 +49,26 @@ NOTE_TYPES = [
     f"{PREFIX} English Sentence",
     f"{PREFIX} French Vocabulary",
     f"{PREFIX} French Sentence",
+    f"{PREFIX} French Reading Rule",
 ]
+READING_RULES_DECK = f"{PREFIX}::Study::French::Reading Rules"
+RULES = [rule.combination for rule in reading_rules()]
 
 
 def empty_prefix_plan() -> dict:
-    """An empty Prefix: 28 decks, 5 note types, their templates and CSS, and the preset.
+    """An empty Prefix: 29 decks, 6 note types, their templates and CSS, the preset and the 46
+    French reading rules.
 
-    Deck names stand in for the manifest's (the screen counts and lists, it doesn't check).
+    Deck names but the Reading Rules deck stand in for the manifest's (the screen counts and
+    lists, it doesn't check).
     """
     decks = [item("create", "deck", f"{PREFIX}::Deck {n}") for n in range(28)]
+    decks.append(item("create", "deck", READING_RULES_DECK))
     note_types = [item("create", "noteType", name) for name in NOTE_TYPES]
     templates = [item("create", "templates", name) for name in NOTE_TYPES]
+    rules = [item("create", "readingRule", name) for name in RULES]
     # Shuffled kinds: the screen orders the rows itself
-    return plan([*templates, item("create", "preset", PREFIX), *note_types, *decks])
+    return plan([*rules, *templates, item("create", "preset", PREFIX), *note_types, *decks])
 
 
 @pytest.mark.p0
@@ -69,9 +78,13 @@ def test_setup_lists_what_will_change_grouped_by_kind_and_action(page: Page) -> 
 
     rows = main.get_by_role("list", name=CHANGES_HEADING).get_by_role("listitem")
 
-    expect(rows).to_have_count(4)
-    expect(rows).to_contain_text(["Decks", "Note types", "Card templates and CSS", "Deck options"])
-    expect(rows).to_contain_text(["Create 28", "Create 5", "Create 5", "Create 1"])
+    expect(rows).to_have_count(5)
+    expect(rows).to_contain_text(
+        ["Decks", "Note types", "Card templates and CSS", "Deck options", "French reading rules"]
+    )
+    expect(rows).to_contain_text(["Create 29", "Create 6", "Create 6", "Create 1", "Create 46"])
+    expect(rows.nth(0)).to_contain_text(READING_RULES_DECK)
+    expect(rows.nth(4)).to_contain_text("French reading rules · ou, ou + vowel, oi,")
     expect(main.get_by_role("heading", name=CHANGES_HEADING)).to_be_visible()
     expect(main.get_by_text(CHANGES_NOTE, exact=True)).to_be_visible()
     expect(rows.nth(1)).to_contain_text(f"{PREFIX} English Vocabulary")

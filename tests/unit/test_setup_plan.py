@@ -54,6 +54,7 @@ def test_plan_hash_is_stable_across_order_and_changes_with_any_item() -> None:
         "notes",
         "templates",
         "preset",
+        "readingRule",  # a seeded French reading rule's note
         "orphanMedia",  # the opt-in repair kinds (story 2.11)
         "misplacedCard",
         "unsuspendedCard",

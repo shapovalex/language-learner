@@ -1,9 +1,14 @@
 """The managed manifest (AD-3, A3): the one source of Anki names and structure.
 
-`build_manifest(prefix)` declares, from the Prefix alone, the five note types with their fields,
-card templates and CSS (read from `templates/` as package data), the 28-deck tree, where each
+`build_manifest(prefix)` declares, from the Prefix alone, the six note types with their fields,
+card templates and CSS (read from `templates/` as package data), the 29-deck tree, where each
 card ord goes, the `<Prefix>` preset with its three bury flags, and the current SchemaVersion.
 Setup diffs Anki against it; every feature reads Anki names from it.
+
+The sixth note type, `<Prefix> French Reading Rule` (one card, Read), holds the seeded French
+reading rules (`domain/reading_rules.py`, `Manifest.reading_rules`) in
+`<Prefix>::Study::French::Reading Rules`. It has a Language and no Category, so it is neither an
+Item nor the Capture note type; Setup creates its notes and no feature writes them.
 """
 
 import re
@@ -13,6 +18,7 @@ from importlib.resources import files
 from types import MappingProxyType
 
 from language_lab.domain.catalog import Category, Exercise, Language
+from language_lab.domain.reading_rules import ReadingRule, reading_rules
 from language_lab.settings import PREFIX_PATTERN
 
 SCHEMA_VERSION = 1
@@ -32,7 +38,7 @@ _CATEGORY_NAMES: Mapping[Category, tuple[str, str]] = {
 
 # Target/Text first: Anki sorts and checks duplicates by the first field (decided 2026-10-21).
 # Hidden means no card template renders the field.
-_HIDDEN = frozenset({"ItemId", "CaptureId", "SchemaVersion"})
+_HIDDEN = frozenset({"ItemId", "CaptureId", "RuleId", "SchemaVersion"})
 _FIELDS: Mapping[Category | None, tuple[str, ...]] = {
     Category.VOCABULARY: (
         "Target",
@@ -60,6 +66,20 @@ _FIELDS: Mapping[Category | None, tuple[str, ...]] = {
     ),
     None: ("Text", "CreatedAt", "CaptureId", "SchemaVersion"),  # Capture
 }
+READING_RULE_FIELDS = (
+    "Combination",
+    "Transcription",
+    "Note",
+    "Example1",
+    "Example1Audio",
+    "Example2",
+    "Example2Audio",
+    "Example3",
+    "Example3Audio",
+    "RuleId",
+    "SchemaVersion",
+)
+READING_RULES_DECK = "Study::French::Reading Rules"  # under the Prefix
 
 BURY_FLAGS: Mapping[str, bool] = MappingProxyType(
     {"new.bury": False, "rev.bury": False, "buryInterdayLearning": False}
@@ -93,7 +113,8 @@ class NoteType:
     templates: tuple[CardTemplate, ...]
     css: str
     language: Language | None = None  # None for Capture
-    category: Category | None = None
+    category: Category | None = None  # None for Capture and the reading rules
+    deck: str | None = None  # the one deck of every card, when the note type has one
 
 
 @dataclass(frozen=True)
@@ -112,6 +133,8 @@ class Manifest:
     note_types: tuple[NoteType, ...]
     decks: tuple[str, ...]  # parents before children
     preset: Preset
+    reading_rule_note_type: str  # `<Prefix> French Reading Rule`
+    reading_rules: tuple[ReadingRule, ...]  # the notes Setup seeds, in deck order
 
     def item_note_type(self, language: Language, category: Category) -> str:
         """The name of the Item note type of `language` and `category`."""
@@ -126,6 +149,8 @@ class Manifest:
             raise KeyError(note_type_name)
         if ord not in {t.ord for t in note_type.templates}:
             raise ValueError(f"{note_type_name} has no card ord {ord}")
+        if note_type.deck is not None:
+            return note_type.deck
         if note_type.language is None or note_type.category is None:
             return f"{self.prefix}::Captures"
         branch = _branch(note_type.language, note_type.category)
@@ -167,6 +192,12 @@ def _decks(prefix: str) -> tuple[str, ...]:
     return tuple(decks)
 
 
+def _with_reading_rules(prefix: str, decks: tuple[str, ...]) -> tuple[str, ...]:
+    """`decks` with the reading rules deck right after `…::Study::French::Sentences::Write`."""
+    after = decks.index(f"{prefix}::Study::French::Sentences::Write") + 1
+    return (*decks[:after], f"{prefix}::{READING_RULES_DECK}", *decks[after:])
+
+
 def build_manifest(prefix: str) -> Manifest:
     """The manifest for one Prefix; every name derives from it (AD-3, NFR-1)."""
     if not re.fullmatch(PREFIX_PATTERN, prefix):
@@ -197,7 +228,22 @@ def build_manifest(prefix: str) -> Manifest:
         for language in Language
         for category in Category
     )
-    decks = _decks(prefix)
+    reading_rule = NoteType(
+        name=f"{prefix} French Reading Rule",
+        fields=tuple(Field(name, name in _HIDDEN) for name in READING_RULE_FIELDS),
+        templates=(
+            CardTemplate(
+                name="Read",
+                ord=0,
+                front=_template_text("reading-rule-read-front.html"),
+                back=_template_text("reading-rule-read-back.html"),
+            ),
+        ),
+        css=css,
+        language=Language.FR,
+        deck=f"{prefix}::{READING_RULES_DECK}",
+    )
+    decks = _with_reading_rules(prefix, _decks(prefix))
     branches = (f"{prefix}::Study", f"{prefix}::Pronunciation")
     preset_decks = tuple(
         d for d in decks if any(d == root or d.startswith(f"{root}::") for root in branches)
@@ -205,7 +251,9 @@ def build_manifest(prefix: str) -> Manifest:
     return Manifest(
         prefix=prefix,
         schema_version=SCHEMA_VERSION,
-        note_types=(capture, *items),
+        note_types=(capture, *items, reading_rule),
         decks=decks,
         preset=Preset(name=prefix, bury_flags=BURY_FLAGS, decks=preset_decks),
+        reading_rule_note_type=reading_rule.name,
+        reading_rules=reading_rules(),
     )
