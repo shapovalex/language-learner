@@ -40,7 +40,7 @@ def test_a_mixed_case_prefix_saves_plays_replaces_removes_and_deletes() -> None:
     """Prefix `LanguageLabDev`, a replay that lowercases: a Draft and then an existing Item
     save new audio, and playback, replacement cleanup, removal and Item delete all work.
     """
-    collection = managed_collection(DEV_MANIFEST)
+    collection = managed_collection(DEV_MANIFEST, reading_rules=False)
     rig = MediaRig(collection, manifest=DEV_MANIFEST)
     item_id = str(uuid.uuid4())
 
@@ -73,7 +73,7 @@ def test_a_mixed_case_prefix_saves_plays_replaces_removes_and_deletes() -> None:
 
 @pytest.mark.p0
 def test_an_existing_item_without_audio_saves_a_new_clip() -> None:
-    collection = managed_collection(DEV_MANIFEST)
+    collection = managed_collection(DEV_MANIFEST, reading_rules=False)
     item_id = str(uuid.uuid4())
     model = DEV_MANIFEST.item_note_type(Language.EN, Category.VOCABULARY)
     item_note(collection, DEV_MANIFEST, model, item_id, stored_fields(VOCABULARY, item_id))
@@ -91,7 +91,7 @@ def test_an_existing_item_without_audio_saves_a_new_clip() -> None:
 @pytest.mark.parametrize("rename", [str.upper, lambda name: name.replace(".mp3", "-1.mp3")])
 def test_a_store_answer_other_than_the_requested_name_fails_with_no_note_write(rename) -> None:
     """A real rename by Anki still fails safely; the leftover is a Setup repair."""
-    collection = managed_collection(MANIFEST)
+    collection = managed_collection(MANIFEST, reading_rules=False)
 
     def store_renamed(body):
         return {"result": rename(body["params"]["filename"]), "error": None}
@@ -115,7 +115,9 @@ def test_a_mixed_case_name_or_the_other_prefix_is_not_served(manifest, other) ->
     mixed = f"{manifest.prefix}_{item_id}_{digest}.mp3"
     foreign = f"{other.lower()}_{item_id}_{digest}.mp3"
     rig = MediaRig(
-        managed_collection(manifest), media={mixed: MP3, foreign: MP3}, manifest=manifest
+        managed_collection(manifest, reading_rules=False),
+        media={mixed: MP3, foreign: MP3},
+        manifest=manifest,
     )
 
     for name in (mixed, foreign):

@@ -53,3 +53,18 @@ make ci-local      # what CI runs: lint, full suite, short E2E burn-in
 ```
 
 [`tests/README.md`](../tests/README.md) describes the suite.
+
+## Regenerate the reading rules audio
+
+The French reading rules deck's audio is package data, generated once with Azure
+`fr-CA-SylvieNeural` and committed: `src/language_lab/data/french_reading_rules/audio/`. After
+changing an example word in `rules.json`, regenerate it with the Azure keys of your dev `.env`:
+
+```sh
+LANGUAGE_LAB_DEV=1 uv run python scripts/generate_reading_rules_audio.py
+```
+
+It writes every `<key>-<n>.mp3`, `audio/index.json` (each file's word) and removes stale files.
+Commit the result; `tests/unit/test_reading_rules.py` fails until the audio matches the words.
+A rule's `id` is fixed: never change one, since it is the note's `RuleId` and part of its media
+names.

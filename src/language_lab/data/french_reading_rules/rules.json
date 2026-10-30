@@ -1,0 +1,554 @@
+[
+  {
+    "id": "4ca6b231-7bc0-4505-b644-85caa36cdc8c",
+    "key": "ou",
+    "combination": "ou",
+    "transcription": "/u/",
+    "note": "",
+    "examples": [
+      "nous",
+      "rouge",
+      "tout"
+    ]
+  },
+  {
+    "id": "48b315a1-f534-4683-9d8a-458d7a48706d",
+    "key": "ou-vowel",
+    "combination": "ou + vowel",
+    "transcription": "/w/",
+    "note": "Before a vowel, ou glides into /w/.",
+    "examples": [
+      "oui",
+      "ouest",
+      "jouer"
+    ]
+  },
+  {
+    "id": "6d6c756d-995e-436e-a63b-4ce772dbb57f",
+    "key": "oi",
+    "combination": "oi",
+    "transcription": "/wa/",
+    "note": "",
+    "examples": [
+      "moi",
+      "roi",
+      "noir"
+    ]
+  },
+  {
+    "id": "13c1781d-d43f-45d5-afb0-91ba86e3518c",
+    "key": "oy",
+    "combination": "oy",
+    "transcription": "/waj/",
+    "note": "Before a vowel: oi + y.",
+    "examples": [
+      "voyage",
+      "royal",
+      "noyau"
+    ]
+  },
+  {
+    "id": "3ebddd18-11b5-4629-9693-cf477c378c47",
+    "key": "au",
+    "combination": "au",
+    "transcription": "/o/",
+    "note": "",
+    "examples": [
+      "chaud",
+      "jaune",
+      "autre"
+    ]
+  },
+  {
+    "id": "be103632-3152-4d88-a5be-f94d1dfa6916",
+    "key": "eau",
+    "combination": "eau",
+    "transcription": "/o/",
+    "note": "",
+    "examples": [
+      "eau",
+      "beau",
+      "gâteau"
+    ]
+  },
+  {
+    "id": "b42a350f-0070-450f-b714-ba09e1dc10ff",
+    "key": "ai",
+    "combination": "ai",
+    "transcription": "/ɛ/",
+    "note": "",
+    "examples": [
+      "lait",
+      "faire",
+      "semaine"
+    ]
+  },
+  {
+    "id": "7660f3bc-1ae8-4809-8f5a-7ee53ee98962",
+    "key": "ei",
+    "combination": "ei",
+    "transcription": "/ɛ/",
+    "note": "",
+    "examples": [
+      "neige",
+      "seize",
+      "treize"
+    ]
+  },
+  {
+    "id": "23ae686c-b9c9-4a9f-9c15-aa91b5cfe470",
+    "key": "ay",
+    "combination": "ay",
+    "transcription": "/ɛj/",
+    "note": "Before a vowel: ai + y.",
+    "examples": [
+      "crayon",
+      "payer",
+      "essayer"
+    ]
+  },
+  {
+    "id": "19fabb4c-80e1-45ee-adeb-6154c418e146",
+    "key": "eu",
+    "combination": "eu",
+    "transcription": "/ø/",
+    "note": "At the end of a syllable.",
+    "examples": [
+      "deux",
+      "bleu",
+      "peu"
+    ]
+  },
+  {
+    "id": "ecf9ac56-3049-4d63-b173-906c8dd418ee",
+    "key": "eur",
+    "combination": "eur",
+    "transcription": "/œʁ/",
+    "note": "Before a pronounced r, eu opens to /œ/.",
+    "examples": [
+      "fleur",
+      "peur",
+      "chanteur"
+    ]
+  },
+  {
+    "id": "8aaf8076-d491-4334-9932-3ab73eee7b79",
+    "key": "oeu",
+    "combination": "œu",
+    "transcription": "/œ/",
+    "note": "",
+    "examples": [
+      "sœur",
+      "cœur",
+      "œuf"
+    ]
+  },
+  {
+    "id": "e11391a0-c1cd-4390-9d39-bb8bed91b74c",
+    "key": "ui",
+    "combination": "ui",
+    "transcription": "/ɥi/",
+    "note": "",
+    "examples": [
+      "huit",
+      "nuit",
+      "pluie"
+    ]
+  },
+  {
+    "id": "21df53af-4d7c-4fec-ba95-02239a03d33d",
+    "key": "e-open",
+    "combination": "e (end of a syllable)",
+    "transcription": "/ə/",
+    "note": "Silent at the end of a word.",
+    "examples": [
+      "le",
+      "petit",
+      "demain"
+    ]
+  },
+  {
+    "id": "30f092d4-4fec-4589-92f9-36a90ba69141",
+    "key": "e-acute",
+    "combination": "é",
+    "transcription": "/e/",
+    "note": "",
+    "examples": [
+      "été",
+      "café",
+      "école"
+    ]
+  },
+  {
+    "id": "f5092237-3772-436b-b764-28e91ac9ff9d",
+    "key": "e-grave",
+    "combination": "è / ê",
+    "transcription": "/ɛ/",
+    "note": "",
+    "examples": [
+      "mère",
+      "père",
+      "fête"
+    ]
+  },
+  {
+    "id": "4f1503c0-bf99-4678-b269-dac5fd77972a",
+    "key": "er-ez",
+    "combination": "-er / -ez",
+    "transcription": "/e/",
+    "note": "At the end of a word; the r and z are silent.",
+    "examples": [
+      "parler",
+      "nez",
+      "chez"
+    ]
+  },
+  {
+    "id": "6962b0c0-1252-43ee-867f-88a8903be5a2",
+    "key": "et",
+    "combination": "-et",
+    "transcription": "/ɛ/",
+    "note": "At the end of a word; the t is silent.",
+    "examples": [
+      "poulet",
+      "jouet",
+      "billet"
+    ]
+  },
+  {
+    "id": "e0558e1e-79ed-4540-a637-7a689272e3af",
+    "key": "es",
+    "combination": "es (short words)",
+    "transcription": "/e/",
+    "note": "In one-syllable words.",
+    "examples": [
+      "les",
+      "des",
+      "mes"
+    ]
+  },
+  {
+    "id": "d2d1e2a7-b324-4a4e-b79b-972ac1cf1cc1",
+    "key": "an",
+    "combination": "an / am",
+    "transcription": "/ɑ̃/",
+    "note": "Not before a vowel or a second n/m.",
+    "examples": [
+      "blanc",
+      "chambre",
+      "maman"
+    ]
+  },
+  {
+    "id": "e74b206a-7946-4520-b2e4-a57b3813e8ee",
+    "key": "en",
+    "combination": "en / em",
+    "transcription": "/ɑ̃/",
+    "note": "Not before a vowel or a second n/m.",
+    "examples": [
+      "enfant",
+      "temps",
+      "vent"
+    ]
+  },
+  {
+    "id": "ff1e983e-fde4-4fdd-9ca8-4ae6e1d55ecb",
+    "key": "on",
+    "combination": "on / om",
+    "transcription": "/ɔ̃/",
+    "note": "Not before a vowel or a second n/m.",
+    "examples": [
+      "bonjour",
+      "nombre",
+      "monde"
+    ]
+  },
+  {
+    "id": "9913c1c6-0856-42ee-b6b9-5529802aa42e",
+    "key": "in",
+    "combination": "in / im",
+    "transcription": "/ɛ̃/",
+    "note": "Not before a vowel or a second n/m.",
+    "examples": [
+      "vin",
+      "jardin",
+      "simple"
+    ]
+  },
+  {
+    "id": "f70db361-564a-44d1-8153-e1c48025dea9",
+    "key": "ain",
+    "combination": "ain / aim",
+    "transcription": "/ɛ̃/",
+    "note": "",
+    "examples": [
+      "pain",
+      "main",
+      "faim"
+    ]
+  },
+  {
+    "id": "21642a10-d8fa-4719-b3aa-adeb73392294",
+    "key": "ein",
+    "combination": "ein",
+    "transcription": "/ɛ̃/",
+    "note": "",
+    "examples": [
+      "plein",
+      "peintre",
+      "frein"
+    ]
+  },
+  {
+    "id": "c8a6cca8-e719-48f1-84c7-bf4bd8417110",
+    "key": "un",
+    "combination": "un / um",
+    "transcription": "/œ̃/",
+    "note": "",
+    "examples": [
+      "un",
+      "lundi",
+      "parfum"
+    ]
+  },
+  {
+    "id": "74a66937-74d2-46c4-a14e-1eaf1005a7c4",
+    "key": "ien",
+    "combination": "ien",
+    "transcription": "/jɛ̃/",
+    "note": "",
+    "examples": [
+      "bien",
+      "chien",
+      "rien"
+    ]
+  },
+  {
+    "id": "73253447-ca16-4e46-8684-a4764f4ab093",
+    "key": "oin",
+    "combination": "oin",
+    "transcription": "/wɛ̃/",
+    "note": "",
+    "examples": [
+      "loin",
+      "coin",
+      "point"
+    ]
+  },
+  {
+    "id": "6049911d-37e3-4ed6-b2bb-4bc47dc41793",
+    "key": "ille",
+    "combination": "ille",
+    "transcription": "/ij/",
+    "note": "Except ville, mille and tranquille, which say /il/.",
+    "examples": [
+      "fille",
+      "famille",
+      "gentille"
+    ]
+  },
+  {
+    "id": "76b9f98b-93b5-4f14-a548-3d2685ab2e1b",
+    "key": "ail",
+    "combination": "ail / aille",
+    "transcription": "/aj/",
+    "note": "",
+    "examples": [
+      "travail",
+      "détail",
+      "paille"
+    ]
+  },
+  {
+    "id": "549ad617-ed70-4026-934b-73db89cc24bf",
+    "key": "eil",
+    "combination": "eil / eille",
+    "transcription": "/ɛj/",
+    "note": "",
+    "examples": [
+      "soleil",
+      "oreille",
+      "abeille"
+    ]
+  },
+  {
+    "id": "e32bf6c9-c0d7-45df-b851-f4f33fc8956e",
+    "key": "euil",
+    "combination": "euil / euille",
+    "transcription": "/œj/",
+    "note": "",
+    "examples": [
+      "fauteuil",
+      "feuille",
+      "écureuil"
+    ]
+  },
+  {
+    "id": "86e57575-5927-4f98-85d5-2c6027fb57bf",
+    "key": "ch",
+    "combination": "ch",
+    "transcription": "/ʃ/",
+    "note": "",
+    "examples": [
+      "chat",
+      "chocolat",
+      "vache"
+    ]
+  },
+  {
+    "id": "4f4f28ae-b21c-4f95-a4d7-eb7f1a0df5c5",
+    "key": "gn",
+    "combination": "gn",
+    "transcription": "/ɲ/",
+    "note": "",
+    "examples": [
+      "montagne",
+      "campagne",
+      "signe"
+    ]
+  },
+  {
+    "id": "6d833d72-9884-4f0a-8ef9-b38eec2ac1ce",
+    "key": "ph",
+    "combination": "ph",
+    "transcription": "/f/",
+    "note": "",
+    "examples": [
+      "photo",
+      "téléphone",
+      "pharmacie"
+    ]
+  },
+  {
+    "id": "2d7fccde-55e2-482a-a1f6-eb99b8c66740",
+    "key": "qu",
+    "combination": "qu",
+    "transcription": "/k/",
+    "note": "",
+    "examples": [
+      "qui",
+      "quatre",
+      "musique"
+    ]
+  },
+  {
+    "id": "eaa177bf-7d2e-413f-b53b-e76b3ada40a0",
+    "key": "th",
+    "combination": "th",
+    "transcription": "/t/",
+    "note": "",
+    "examples": [
+      "thé",
+      "théâtre",
+      "rythme"
+    ]
+  },
+  {
+    "id": "1f5d260e-6589-4b21-8897-baa80fbd2f6b",
+    "key": "c-soft",
+    "combination": "ce / ci / cy",
+    "transcription": "/s/",
+    "note": "c before e, i or y.",
+    "examples": [
+      "merci",
+      "cinéma",
+      "bicyclette"
+    ]
+  },
+  {
+    "id": "4822a7d4-5a9a-4d59-b2f0-f102d378255a",
+    "key": "c-cedilla",
+    "combination": "ç",
+    "transcription": "/s/",
+    "note": "Only before a, o or u.",
+    "examples": [
+      "ça",
+      "garçon",
+      "français"
+    ]
+  },
+  {
+    "id": "3bf1fd36-3202-4ede-a179-994d72dfa8ed",
+    "key": "g-soft",
+    "combination": "ge / gi / gy",
+    "transcription": "/ʒ/",
+    "note": "g before e, i or y.",
+    "examples": [
+      "page",
+      "girafe",
+      "gymnase"
+    ]
+  },
+  {
+    "id": "f30df98b-ef71-4506-8c5a-f39bd99afc62",
+    "key": "gu",
+    "combination": "gue / gui",
+    "transcription": "/g/",
+    "note": "The u is silent: it keeps the g hard.",
+    "examples": [
+      "guerre",
+      "guitare",
+      "langue"
+    ]
+  },
+  {
+    "id": "089c566b-1494-454d-b0d1-4f9ec0ec2294",
+    "key": "s-voiced",
+    "combination": "s between vowels",
+    "transcription": "/z/",
+    "note": "",
+    "examples": [
+      "rose",
+      "maison",
+      "poison"
+    ]
+  },
+  {
+    "id": "8080bad3-74dd-47cc-8854-4796df1e5074",
+    "key": "ss",
+    "combination": "ss",
+    "transcription": "/s/",
+    "note": "",
+    "examples": [
+      "poisson",
+      "classe",
+      "aussi"
+    ]
+  },
+  {
+    "id": "05c3c937-6a97-4c77-b890-6e8c04ade478",
+    "key": "tion",
+    "combination": "tion",
+    "transcription": "/sjɔ̃/",
+    "note": "",
+    "examples": [
+      "nation",
+      "attention",
+      "station"
+    ]
+  },
+  {
+    "id": "9df0a0f3-0657-406c-9608-73a1140e5007",
+    "key": "h",
+    "combination": "h",
+    "transcription": "∅",
+    "note": "Never pronounced.",
+    "examples": [
+      "homme",
+      "hôtel",
+      "hiver"
+    ]
+  },
+  {
+    "id": "866f8762-f22c-4de5-886a-48a04e93c348",
+    "key": "ent-verb",
+    "combination": "-ent (verbs)",
+    "transcription": "∅",
+    "note": "The verb ending of ils/elles is silent.",
+    "examples": [
+      "ils parlent",
+      "elles chantent",
+      "ils mangent"
+    ]
+  }
+]

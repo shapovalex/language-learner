@@ -172,6 +172,23 @@ def test_a_run_with_discrepancies_lists_them_and_offers_run_setup_again(
     assert again.value.post_data_json == {"planHash": LEFT_OVER_HASH, "repairs": []}
 
 
+@pytest.mark.p2
+def test_a_reading_rule_left_uncreated_is_a_discrepancy_row(page: Page) -> None:
+    """Reading rules: a rule whose note didn't take (a failed media store) is listed by its
+    combination, expected vs. found.
+    """
+    main = open_setup(page, plan([*ITEMS, item("create", "readingRule", "eau")]))
+    stub_api_json(page, APPLY, result([item("create", "readingRule", "eau")], LEFT_OVER_HASH))
+
+    main.get_by_role("button", name=APPLY_LABEL).click()
+
+    banner = main.get_by_role("alert").filter(has_text="Setup applied, but 1 thing doesn't match")
+    rows = banner.get_by_role("listitem")
+    expect(rows).to_have_count(1)
+    expect(rows).to_contain_text(["Reading rule · eau"])
+    expect(rows).to_contain_text(["Expected this reading rule's note; found none."])
+
+
 @pytest.mark.p1
 def test_leaving_does_not_cancel_and_coming_back_shows_the_run(page: Page) -> None:
     """AC-14: back on Setup mid-run, the progress card shows; once the run finishes and Anki

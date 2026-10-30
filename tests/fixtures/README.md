@@ -6,6 +6,7 @@ Inputs captured from real externals, replayed by tests so nothing reaches them (
 | --- | --- | --- |
 | `tailscale-status.json` | `tailscale status --json` on the Mac Mini | `tests/unit/test_tailscale_discovery.py` |
 | `tailscale-serve-headers.json` | The request headers Tailscale Serve forwards to `127.0.0.1:8787` for a browser `POST` | `tests/api/test_host_origin_allow_list.py` |
+| `design-tokens.md` | The front matter of the initiative's DESIGN.md (the Studio tokens), kept when the planning artifacts were removed (da6b547). Not recorded: copied as it was | `tests/unit/test_studio_assets.py` via `tests/support/design_tokens.py` |
 | `anki/version.json` | AnkiConnect's `version` exchange: `{"request", "response"}`. **Synthetic** (AnkiConnect's documented v6 reply) until recorded on the Mac Mini in story 2.1 | `tests/integration/test_anki_adapter.py`, `tests/integration/test_record_anki_fixtures.py` |
 
 ## Recorded on the Mac Mini (R-05)

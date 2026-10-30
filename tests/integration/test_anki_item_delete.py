@@ -40,7 +40,7 @@ from tests.support.items import note_type_of, stored_fields
 def test_absent_item_preserves_media_owned_by_another_language(
     wire, owner_language, requested_language
 ) -> None:
-    collection = managed_collection(MANIFEST)
+    collection = managed_collection(MANIFEST, reading_rules=False)
     item_id = str(uuid.uuid4())
     fields = stored_fields(wire, item_id) | {"ItemId": f"<div>{item_id}</div>"}
     note_id = item_note(collection, MANIFEST, note_type_of(owner_language, wire), item_id, fields)
@@ -65,7 +65,7 @@ def test_absent_item_preserves_media_owned_by_another_language(
 @pytest.mark.p0
 def test_setup_gate_refuses_delete_and_preserves_note_cards_and_media() -> None:
     """[P0] AC-2 A non-ready SetupState refuses deletion before any write."""
-    collection = managed_collection(MANIFEST)
+    collection = managed_collection(MANIFEST, reading_rules=False)
     item_id, note_id = put_item(collection)
     collection.media.update(media_names(item_id))
     before_cards = dict(collection.cards)
@@ -83,7 +83,7 @@ def test_setup_gate_refuses_delete_and_preserves_note_cards_and_media() -> None:
 @pytest.mark.p0
 def test_delete_holds_one_shared_lock_through_the_last_media_write() -> None:
     """[P0] AC-3 Lookup, note deletion and all media cleanup run under one Anki lock hold."""
-    collection = managed_collection(MANIFEST)
+    collection = managed_collection(MANIFEST, reading_rules=False)
     item_id, _ = put_item(collection)
     collection.media.update(media_names(item_id))
     lock = ObservedLock()
@@ -102,7 +102,7 @@ def test_delete_holds_one_shared_lock_through_the_last_media_write() -> None:
 @pytest.mark.p0
 def test_delete_removes_only_the_scoped_note_cards_and_matching_media_in_order() -> None:
     """[P0] AC-4 Delete the scoped Item note/four Cards before its media; keep all others."""
-    collection = managed_collection(MANIFEST)
+    collection = managed_collection(MANIFEST, reading_rules=False)
     item_id, target = put_item(collection)
     _, other = put_item(collection)
     french = item_note(
@@ -112,7 +112,7 @@ def test_delete_removes_only_the_scoped_note_cards_and_matching_media_in_order()
         item_id,
         stored_fields(vocabulary(), item_id),
     )
-    apply_manifest(collection, DEV_MANIFEST)
+    apply_manifest(collection, DEV_MANIFEST, reading_rules=False)
     dev = item_note(
         collection,
         DEV_MANIFEST,
@@ -155,7 +155,7 @@ def test_delete_removes_only_the_scoped_note_cards_and_matching_media_in_order()
 @pytest.mark.p0
 def test_note_delete_failure_stops_before_any_media_delete() -> None:
     """[P0] AC-6 A failed note deletion returns an error and never attempts media cleanup."""
-    collection = managed_collection(MANIFEST)
+    collection = managed_collection(MANIFEST, reading_rules=False)
     item_id, note_id = put_item(collection)
     collection.media.update(media_names(item_id))
     before_cards = dict(collection.cards)
@@ -176,7 +176,7 @@ def test_note_delete_failure_stops_before_any_media_delete() -> None:
 @pytest.mark.p0
 def test_media_failure_stops_and_retry_cleans_leftovers_after_note_is_gone() -> None:
     """[P0] AC-7 Partial media cleanup stops; retry finishes despite the already-gone note."""
-    collection = managed_collection(MANIFEST)
+    collection = managed_collection(MANIFEST, reading_rules=False)
     item_id, note_id = put_item(collection)
     names = media_names(item_id)
     collection.media.update(names)
@@ -220,7 +220,7 @@ def test_media_failure_stops_and_retry_cleans_leftovers_after_note_is_gone() -> 
 
 @pytest.mark.parametrize("state", ["needs_setup", "needs_migration", "newer_schema"])
 def test_all_nonready_states_gate_leftover_cleanup_on_an_absent_note(state: str) -> None:
-    collection = managed_collection(MANIFEST)
+    collection = managed_collection(MANIFEST, reading_rules=False)
     item_id = str(uuid.uuid4())
     collection.media.update(media_names(item_id))
     store, replay = wired_delete(collection, state=state)
@@ -232,7 +232,7 @@ def test_all_nonready_states_gate_leftover_cleanup_on_an_absent_note(state: str)
 
 @pytest.mark.parametrize("wire", [vocabulary(), sentence()])
 def test_both_categories_decode_the_item_id_and_succeed_without_media(wire) -> None:
-    collection = managed_collection(MANIFEST)
+    collection = managed_collection(MANIFEST, reading_rules=False)
     item_id = str(uuid.uuid4())
     fields = stored_fields(wire, item_id) | {"ItemId": f"<div>{item_id}</div>", "Audio": ""}
     note_id = item_note(collection, MANIFEST, note_type_of("en", wire), item_id, fields)
@@ -247,7 +247,7 @@ def test_both_categories_decode_the_item_id_and_succeed_without_media(wire) -> N
 
 @pytest.mark.parametrize("result", [None, {}, [123], ["valid-name", False]])
 def test_malformed_media_enumeration_stops_and_releases_the_lock(result) -> None:
-    collection = managed_collection(MANIFEST)
+    collection = managed_collection(MANIFEST, reading_rules=False)
     item_id, note_id = put_item(collection)
     lock = ObservedLock()
     store, replay = wired_delete(
@@ -263,7 +263,7 @@ def test_malformed_media_enumeration_stops_and_releases_the_lock(result) -> None
 
 
 def test_media_names_are_filtered_by_item_id_and_the_managed_filename_contract() -> None:
-    collection = managed_collection(MANIFEST)
+    collection = managed_collection(MANIFEST, reading_rules=False)
     item_id = str(uuid.uuid4())
     matching = media_names(item_id)
     kept = [
@@ -285,7 +285,7 @@ def test_media_names_are_filtered_by_item_id_and_the_managed_filename_contract()
 
 @pytest.mark.parametrize("entry", [None, [], {"noteId": True}, {"noteId": "1"}])
 def test_malformed_matching_note_reply_refuses_every_write(entry) -> None:
-    collection = managed_collection(MANIFEST)
+    collection = managed_collection(MANIFEST, reading_rules=False)
     item_id, note_id = put_item(collection)
     answers = collection_replies(collection, writes=True)
 
@@ -304,7 +304,7 @@ def test_malformed_matching_note_reply_refuses_every_write(entry) -> None:
 def test_prefix_guard_refuses_a_foreign_note_returned_by_a_malformed_lookup() -> None:
     from language_lab.adapters.anki.guard import PrefixViolation
 
-    collection = managed_collection(MANIFEST)
+    collection = managed_collection(MANIFEST, reading_rules=False)
     item_id, note_id = put_item(collection)
     answers = collection_replies(collection, writes=True)
 
@@ -321,7 +321,7 @@ def test_prefix_guard_refuses_a_foreign_note_returned_by_a_malformed_lookup() ->
 
 
 def test_a_note_disappearing_between_reads_still_cleans_leftovers() -> None:
-    collection = managed_collection(MANIFEST)
+    collection = managed_collection(MANIFEST, reading_rules=False)
     item_id, _ = put_item(collection)
     collection.media.update(media_names(item_id))
     store, replay = wired_delete(collection, replies={"notesInfo": {"result": [{}], "error": None}})
@@ -335,7 +335,7 @@ def test_delete_waits_for_another_use_case_and_busy_timeout_sends_no_request() -
 
     from tests.support.aio import run, settled
 
-    collection = managed_collection(MANIFEST)
+    collection = managed_collection(MANIFEST, reading_rules=False)
     item_id, note_id = put_item(collection)
     lock = ObservedLock()
     lock.wait_seconds = 0.01
@@ -366,7 +366,7 @@ def test_save_cannot_enter_anki_while_delete_is_cleaning_media(monkeypatch) -> N
     from tests.support.aio import run
     from tests.support.items import content
 
-    collection = managed_collection(MANIFEST)
+    collection = managed_collection(MANIFEST, reading_rules=False)
     item_id, _ = put_item(collection)
     other_id, other_note = put_item(collection)
     collection.media.update(media_names(item_id))
@@ -408,7 +408,7 @@ def test_save_cannot_enter_anki_while_delete_is_cleaning_media(monkeypatch) -> N
 
 @pytest.mark.parametrize("result", [None, {}, [True], ["123"]])
 def test_malformed_scope_ids_stop_before_notes_or_media_writes(result) -> None:
-    collection = managed_collection(MANIFEST)
+    collection = managed_collection(MANIFEST, reading_rules=False)
     item_id, _ = put_item(collection)
     store, replay = wired_delete(
         collection, replies={"findNotes": {"result": result, "error": None}}
@@ -419,7 +419,7 @@ def test_malformed_scope_ids_stop_before_notes_or_media_writes(result) -> None:
 
 
 def test_enumeration_failure_after_note_deletion_is_retryable() -> None:
-    collection = managed_collection(MANIFEST)
+    collection = managed_collection(MANIFEST, reading_rules=False)
     item_id, note_id = put_item(collection)
     collection.media.update(media_names(item_id))
     answers = collection_replies(collection, writes=True)

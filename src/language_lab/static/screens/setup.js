@@ -51,6 +51,7 @@ const KINDS = [
   ["notes", "Notes"],
   ["templates", "Card templates and CSS"],
   ["preset", "Deck options"],
+  ["readingRule", "French reading rules"],
 ];
 const ACTIONS = [
   ["create", "Create"],
@@ -79,6 +80,7 @@ const DISCREPANCY_KINDS = {
   notes: "Notes",
   templates: "Card templates and CSS",
   preset: "Deck options",
+  readingRule: "Reading rule",
   orphanMedia: "Media file",
   misplacedCard: "Card",
   unsuspendedCard: "Capture card",
@@ -88,6 +90,7 @@ const EXPECTED_FOUND = {
   "create:noteType": "Expected this note type; found none.",
   "create:templates": "Expected LanguageLab's card templates and CSS; found none.",
   "create:preset": "Expected this deck options preset; found none.",
+  "create:readingRule": "Expected this reading rule's note; found none.",
   "repair:templates": "Expected LanguageLab's card templates and CSS; found different ones.",
   "repair:preset":
     "Expected sibling burying off on every Study and Pronunciation deck; found it on, or a deck on another preset.",

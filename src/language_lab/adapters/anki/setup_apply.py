@@ -14,6 +14,11 @@ from `state`, in this order, and skips Migrate (adapters/anki/migrations.py runs
    `setDeckConfigId` for the preset decks not on it; then, for a preset item or a fresh clone,
    that config read back with `getDeckConfig`, the three bury flags set off and the rest left
    as it is (FR-8), and `saveDeckConfig`.
+5. reading rule Create, in data order: `storeMediaFile` for each example's bundled MP3, by its
+   AD-7 name (`media_name(prefix, rule id, bytes)`), then `addNote` of the reading rule note
+   type into its deck, every field through the codec, each `Example<n>Audio` as
+   `[sound:<name>]`, with its `RuleId` and the manifest's `SchemaVersion`. A store that doesn't
+   answer its name skips that rule's note; the other rules go on.
 
 `run_repairs(invoke, items)` runs the opt-in repair rows the user checked (entry 11), after the
 plan and its migrations: `deleteMediaFile` for orphan media, `changeDeck` to the expected deck
@@ -26,14 +31,18 @@ or an id) doesn't end the run: the verification that follows reports what didn't
 that fails raises `AppError(ANKI_UNAVAILABLE)`.
 """
 
+import base64
 import copy
 from collections.abc import Awaitable, Callable, Iterable, Mapping
 from typing import Any
 
+from language_lab.adapters.anki.codec import encode_field
 from language_lab.adapters.anki.guard import is_int
 from language_lab.adapters.anki.manifest import CardTemplate, Manifest, NoteType
 from language_lab.adapters.anki.setup_diff import AnkiState
+from language_lab.domain.audio import media_name
 from language_lab.domain.errors import AppError, ErrorCode
+from language_lab.domain.reading_rules import ReadingRule
 from language_lab.domain.setup import PlanAction, PlanItem, ResourceKind
 
 # `invoke(action, **params)`: one guarded, ungated v6 call returning its `result`
@@ -156,6 +165,32 @@ class _PlanRun:
             _set_path(config, path, value)
         await self._write("saveDeckConfig", config=config)
 
+    async def create_reading_rule(self, rule: ReadingRule) -> None:
+        """Store the rule's example audio, then add its note; a failed store skips the note."""
+        manifest = self._manifest
+        model = manifest.reading_rule_note_type
+        fields = {
+            "Combination": rule.combination,
+            "Transcription": rule.transcription,
+            "Note": rule.note,
+        }
+        for n, example in enumerate(rule.examples, 1):
+            name = media_name(manifest.prefix, rule.id, example.audio)
+            data = base64.b64encode(example.audio).decode("ascii")
+            if await self._write("storeMediaFile", filename=name, data=data) != name:
+                return  # verify reports the rule, and the next plan offers it again
+            fields |= {f"Example{n}": example.word, f"Example{n}Audio": f"[sound:{name}]"}
+        fields |= {"RuleId": rule.id, "SchemaVersion": str(manifest.schema_version)}
+        await self._write(
+            "addNote",
+            note={
+                "deckName": manifest.card_deck(model, 0),
+                "modelName": model,
+                "fields": {name: encode_field(value) for name, value in fields.items()},
+                "options": {"allowDuplicate": True},
+            },
+        )
+
 
 async def run_plan(
     invoke: Invoke, manifest: Manifest, state: AnkiState, items: tuple[PlanItem, ...]
@@ -181,6 +216,9 @@ async def run_plan(
     )
     if has_preset_item or run.created_decks & set(manifest.preset.decks):
         await run.preset(has_item=has_preset_item)
+    for rule in manifest.reading_rules:
+        if rule.combination in planned[PlanAction.CREATE, ResourceKind.READING_RULE]:
+            await run.create_reading_rule(rule)
 
 
 async def run_repairs(invoke: Invoke, items: Iterable[PlanItem]) -> None:

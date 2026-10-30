@@ -5,8 +5,9 @@ note types (fields, templates, CSS), the decks, which preset each managed deck u
 preset's bury flags. It diffs them against the manifest into plan items (domain/setup.py):
 
 - Create: a deck, note type, note type's templates and CSS, or the `<Prefix>` preset that
-  doesn't exist. An empty Prefix previews 28 decks, 5 note types, 5 sets of templates and CSS,
-  and the preset.
+  doesn't exist, and each seeded French reading rule no note holds by its `RuleId`. An empty
+  Prefix previews 29 decks, 6 note types, 6 sets of templates and CSS, the preset and 46
+  reading rules.
 - Repair: a note type's templates or CSS that differ from the files, or a preset with a bury
   flag on or a Study or Pronunciation deck not using it. Other deck options are the user's
   (FR-8) and never show up.
@@ -46,6 +47,7 @@ from tests.support.anki_state import (
     stock_collection,
 )
 from tests.support.setup_collections import (
+    DELETED_RULE,
     MANIFEST,
     PREFIX,
     SENTENCE,
@@ -62,6 +64,7 @@ from tests.support.setup_collections import (
     missing_deck,
     missing_note_type,
     no_preset,
+    rule_deleted,
     two_prefix_presets,
     user_options,
 )
@@ -148,6 +151,7 @@ def _empty_prefix_expected() -> set[tuple[str, str, str]]:
         | {("create", "noteType", nt.name) for nt in MANIFEST.note_types}
         | {("create", "templates", nt.name) for nt in MANIFEST.note_types}
         | {("create", "preset", PREFIX)}
+        | {("create", "readingRule", rule.combination) for rule in MANIFEST.reading_rules}
     )
 
 
@@ -190,6 +194,7 @@ CASES |= {
             {("repair", "templates", nt.name) for nt in MANIFEST.note_types},
         ),
         ("user-deck-options", user_options, set()),
+        ("rule-deleted", rule_deleted, {("create", "readingRule", DELETED_RULE.combination)}),
         ("dev-prefix-beside", _dev_prefix_set_up, set()),
     ]
 }

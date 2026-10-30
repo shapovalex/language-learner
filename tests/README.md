@@ -44,7 +44,7 @@ tests/
     live_server.py     run_live_server(): uvicorn in a thread on a pre-bound socket, FakeAnkiStore() and FakeSpeech() injected (or the seeded anki_store= / speech= given); bind_free_port(); closed_port() (refused at once)
     app_env.py         config_values() factory, write_dotenv(), dotenv_keys(), isolated_environ() (ANKI_CONNECT_URL on a refused port, so no subprocess Syncs a real Anki)
     network.py         stub_api_error() (AD-15 envelope, returned), stub_api_json() (a canned 200 body), HeldRoute (hold a request, see the loading state, then fulfill_json()); each takes method= to act on one HTTP method only, record_requests(), record_resources() (with resource type), record_json_bodies() (JSON body of each non-GET to a path)
-    design_tokens.py   DESIGN.md front matter -> expected --color/--space/--radius/--font-* properties; css_custom_properties()
+    design_tokens.py   fixtures/design-tokens.md (DESIGN.md front matter) -> expected --color/--space/--radius/--font-* properties; css_custom_properties()
     shell.py           parse_shell() (viewport meta, stylesheet links), fetch_stylesheets() through a TestClient, following @import
     dom.py             append_to_body() / prepend_to_body() for test-only markup, computed_style(), px(), settle_fonts()
     navigation.py      the six DESTINATIONS, nav locators (main_nav, language_nav, menu_button, menu_sheet), go_by_nav() per width

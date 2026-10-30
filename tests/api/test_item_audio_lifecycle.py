@@ -34,7 +34,7 @@ class TestItemAudioRemoval:
     ) -> None:
         """[P0] AC-6 audio=remove empties Audio, then deletes the old clip, under one lock."""
         # Given a stored Item whose Audio field references its managed clip.
-        collection = managed_collection(MANIFEST)
+        collection = managed_collection(MANIFEST, reading_rules=False)
         item_id = str(uuid.uuid4())
         old_name = stored_with_audio(collection, item_id, SECOND_MP3)
         rig = MediaRig(collection, media={old_name: SECOND_MP3})
@@ -80,7 +80,7 @@ class TestItemAudioRemovalMatrix:
         self, settings_factory: SettingsFactory
     ) -> None:
         """[P1] AC-6 remove on a stored Item with no clip only rewrites its note."""
-        collection = managed_collection(MANIFEST)
+        collection = managed_collection(MANIFEST, reading_rules=False)
         item_id = str(uuid.uuid4())
         stored_with_audio(collection, item_id, SECOND_MP3)
         (note,) = collection.notes.values()
@@ -98,7 +98,7 @@ class TestItemAudioRemovalMatrix:
         self, settings_factory: SettingsFactory
     ) -> None:
         """[P1] AC-6 remove under a new ItemId adds the note and places cards, no media."""
-        collection = managed_collection(MANIFEST)
+        collection = managed_collection(MANIFEST, reading_rules=False)
         rig = MediaRig(collection)
         item_id = str(uuid.uuid4())
 
@@ -118,7 +118,7 @@ class TestItemAudioRemovalMatrix:
         self, settings_factory: SettingsFactory
     ) -> None:
         """[P0] AC-4 remove plus an audioFile is 422 and writes nothing."""
-        collection = managed_collection(MANIFEST)
+        collection = managed_collection(MANIFEST, reading_rules=False)
         item_id = str(uuid.uuid4())
         old_name = stored_with_audio(collection, item_id, SECOND_MP3)
         rig = MediaRig(collection, media={old_name: SECOND_MP3})
@@ -140,7 +140,7 @@ class TestItemAudioRemovalMatrix:
         self, settings_factory: SettingsFactory, state: str
     ) -> None:
         """[P0] AC-6 the Setup gate refuses remove; the note and clip stay."""
-        collection = managed_collection(MANIFEST)
+        collection = managed_collection(MANIFEST, reading_rules=False)
         item_id = str(uuid.uuid4())
         old_name = stored_with_audio(collection, item_id, SECOND_MP3)
         rig = MediaRig(collection, media={old_name: SECOND_MP3}, state=state)
@@ -159,7 +159,7 @@ class TestItemAudioRemovalMatrix:
         self, settings_factory: SettingsFactory
     ) -> None:
         """[P1] AC-3/AC-4 the Items list's hasAudio follows the saved audio intent."""
-        collection = managed_collection(MANIFEST)
+        collection = managed_collection(MANIFEST, reading_rules=False)
         item_id = str(uuid.uuid4())
         old_name = stored_with_audio(collection, item_id, SECOND_MP3)
         rig = MediaRig(collection, media={old_name: SECOND_MP3})

@@ -1,10 +1,15 @@
 """The Setup diff (AD-3): Anki's managed state against the manifest, as plan items.
 
 Pure: `diff(manifest, state)` takes what the adapter read (`AnkiState`) and returns the
-`SetupPreview`. Items go in kind order (deck, noteType, notes, templates, preset), each kind in
-manifest order.
+`SetupPreview`. Items go in kind order (deck, noteType, notes, templates, preset, readingRule),
+each kind in manifest order.
 
-- Create: a missing deck, note type (with its templates and CSS), or `<Prefix>` preset.
+- Create: a missing deck, note type (with its templates and CSS), or `<Prefix>` preset, and
+  each seeded French reading rule (`manifest.reading_rules`, in data order) no note of the
+  reading rule note type holds by its decoded `RuleId`. Setup only creates them: a rule note
+  that differs from the data is the user's, and none is ever updated or deleted. None is offered
+  while that note type's fields differ from the manifest's (its Migrate row comes first):
+  `addNote` would drop the fields Anki lacks, `RuleId` included.
 - Repair: a note type's card templates or CSS that differ from the files (a changed, missing
   or extra card template, or changed CSS), or the preset with a bury flag on, an existing
   preset deck not on it, or preset decks split across two configs named `<Prefix>`. Other
@@ -17,10 +22,11 @@ Decks under the Prefix and note types named `<Prefix> …` that the manifest doe
 `unmanaged`: listed, never planned.
 
 Opt-in repairs (entry 11) go in `repairs`, one row per resource, never in `items`: orphan
-media (an AD-7 media name no managed note's decoded `Audio` holds as `[sound:<name>]`), sorted
-by name; then each managed card in a deck other than `manifest.card_deck(note type, ord)`;
-then each unsuspended Capture card; cards by id. Only manifest note types' cards count, and a
-card whose ord its note type doesn't declare isn't offered.
+media (an AD-7 media name no managed note's decoded `Audio` or `Example<n>Audio` holds as
+`[sound:<name>]` and no reading rule Create row of the same diff stores), sorted by name; then
+each managed card in a deck other than `manifest.card_deck(note type, ord)`; then each
+unsuspended Capture card; cards by id. Only manifest note types' cards count, and a card whose
+ord its note type doesn't declare isn't offered.
 """
 
 from collections.abc import Mapping
@@ -29,6 +35,8 @@ from typing import Any
 
 from language_lab.adapters.anki.guard import media_pattern
 from language_lab.adapters.anki.manifest import Manifest, NoteType
+from language_lab.domain.audio import media_name
+from language_lab.domain.reading_rules import ReadingRule
 from language_lab.domain.setup import PlanAction, PlanItem, ResourceKind, SetupPreview, Unmanaged
 
 _MISSING = object()
@@ -62,7 +70,9 @@ class AnkiState:
     note_versions: Mapping[str, tuple[tuple[int, int | None], ...]] = field(default_factory=dict)
     cards: tuple[CardState, ...] = ()  # every card of a manifest note type
     media: frozenset[str] = frozenset()  # media file names matching `<prefix lowercased>_*`
-    audio: frozenset[str] = frozenset()  # names in managed notes' decoded `Audio` `[sound:]` tags
+    # names in managed notes' decoded audio fields' `[sound:]` tags
+    audio: frozenset[str] = frozenset()
+    reading_rules: frozenset[str] = frozenset()  # the decoded RuleIds of the reading rule notes
 
 
 def _dotted(config: Mapping[str, Any], path: str) -> Any:
@@ -98,12 +108,18 @@ def _is_under_prefix_deck(prefix: str, deck: str) -> bool:
     return deck == prefix or deck.startswith(f"{prefix}::")
 
 
-def _repairs(manifest: Manifest, state: AnkiState) -> list[PlanItem]:
+def _repairs(manifest: Manifest, state: AnkiState, created: list[ReadingRule]) -> list[PlanItem]:
     media = media_pattern(manifest.prefix)
+    # A rule Create re-stores its media under the same names: deleting them would strip it
+    stored = {
+        media_name(manifest.prefix, rule.id, example.audio)
+        for rule in created
+        for example in rule.examples
+    }
     orphans = [
         PlanItem(PlanAction.REPAIR, ResourceKind.ORPHAN_MEDIA, name)
         for name in sorted(state.media)
-        if media.fullmatch(name) is not None and name not in state.audio
+        if media.fullmatch(name) is not None and name not in state.audio | stored
     ]
     note_types = {nt.name: nt for nt in manifest.note_types}
     misplaced: list[PlanItem] = []
@@ -131,6 +147,19 @@ def _repairs(manifest: Manifest, state: AnkiState) -> list[PlanItem]:
                 PlanItem(PlanAction.REPAIR, ResourceKind.UNSUSPENDED_CARD, str(card.id), where)
             )
     return [*orphans, *misplaced, *unsuspended]
+
+
+def _created_rules(manifest: Manifest, state: AnkiState) -> list[ReadingRule]:
+    """The seeded rules no note holds, in data order; none while the reading rule note type
+    exists with fields other than the manifest's.
+    """
+    name = manifest.reading_rule_note_type
+    note_type = next(nt for nt in manifest.note_types if nt.name == name)
+    model = state.managed_models.get(name)
+    if name in state.models and model is not None:
+        if model.fields != tuple(f.name for f in note_type.fields):
+            return []
+    return [rule for rule in manifest.reading_rules if rule.id not in state.reading_rules]
 
 
 def diff(manifest: Manifest, state: AnkiState) -> SetupPreview:
@@ -172,7 +201,13 @@ def diff(manifest: Manifest, state: AnkiState) -> SetupPreview:
         for model in sorted(state.models)
         if model.startswith(f"{prefix} ") and model not in managed_types
     ]
-    items = [*decks, *note_types, *notes, *templates, *([preset] if preset else [])]
+    created = _created_rules(manifest, state)
+    rules = [
+        PlanItem(PlanAction.CREATE, ResourceKind.READING_RULE, rule.combination) for rule in created
+    ]
+    items = [*decks, *note_types, *notes, *templates, *([preset] if preset else []), *rules]
     return SetupPreview(
-        items=tuple(items), unmanaged=tuple(unmanaged), repairs=tuple(_repairs(manifest, state))
+        items=tuple(items),
+        unmanaged=tuple(unmanaged),
+        repairs=tuple(_repairs(manifest, state, created)),
     )

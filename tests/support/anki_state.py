@@ -40,8 +40,15 @@ not, and `collection.media` holds media file names. `findCards` answers an exact
 none), and `getMediaFilesNames` matches its `pattern` case-sensitively (spike 2.2 Surprises).
 With `writes=True` the collection also answers `changeDeck`, `suspend` and `deleteMediaFile`
 (`REPAIR_WRITE_ACTIONS`).
+
+French reading rules: `apply_manifest()` also puts every seeded rule in the collection as Setup
+leaves it (`reading_rule_note()`): its note, its card in the Reading Rules deck and its three
+media files. With `writes=True` the collection answers `storeMediaFile` too
+(`MEDIA_WRITE_ACTIONS`), as the recorded reply does: stored and answered under the lowercased
+name.
 """
 
+import base64
 import copy
 import fnmatch
 import itertools
@@ -52,6 +59,8 @@ from dataclasses import dataclass, field
 from typing import Any
 
 from language_lab.adapters.anki.manifest import Manifest
+from language_lab.domain.audio import media_name as stored_media_name
+from language_lab.domain.reading_rules import ReadingRule
 from tests.support.anki_connect import UNSUPPORTED, StubReply, anki_fixture
 
 DEFAULT_DECK = "Default"
@@ -102,6 +111,10 @@ NOTE_WRITE_ACTIONS = frozenset({"addNote", "updateNoteFields", "deleteNotes"})
 
 # The writes of the opt-in repairs the simulator answers with `writes=True` (story 2.11)
 REPAIR_WRITE_ACTIONS = frozenset({"changeDeck", "suspend", "deleteMediaFile"})
+
+
+# The media write Setup's reading rule Create sends, answered with `writes=True`
+MEDIA_WRITE_ACTIONS = frozenset({"storeMediaFile"})
 
 
 @dataclass
@@ -185,8 +198,15 @@ def stock_collection() -> Collection:
     )
 
 
-def apply_manifest(collection: Collection, manifest: Manifest) -> Collection:
-    """`collection` with everything `manifest` declares, as a finished Setup leaves it."""
+def apply_manifest(
+    collection: Collection, manifest: Manifest, *, reading_rules: bool = True
+) -> Collection:
+    """`collection` with everything `manifest` declares, as a finished Setup leaves it.
+
+    `reading_rules=False` leaves out the seeded reading rule notes, as if the user deleted them
+    all: the SetupState stays `ready`, so feature tests that compare a collection's exact notes,
+    cards or media use it.
+    """
     collection.presets[manifest.preset.name] = preset_config(manifest.preset.name)
     for deck in manifest.decks:
         on_preset = deck in manifest.preset.decks
@@ -197,12 +217,49 @@ def apply_manifest(collection: Collection, manifest: Manifest) -> Collection:
             templates={t.name: {"Front": t.front, "Back": t.back} for t in note_type.templates},
             css=note_type.css,
         )
+    for rule in manifest.reading_rules if reading_rules else ():
+        reading_rule_note(collection, manifest, rule)
     return collection
 
 
-def managed_collection(manifest: Manifest) -> Collection:
-    """A stock Anki in which Setup has applied `manifest`."""
-    return apply_manifest(stock_collection(), manifest)
+def reading_rule_fields(manifest: Manifest, rule: ReadingRule) -> dict[str, str]:
+    """A reading rule note's stored fields as Setup's apply writes them (no markup to escape)."""
+    fields = {
+        "Combination": rule.combination,
+        "Transcription": rule.transcription,
+        "Note": rule.note,
+    }
+    for n, example in enumerate(rule.examples, 1):
+        name = stored_media_name(manifest.prefix, rule.id, example.audio)
+        fields |= {f"Example{n}": example.word, f"Example{n}Audio": f"[sound:{name}]"}
+    return fields | {"RuleId": rule.id, "SchemaVersion": str(manifest.schema_version)}
+
+
+def reading_rule_note(collection: Collection, manifest: Manifest, rule: ReadingRule) -> int:
+    """Put `rule` in `collection` as Setup's apply leaves it: its note, its one card in the
+    Reading Rules deck, and its example media; return the note id.
+    """
+    model = manifest.reading_rule_note_type
+    note_id = add_note(collection, model, reading_rule_fields(manifest, rule))
+    add_card(collection, note_id, 0, manifest.card_deck(model, 0))
+    collection.media |= {
+        stored_media_name(manifest.prefix, rule.id, example.audio) for example in rule.examples
+    }
+    return note_id
+
+
+def managed_collection(manifest: Manifest, *, reading_rules: bool = True) -> Collection:
+    """A stock Anki in which Setup has applied `manifest` (`reading_rules`: `apply_manifest`)."""
+    return apply_manifest(stock_collection(), manifest, reading_rules=reading_rules)
+
+
+def reading_rule_media(manifest: Manifest) -> set[str]:
+    """The media names of every seeded reading rule's examples."""
+    return {
+        stored_media_name(manifest.prefix, rule.id, example.audio)
+        for rule in manifest.reading_rules
+        for example in rule.examples
+    }
 
 
 def add_note(collection: Collection, model: str, fields: dict[str, str]) -> int:
@@ -410,6 +467,11 @@ def _answer_repair_write(
         case "deleteMediaFile":
             collection.media.discard(params.get("filename", ""))
             return _ok(None)
+        case "storeMediaFile":
+            base64.b64decode(params.get("data", ""), validate=True)
+            name = params.get("filename", "").lower()
+            collection.media.add(name)
+            return _ok(name)
     return dict(UNSUPPORTED)
 
 
@@ -608,8 +670,8 @@ def collection_replies(
 ) -> dict[str, StubReply]:
     """Replies for `AnkiConnectReplay`: every read in `READ_ACTIONS`, `multi` included.
 
-    `writes=True` also answers `WRITE_ACTIONS`, `NOTE_WRITE_ACTIONS` and
-    `REPAIR_WRITE_ACTIONS`, changing `collection`.
+    `writes=True` also answers `WRITE_ACTIONS`, `NOTE_WRITE_ACTIONS`, `REPAIR_WRITE_ACTIONS`
+    and `MEDIA_WRITE_ACTIONS`, changing `collection`.
     `refuse_save=True` makes `saveDeckConfig` answer `false` and save nothing, as it did in
     spike 2.2 (Q5).
     """
@@ -619,7 +681,7 @@ def collection_replies(
             return _answer_write(collection, action, params, refuse_save=refuse_save)
         if writes and action in NOTE_WRITE_ACTIONS:
             return _answer_note_write(collection, action, params)
-        if writes and action in REPAIR_WRITE_ACTIONS:
+        if writes and action in REPAIR_WRITE_ACTIONS | MEDIA_WRITE_ACTIONS:
             return _answer_repair_write(collection, action, params)
         return _answer(collection, action, params)
 
@@ -630,7 +692,7 @@ def collection_replies(
         inner = body.get("params", {}).get("actions", [])
         return _ok([answer(a["action"], a.get("params", {})) for a in inner])
 
-    all_writes = WRITE_ACTIONS | NOTE_WRITE_ACTIONS | REPAIR_WRITE_ACTIONS
+    all_writes = WRITE_ACTIONS | NOTE_WRITE_ACTIONS | REPAIR_WRITE_ACTIONS | MEDIA_WRITE_ACTIONS
     actions = READ_ACTIONS | all_writes if writes else READ_ACTIONS
     replies: dict[str, StubReply] = {action: reply_to(action) for action in actions}
     replies["multi"] = multi

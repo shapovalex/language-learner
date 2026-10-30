@@ -18,7 +18,7 @@ class TestAudioSave:
     def test_one_lock_stores_media_before_the_note_and_four_card_placements(self) -> None:
         """[P0] AC-8 one use case stores media, adds the note, then moves only Study Cards."""
         # Given a ready managed collection and one shared observed Anki lock.
-        collection = managed_collection(MANIFEST)
+        collection = managed_collection(MANIFEST, reading_rules=False)
         rig = MediaRig(collection)
         item_id = str(uuid.uuid4())
 
@@ -57,7 +57,7 @@ class TestAudioSave:
     def test_failed_note_write_retains_previous_values_and_stops_cleanup(self) -> None:
         """[P0] AC-15 failed note write after media storage preserves prior note and audio."""
         # Given a stored Item and old clip; Anki rejects the new note fields.
-        collection = managed_collection(MANIFEST)
+        collection = managed_collection(MANIFEST, reading_rules=False)
         item_id = str(uuid.uuid4())
         old_name = managed_name(item_id, SECOND_MP3)
         fields = {**stored_fields(VOCABULARY, item_id), "Audio": f"[sound:{old_name}]"}
@@ -89,7 +89,7 @@ class TestAudioSave:
 
 @pytest.mark.p0
 def test_media_store_failure_stops_before_note_or_card_write():
-    collection = managed_collection(MANIFEST)
+    collection = managed_collection(MANIFEST, reading_rules=False)
     rig = MediaRig(collection, replies={"storeMediaFile": {"result": None, "error": "failed"}})
     result = settle(replace_audio(rig.store, str(uuid.uuid4())))
     assert code_of(result) == "anki_unavailable"
@@ -100,7 +100,7 @@ def test_media_store_failure_stops_before_note_or_card_write():
 
 @pytest.mark.p0
 def test_replacement_cleans_superseded_media_only_after_successful_note_write():
-    collection = managed_collection(MANIFEST)
+    collection = managed_collection(MANIFEST, reading_rules=False)
     item_id = str(uuid.uuid4())
     old_name = managed_name(item_id, SECOND_MP3)
     fields = {**stored_fields(VOCABULARY, item_id), "Audio": f"[sound:{old_name}]"}
@@ -115,7 +115,7 @@ def test_replacement_cleans_superseded_media_only_after_successful_note_write():
 
 @pytest.mark.p0
 def test_same_item_id_retry_keeps_same_hash_media_and_does_not_duplicate_note():
-    collection = managed_collection(MANIFEST)
+    collection = managed_collection(MANIFEST, reading_rules=False)
     rig = MediaRig(collection)
     item_id = str(uuid.uuid4())
     assert settle(replace_audio(rig.store, item_id)) is None
@@ -135,7 +135,7 @@ def test_replacement_bytes_and_four_decks_for_each_language_and_category(languag
     from tests.support.items import SENTENCE, content
 
     wire = VOCABULARY if category == "vocabulary" else SENTENCE
-    collection = managed_collection(MANIFEST)
+    collection = managed_collection(MANIFEST, reading_rules=False)
     rig = MediaRig(collection)
     item_id = str(uuid.uuid4())
     result = settle(

@@ -5,16 +5,20 @@ decoded through the codec. Precedence:
 
 1. `newer_schema`: any managed note above the manifest's version.
 2. `needs_migration`: any Migrate item, or any note below it, empty or not an integer.
-3. `needs_setup`: any other plan item.
+3. `needs_setup`: any other plan item but a reading rule's Create: a missing seed note
+   threatens nothing features write, so deleting one never blocks them.
 4. `ready`.
 
 Only manifest note types are read (exact `note_query`), so another Prefix's notes never count
 (AD-4).
 
-For the opt-in repairs (entry 11) the preview also reads, still reads only: the `Audio` names
-the same `notesInfo` answer references, the manifest note types' cards (one `multi` of
-`findCards` beside `getMediaFilesNames` for `<prefix lowercased>_*`, then one `cardsInfo`).
-They never change the SetupState.
+The same `notesInfo` answer gives the reading rule notes' decoded `RuleId`s, which the diff
+matches against the seeded rules.
+
+For the opt-in repairs (entry 11) the preview also reads, still reads only: the `Audio` and
+`Example<n>Audio` names the same `notesInfo` answer references, the manifest note types' cards
+(one `multi` of `findCards` beside `getMediaFilesNames` for `<prefix lowercased>_*`, then one
+`cardsInfo`). They never change the SetupState.
 
 `SetupGate(manifest)` is shared by the client and the store. `check(action, params, lookup)`
 runs after the Prefix guard on every non-Setup request: reads (and `multi` of reads) pass, and
@@ -36,10 +40,13 @@ from language_lab.adapters.anki.manifest import Manifest
 from language_lab.adapters.anki.query import note_query
 from language_lab.adapters.anki.setup_diff import AnkiState, CardState, ModelState, diff
 from language_lab.domain.errors import AppError, ErrorCode
-from language_lab.domain.setup import PlanAction, SetupPreview, SetupState
+from language_lab.domain.setup import PlanAction, ResourceKind, SetupPreview, SetupState
 
 SCHEMA_VERSION_FIELD = "SchemaVersion"
 AUDIO_FIELD = "Audio"
+RULE_ID_FIELD = "RuleId"
+# The fields that may hold `[sound:]` tags: an Item's, then a reading rule's examples'
+_AUDIO_FIELDS = (AUDIO_FIELD, "Example1Audio", "Example2Audio", "Example3Audio")
 _SOUND = re.compile(r"\[sound:([^\]]+)\]")
 _SUSPENDED_QUEUE = -1
 _MODEL_READS = ("modelFieldNames", "modelTemplates", "modelStyling")
@@ -141,16 +148,28 @@ def _stored_version(info: Any) -> int | None:
 
 
 def _sounds(info: Any) -> set[str]:
-    """The media names one `notesInfo` entry's `Audio` holds, decoded through the codec."""
-    stored = _stored_value(info, AUDIO_FIELD)
-    return set(_SOUND.findall(decode_field(stored))) if isinstance(stored, str) else set()
+    """The media names one `notesInfo` entry's audio fields hold, decoded through the codec."""
+    names: set[str] = set()
+    for name in _AUDIO_FIELDS:
+        stored = _stored_value(info, name)
+        if isinstance(stored, str):
+            names |= set(_SOUND.findall(decode_field(stored)))
+    return names
+
+
+def _rule_id(info: Any) -> str | None:
+    """The decoded `RuleId` of one reading rule `notesInfo` entry; None when absent or empty."""
+    stored = _stored_value(info, RULE_ID_FIELD)
+    text = decode_field(stored).strip() if isinstance(stored, str) else ""
+    return text or None
 
 
 @dataclasses.dataclass(frozen=True)
 class NoteReads:
     # manifest note type -> (note id, `SchemaVersion` or None when not an integer)
     versions: dict[str, tuple[tuple[int, int | None], ...]]
-    audio: frozenset[str]  # every media name the notes' `Audio` fields reference
+    audio: frozenset[str]  # every media name the notes' audio fields reference
+    rule_ids: frozenset[str] = frozenset()  # the decoded RuleIds of the reading rule notes
 
 
 def _manifest_types(manifest: Manifest, models: Iterable[str]) -> list[str]:
@@ -163,8 +182,8 @@ async def read_note_versions(
     lookup: Lookup, manifest: Manifest, models: Iterable[str]
 ) -> NoteReads:
     """Each manifest note type in `models` -> (note id, `SchemaVersion` or None when not an
-    integer) of each of its notes, and the media names their `Audio` references: one `multi`
-    of `findNotes`, then one `notesInfo`.
+    integer) of each of its notes, the media names their audio fields reference, and the
+    reading rule notes' decoded `RuleId`s: one `multi` of `findNotes`, then one `notesInfo`.
     """
     types = _manifest_types(manifest, models)
     if not types:
@@ -177,6 +196,7 @@ async def read_note_versions(
         owners |= dict.fromkeys(result, note_type)
     versions: dict[str, list[tuple[int, int | None]]] = {t: [] for t in types}
     audio: set[str] = set()
+    rule_ids: set[str] = set()
     ids = list(owners)
     if ids:
         infos = await lookup("notesInfo", notes=ids)
@@ -187,7 +207,14 @@ async def read_note_versions(
             if info != {}:
                 versions[owners[note_id]].append((note_id, _stored_version(info)))
                 audio |= _sounds(info)
-    return NoteReads({t: tuple(notes) for t, notes in versions.items() if notes}, frozenset(audio))
+                rule_id = _rule_id(info)
+                if owners[note_id] == manifest.reading_rule_note_type and rule_id is not None:
+                    rule_ids.add(rule_id)
+    return NoteReads(
+        {t: tuple(notes) for t, notes in versions.items() if notes},
+        frozenset(audio),
+        frozenset(rule_ids),
+    )
 
 
 def _card_state(info: Any) -> CardState | None:
@@ -241,7 +268,7 @@ def compute_state(
     migrate = any(i.action is PlanAction.MIGRATE for i in preview.items)
     if migrate or any(v is None or v < schema_version for v in versions):
         return SetupState.NEEDS_MIGRATION
-    if preview.items:
+    if any(i.kind is not ResourceKind.READING_RULE for i in preview.items):
         return SetupState.NEEDS_SETUP
     return SetupState.READY
 
@@ -260,7 +287,12 @@ async def read_preview(
     if leftovers:
         cards, media = await read_leftovers(lookup, manifest, state.models)
     state = dataclasses.replace(
-        state, note_versions=notes.versions, cards=cards, media=media, audio=notes.audio
+        state,
+        note_versions=notes.versions,
+        cards=cards,
+        media=media,
+        audio=notes.audio,
+        reading_rules=notes.rule_ids,
     )
     preview = diff(manifest, state)
     versions = (v for per_type in notes.versions.values() for _, v in per_type)

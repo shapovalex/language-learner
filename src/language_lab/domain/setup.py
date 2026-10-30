@@ -41,6 +41,7 @@ class ResourceKind(StrEnum):
     NOTES = "notes"  # a note type's notes, by its name: their SchemaVersion (entry 9)
     TEMPLATES = "templates"  # a note type's card templates and CSS together
     PRESET = "preset"
+    READING_RULE = "readingRule"  # a seeded French reading rule's note, by its combination
     # Opt-in repairs (entry 11), each one resource
     ORPHAN_MEDIA = "orphanMedia"  # an AD-7 media file no managed note references
     MISPLACED_CARD = "misplacedCard"  # a managed card outside its manifest deck, by card id
@@ -51,7 +52,9 @@ class ResourceKind(StrEnum):
 class PlanItem:
     action: PlanAction
     kind: ResourceKind
-    name: str  # the deck path, the note type, the preset (the Prefix), a file name or card id
+    # the deck path, the note type, the preset (the Prefix), a reading rule's combination, a
+    # file name or card id
+    name: str
     # Display detail of an opt-in repair row: outside equality and the hash
     detail: Mapping[str, str] = field(default_factory=dict, compare=False, hash=False)
 

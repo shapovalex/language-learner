@@ -2,7 +2,9 @@
 
 Setup creates and repairs everything LanguageLab manages in Anki under the Prefix (see
 [Anki: The Prefix](anki.md#the-prefix)): the note types, the deck tree, the card templates and
-CSS, and the `<Prefix>` deck options preset. It also runs the migrations a new release brings.
+CSS, the `<Prefix>` deck options preset, and the French reading rules deck (see
+[Anki: French reading rules deck](anki.md#french-reading-rules-deck)). It also runs the
+migrations a new release brings.
 Until Setup has run, the features that write to Anki refuse ("Setup isn't complete yet.").
 
 ## Run Setup
@@ -12,13 +14,19 @@ Until Setup has run, the features that write to Anki refuse ("Setup isn't comple
 3. Open Setup in LanguageLab (`/setup`). The "Ready to go?" card checks that AnkiConnect is
    reachable and that the Azure and OpenRouter keys are configured. A failing check shows its fix.
 4. Read "What will change in Anki". Each row names a kind of resource (Decks, Note types, Notes,
-   Card templates and CSS, Deck options) and the resources it touches, with a chip for the action
-   and count, such as "Create 5". Nothing changes until you apply.
+   Card templates and CSS, Deck options, French reading rules) and the resources it touches, with
+   a chip for the action and count, such as "Create 6". Nothing changes until you apply.
 5. Click "Apply setup". Setup applies the changes, then verifies them against what LanguageLab
    expects and shows "Setup applied and verified".
 
 Setup is safe to run again: a second run shows "Nothing to change." "Optional repairs" (orphan
 media, misplaced or unsuspended cards) are never applied unless you check them.
+
+The first run also creates and fills `<Prefix>::Study::French::Reading Rules`: the "French
+reading rules" row shows "Create 46". Setup never updates a reading rule note that exists, and it
+recreates any rule note you delete, so the next run shows "Create 1" for it. To stop studying a
+rule, suspend its card in Anki instead of deleting it. A missing rule doesn't count as
+incomplete setup: features keep writing to Anki.
 
 ## Upgrade to a new release
 

@@ -40,6 +40,19 @@ there changes their schedule without any pronunciation check.
 
 This is a convention you keep. Nothing in Anki or LanguageLab enforces it.
 
+## French reading rules deck
+
+Setup creates `<Prefix>::Study::French::Reading Rules` and fills it with 46 French reading rules,
+one card each, with the note type `<Prefix> French Reading Rule`. A card's front shows a letter
+combination, such as "ou" or "eau"; its back shows the combination's phonetic transcription, a
+short note when the rule has one, and three example words, each with a play button for its own
+audio (a Canadian French voice). The audio ships with LanguageLab: Setup stores it in Anki and
+never calls Azure for it.
+
+Setup only creates these notes. It never updates or deletes them, so your edits to a rule stay.
+If you delete a rule's note, the next Setup offers to create it again; to stop studying a rule,
+suspend its card instead. A missing rule never blocks the rest of LanguageLab.
+
 ## Back up before Setup or a migration
 
 Setup and migrations change note types and decks under the Prefix. Make an Anki backup before

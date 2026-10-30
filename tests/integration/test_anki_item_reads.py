@@ -66,7 +66,7 @@ def put(collection: Collection, language: str, wire: dict[str, Any]) -> str:
 
 def put_dev(collection: Collection, wire: dict[str, Any], item_id: str | None = None) -> str:
     """A `LanguageLabDev` English Item: another Prefix, never read."""
-    apply_manifest(collection, DEV_MANIFEST)
+    apply_manifest(collection, DEV_MANIFEST, reading_rules=False)
     item_id = item_id or str(uuid.uuid4())
     dev_type = f"{DEV_MANIFEST.prefix} English {wire['category'].capitalize()}"
     item_note(collection, DEV_MANIFEST, dev_type, item_id, stored_fields(wire, item_id))
@@ -80,7 +80,7 @@ def test_item_candidates_returns_every_item_of_the_language_and_category_decoded
     alternatives split); the English Sentence, French Vocabulary and LanguageLabDev Items are
     left out.
     """
-    collection = managed_collection(MANIFEST)
+    collection = managed_collection(MANIFEST, reading_rules=False)
     first = put(collection, "en", vocabulary())
     edited = str(uuid.uuid4())
     item_note(collection, MANIFEST, note_type_of("en", EDITED), edited, EDITED_FIELDS)
@@ -119,7 +119,7 @@ def test_the_item_reads_send_only_exact_note_type_queries_and_no_user_text(read:
     """AC-2: each read sends only the exact `note:"<note type>"` queries of query.py for its
     scope, and no request carries the stored Target or the ItemId asked for (AD-4).
     """
-    collection = managed_collection(MANIFEST)
+    collection = managed_collection(MANIFEST, reading_rules=False)
     item_id = put(collection, "en", vocabulary())
     store, replay = wired(collection)
 
@@ -142,7 +142,7 @@ def test_get_item_returns_the_item_matched_in_python_in_either_category(
     """AC-3: get_item(en, item_id) returns the English Item whose decoded ItemId is `item_id`,
     Vocabulary or Sentence, with its fields decoded; other Items are not it.
     """
-    collection = managed_collection(MANIFEST)
+    collection = managed_collection(MANIFEST, reading_rules=False)
     put(collection, "en", vocabulary("another"))
     item_id = put(collection, "en", wire)
     put(collection, "en", sentence("yet another"))
@@ -177,7 +177,7 @@ def test_get_item_of_an_item_id_no_item_of_the_language_holds_is_not_found(arran
     """AC-3: an ItemId held by no English Item of the Prefix is `not_found`, even when a French
     or a LanguageLabDev Item holds it.
     """
-    collection = managed_collection(MANIFEST)
+    collection = managed_collection(MANIFEST, reading_rules=False)
     item_id = arrange(collection)
     store, _ = wired(collection)
 
@@ -193,7 +193,7 @@ def test_the_item_reads_write_nothing_and_answer_when_anki_is_gated(state: str, 
     """AC-4: under every gated SetupState each read writes nothing and still answers: the reads
     aren't gated (AD-19), as for the Capture reads.
     """
-    collection = managed_collection(MANIFEST)
+    collection = managed_collection(MANIFEST, reading_rules=False)
     item_id = put(collection, "en", vocabulary())
     store, replay = wired(collection, state=state)
 
@@ -207,7 +207,7 @@ def test_the_item_reads_write_nothing_and_answer_when_anki_is_gated(state: str, 
 @pytest.mark.parametrize("read", READS.keys())
 def test_anki_down_is_anki_unavailable_for_both_item_reads(read: str) -> None:
     """AC-3: an unreachable Anki is `anki_unavailable` for both reads."""
-    store, _ = wired(managed_collection(MANIFEST), failure=refused)
+    store, _ = wired(managed_collection(MANIFEST, reading_rules=False), failure=refused)
 
     outcome = settle(READS[read](store, str(uuid.uuid4())))
 
@@ -217,7 +217,7 @@ def test_anki_down_is_anki_unavailable_for_both_item_reads(read: str) -> None:
 @pytest.mark.p1
 def test_a_note_deleted_since_find_notes_is_skipped_by_item_candidates() -> None:
     """AC-1: a note `notesInfo` answers as `{}` (deleted since `findNotes`) is left out."""
-    collection = managed_collection(MANIFEST)
+    collection = managed_collection(MANIFEST, reading_rules=False)
     kept = put(collection, "en", vocabulary())
     gone = put(collection, "en", vocabulary("gone"))
     gone_id = next(i for i, n in collection.notes.items() if n.fields["ItemId"] == gone)

@@ -57,3 +57,42 @@ def test_template_files_ship_in_the_built_wheel(release_wheel: Path, tmp_path: P
         nt.name: [nt.css] + [s for t in nt.templates for s in (t.front, t.back)]
         for nt in expected.note_types
     }
+
+
+READING_RULES_DIR = SRC_ROOT / "language_lab" / "data" / "french_reading_rules"
+
+# Prints where the reading rules were loaded from, and each rule's id and audio sizes
+_DUMP_READING_RULES = """
+import json
+from language_lab.domain import reading_rules
+rules = reading_rules.reading_rules()
+print(json.dumps({
+    "file": reading_rules.__file__,
+    "rules": [[r.id, [len(e.audio) for e in r.examples]] for r in rules],
+}))
+"""
+
+
+@pytest.mark.p1
+def test_reading_rules_data_ships_in_the_built_wheel(release_wheel: Path, tmp_path: Path) -> None:
+    """Reading rules: rules.json, audio/index.json and the 138 MP3s are in the wheel, byte for
+    byte, and the installed package loads all 46 rules from them.
+    """
+    source = {
+        p.relative_to(SRC_ROOT).as_posix(): p.read_bytes()
+        for p in READING_RULES_DIR.rglob("*")
+        if p.is_file()
+    }
+    with ZipFile(release_wheel) as wheel:
+        shipped = {
+            name: wheel.read(name)
+            for name in wheel.namelist()
+            if "french_reading_rules" in name and not name.endswith("/")  # not a directory
+        }
+
+    assert len(source) == 140
+    assert shipped == source
+    installed = json.loads(run_python_from_wheel(release_wheel, _DUMP_READING_RULES, cwd=tmp_path))
+    assert not Path(installed["file"]).is_relative_to(SRC_ROOT)  # the wheel, not src/
+    expected = build_manifest("LanguageLab").reading_rules
+    assert installed["rules"] == [[r.id, [len(e.audio) for e in r.examples]] for r in expected]
