@@ -1,16 +1,15 @@
 """Studio tokens: what DESIGN.md declares, and what the app's CSS declares.
 
-DESIGN.md's front matter is a plain YAML subset (nested maps of scalars), and the
-project ships no YAML parser, so `load_front_matter` reads just that subset.
+The tokens come from tests/fixtures/design-tokens.md, the front matter of the initiative's
+DESIGN.md as it stood when the planning artifacts were removed (da6b547). That front matter is
+a plain YAML subset (nested maps of scalars), and the project ships no YAML parser, so
+`load_front_matter` reads just that subset.
 """
 
 import re
 from pathlib import Path
 
-DESIGN_MD = (
-    Path(__file__).resolve().parents[2]
-    / "_bmad-output/initiative-languagelab-v1/ux-languagelab/DESIGN.md"
-)
+DESIGN_MD = Path(__file__).resolve().parents[1] / "fixtures" / "design-tokens.md"
 
 # DESIGN.md group -> custom-property prefix (decision, story 1.5 ATDD)
 _GROUP_PREFIX = {"colors": "--color-", "spacing": "--space-", "rounded": "--radius-"}
