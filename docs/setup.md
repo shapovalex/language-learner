@@ -33,7 +33,7 @@ incomplete setup: features keep writing to Anki.
 Stop LanguageLab (Ctrl+C) and start the new release with its own command, for this release:
 
 ```sh
-uvx --from https://github.com/shapovalex/language-learner/releases/download/v1.3.0/language_lab-1.3.0-py3-none-any.whl language-lab
+uvx --from https://github.com/shapovalex/language-learner/releases/download/v1.4.0/language_lab-1.4.0-py3-none-any.whl language-lab
 ```
 
 A migration never runs at startup, only inside a plan you confirm. If the release changes
