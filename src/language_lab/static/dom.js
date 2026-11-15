@@ -33,3 +33,38 @@ export function tryAgain(onClick, variant = "destructive") {
   button.addEventListener("click", onClick);
   return button;
 }
+
+// Write `text` to the system clipboard; true once it's there. The async API needs a secure
+// context, and the app is also opened over plain http on the LAN, so a hidden textarea and
+// execCommand("copy") stand in when it's missing or refuses
+export async function copyText(text) {
+  try {
+    if (navigator.clipboard?.writeText) {
+      await navigator.clipboard.writeText(text);
+      return true;
+    }
+  } catch {
+    // Fall through to the textarea
+  }
+  const field = element("textarea");
+  field.value = text;
+  field.setAttribute("readonly", "");
+  field.setAttribute("aria-hidden", "true");
+  field.style.position = "fixed";
+  field.style.top = "0";
+  field.style.left = "0";
+  field.style.opacity = "0";
+  field.style.fontSize = "16px"; // iOS zooms into a smaller field
+  const focused = document.activeElement;
+  document.body.append(field);
+  try {
+    field.select();
+    field.setSelectionRange(0, field.value.length); // iOS Safari ignores select()
+    return document.execCommand("copy");
+  } catch {
+    return false;
+  } finally {
+    field.remove();
+    if (focused instanceof HTMLElement) focused.focus();
+  }
+}

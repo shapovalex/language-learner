@@ -39,6 +39,12 @@
 // route goes to /captures; the context is used once. A sentence's "Make an Item" puts it into
 // the compose box and opens the Make an Item pane at /captures/make with that Language chosen.
 //
+// A shown Capture has "Copy to compose box" and "Copy" under its time (plan
+// capture-copy-actions). The first replaces the compose text with the Capture's text as a new
+// composition and returns to /captures with the box focused, so Example sentences and the other
+// compose actions work on it; the second writes the text to the clipboard, its label reading
+// "Copied" (or "Couldn't copy") for a moment. Nothing is saved.
+//
 // "Capture and translate" (plan capture-and-translate) saves exactly like Save Capture, then asks
 // POST /api/helpers/translate for the Russian of the saved text and shows "original → Russian"
 // in the compose card; the screen stays on the list. The Language picker beside the heading says
@@ -62,7 +68,7 @@ import {
   saveItem,
   translateText,
 } from "../api.js";
-import { alertBox, element, skeleton, tryAgain } from "../dom.js";
+import { alertBox, copyText, element, skeleton, tryAgain } from "../dom.js";
 import { confirmDestructive, confirmLeave, navigate, redirect, setDirty } from "../router.js";
 import {
   blankValues,
@@ -117,6 +123,11 @@ const CAPTURE_LANGUAGE = "Language";
 const TRANSLATING = "Translating…";
 const NOT_TRANSLATED = "Couldn't translate";
 const CAPTURE_SAVED = "Your Capture is saved.";
+const COPY_TO_BOX = "Copy to compose box";
+const COPY = "Copy";
+const COPIED = "Copied";
+const NOT_COPIED = "Couldn't copy";
+const COPY_FEEDBACK_MS = 2000;
 
 function capturePath(captureId) {
   return `/captures/${encodeURIComponent(captureId)}`;
@@ -443,7 +454,7 @@ export function mount(root, params = {}) {
       detailPane.replaceChildren(
         actions,
         article,
-        makeItemPane(choice, { onGenerate, onWrite, blank: !box.value.trim() }),
+        makeItemPane(choice, { onGenerate, onWrite, text: box.value.trim() }),
       );
       return;
     }
@@ -470,6 +481,7 @@ export function mount(root, params = {}) {
       element("p", "capture-detail-text", open.capture.text),
       element("p", "capture-detail-time", detailTime(open.capture.createdAt)),
     );
+    if (open.status === "shown") content.append(copyRow(open.capture.text));
     article.append(content);
     // Phone: in the header beside the back link (S-NewItem); desktop: in the card, beside the
     // text (S-CapturesDesk). Only once the read confirmed the Capture is in Anki
@@ -481,7 +493,47 @@ export function mount(root, params = {}) {
     }
     detailPane.replaceChildren(actions, article);
     if (open.deleteError) detailPane.append(deleteAlert(open.deleteError));
-    if (open.status === "shown") detailPane.append(makeItemPane(choice, { onGenerate, onWrite }));
+    if (open.status === "shown") {
+      detailPane.append(makeItemPane(choice, { onGenerate, onWrite, text: open.capture.text }));
+    }
+  }
+
+  // The shown Capture's "Copy to compose box" and "Copy", under its time (both layouts)
+  function copyRow(text) {
+    const row = element("div", "capture-detail-copy");
+    const toBox = element("button", "button button-secondary capture-copy-to-box", COPY_TO_BOX);
+    toBox.type = "button";
+    toBox.disabled = state.busy;
+    toBox.addEventListener("click", () => copyToBox(text));
+    const copy = element("button", "button button-secondary capture-copy", COPY);
+    copy.type = "button";
+    let reset = null;
+    copy.addEventListener("click", async () => {
+      const copied = await copyText(text);
+      if (!mounted) return;
+      copy.textContent = copied ? COPIED : NOT_COPIED;
+      clearTimeout(reset);
+      reset = setTimeout(() => {
+        copy.textContent = COPY;
+      }, COPY_FEEDBACK_MS);
+    });
+    row.append(toBox, copy);
+    return row;
+  }
+
+  // "Copy to compose box": the Capture's text becomes the compose text (a new composition,
+  // replacing what was there), and the list shows with the box focused, so Save Capture, Make an
+  // Item, Example sentences and Capture and translate work on it. Nothing is saved
+  async function copyToBox(text) {
+    if (state.busy) return;
+    box.value = text;
+    clearTranslation();
+    state.captureId = crypto.randomUUID();
+    state.error = null;
+    render();
+    syncDirty();
+    await navigate("/captures");
+    if (mounted) box.focus();
   }
 
   // The Example sentences pane: the compose text, the Language, the context and Generate, then
@@ -1001,6 +1053,9 @@ export function mount(root, params = {}) {
     make.disabled = blocked;
     examplesButton.disabled = blocked;
     if (again) again.disabled = blocked;
+    for (const button of detailPane.querySelectorAll(".capture-copy-to-box")) {
+      button.disabled = state.busy;
+    }
   }
 
   function render() {

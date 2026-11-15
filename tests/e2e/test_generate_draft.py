@@ -102,6 +102,9 @@ def test_generate_draft_waits_for_a_language_a_category_and_a_custom_value(
     choose(page, "English", "Vocabulary")
     expect(generate_draft(page)).to_be_enabled()
     pane(page).get_by_role("radio", name=CUSTOM_VALUE, exact=True).check()
+    # Prefilled with the Capture's text (plan capture-copy-actions); emptied, it waits again
+    expect(generate_draft(page)).to_be_enabled()
+    pane(page).get_by_role("textbox", name=CUSTOM_VALUE).fill("")
     expect(generate_draft(page)).to_be_disabled()
     expect(pane(page)).to_contain_text(CUSTOM_REASON)
     pane(page).get_by_role("textbox", name=CUSTOM_VALUE).fill("jump to conclusions")

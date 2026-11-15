@@ -181,10 +181,12 @@ export function picker(label, choices, chosen, onChoose) {
 
 // The Make an Item pane. `choice` is {source, custom, language, category, context, busy, error},
 // which the pane changes in place as the user picks; `onGenerate()` runs on "Generate Draft" and
-// `onWrite()` on "Write it myself". `blank` is true while the text Use as is takes is empty (the
-// compose text, when there is no Capture). A `choice.language` set beforehand shows preselected
-// (an example sentence's Make an Item picks the examples Language)
-export function makeItemPane(choice, { onGenerate, onWrite, blank = false }) {
+// `onWrite()` on "Write it myself". `text` is what Use as is takes (the Capture's text, or the
+// compose text when there is no Capture); choosing Custom value while its field is empty fills
+// the field with it, so a small change needs no retyping. A `choice.language` set beforehand
+// shows preselected (an example sentence's Make an Item picks the examples Language)
+export function makeItemPane(choice, { onGenerate, onWrite, text: asIs = "" }) {
+  const blank = !asIs;
   const headingId = uniqueId("make-item-heading");
   const section = element("section", "make-item");
   section.setAttribute("aria-labelledby", headingId);
@@ -214,6 +216,8 @@ export function makeItemPane(choice, { onGenerate, onWrite, blank = false }) {
     radio.checked = choice.source === value;
     radio.addEventListener("change", () => {
       choice.source = value;
+      // Prefilled only while empty, so edits survive switching between the radios
+      if (value === "custom" && !choice.custom) choice.custom = custom.value = asIs;
       refresh();
       if (value === "custom") custom.focus();
     });
