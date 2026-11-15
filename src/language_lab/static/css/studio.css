@@ -625,6 +625,14 @@ main h1 {
   margin: 0;
 }
 
+/* "Copy to compose box" and "Copy", under the time */
+.capture-detail-copy {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-3);
+  margin-top: var(--space-4);
+}
+
 /* Phone: back link, then Delete Capture at the end of the row */
 .capture-detail-actions {
   display: flex;

@@ -115,6 +115,10 @@ def test_write_it_myself_waits_for_a_language_a_category_and_a_custom_value(
     expect(choice(page, "Vocabulary")).to_have_attribute("aria-pressed", "true")
     expect(write_it_myself(page)).to_be_enabled()
     pane(page).get_by_role("radio", name=CUSTOM_VALUE, exact=True).check()
+    # Prefilled with the Capture's text (plan capture-copy-actions); empty, it waits again
+    expect(pane(page).get_by_role("textbox", name=CUSTOM_VALUE)).to_have_value(CAPTURE["text"])
+    expect(write_it_myself(page)).to_be_enabled()
+    pane(page).get_by_role("textbox", name=CUSTOM_VALUE).fill("")
     expect(write_it_myself(page)).to_be_disabled()
     expect(pane(page)).to_contain_text(CUSTOM_REASON)
     pane(page).get_by_role("textbox", name=CUSTOM_VALUE).fill(VOCABULARY_TARGET)

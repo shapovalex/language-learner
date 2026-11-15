@@ -242,6 +242,8 @@ def test_the_pane_waits_for_the_text_a_language_and_a_category(
     expect(generate_draft(page)).to_be_enabled()
 
     pane(page).get_by_role("radio", name=CUSTOM_VALUE, exact=True).check()
+    # Prefilled with the compose text (plan capture-copy-actions); emptied, it waits again
+    pane(page).get_by_role("textbox", name=CUSTOM_VALUE).fill("")
     expect(pane(page)).to_contain_text(CUSTOM_REASON)
     for action in (write_it_myself(page), generate_draft(page)):
         expect(action).to_be_disabled()
