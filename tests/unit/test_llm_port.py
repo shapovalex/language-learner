@@ -28,7 +28,7 @@ def test_the_llm_port_the_fake_and_the_openrouter_adapter_declare_generate() -> 
     assert {name: public_methods(FakeLlm).get(name) for name in port} == port
 
     assert {name: public_methods(OpenRouterLlm).get(name) for name in port} == port
-    assert set(port) == {"generate", "check_grammar", "examples"}
+    assert set(port) == {"generate", "check_grammar", "examples", "translate"}
     assert inspect.iscoroutinefunction(Llm.generate)
     hints = inspect.get_annotations(Llm.generate, eval_str=True)
     assert {k: v for k, v in hints.items() if k != "return"} == {
@@ -61,4 +61,21 @@ def test_the_llm_port_declares_the_target_helpers() -> None:
         "target": str,
         "context": str,
         "return": ExampleSet,
+    }
+
+
+@pytest.mark.p1
+def test_the_llm_port_declares_translate() -> None:
+    """Capture and translate shares the port: async `translate(language, text)` answering a
+    `Translation`.
+    """
+    from language_lab.domain.catalog import Language
+    from language_lab.domain.helpers import Translation
+    from language_lab.ports.llm import Llm
+
+    assert inspect.iscoroutinefunction(Llm.translate)
+    assert inspect.get_annotations(Llm.translate, eval_str=True) == {
+        "language": Language,
+        "text": str,
+        "return": Translation,
     }

@@ -19,6 +19,7 @@ from tests.support.helpers import (
     GRAMMAR_INCORRECT,
     LEVELS,
     MALFORMED_EXAMPLES,
+    TRANSLATION,
 )
 
 
@@ -120,3 +121,36 @@ def test_an_unknown_level_or_an_incomplete_sentence_is_invalid(change: Any) -> N
 
     with pytest.raises(ValidationError):
         example_set(reply)
+
+
+@pytest.mark.p0
+def test_a_translation_round_trips() -> None:
+    """[P0] Capture and translate: `{russian}` validates and dumps back as the same wire."""
+    from language_lab.domain.helpers import Translation
+
+    assert Translation.model_validate(TRANSLATION).model_dump(by_alias=True) == TRANSLATION
+
+
+@pytest.mark.p1
+@pytest.mark.parametrize(
+    "reply",
+    [{}, {"russian": "   "}, {**TRANSLATION, "alternatives": []}],
+    ids=["russian-missing", "blank-russian", "extra-field"],
+)
+def test_a_translation_outside_the_schema_is_invalid(reply: dict[str, Any]) -> None:
+    """[P1] a missing or blank Russian, or a field more, is invalid output."""
+    from language_lab.domain.helpers import Translation
+
+    with pytest.raises(ValidationError):
+        Translation.model_validate(reply)
+
+
+@pytest.mark.p1
+def test_the_translation_schema_is_strict() -> None:
+    """[P1] the strict schema is closed with `russian` required."""
+    from language_lab.domain.helpers import translation_json_schema
+
+    schema = translation_json_schema()
+    assert schema["type"] == "object"
+    assert schema["additionalProperties"] is False
+    assert schema["required"] == ["russian"]

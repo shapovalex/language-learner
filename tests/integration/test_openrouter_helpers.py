@@ -33,6 +33,8 @@ from tests.support.helpers import (
     INCORRECT_TARGET,
     LEVELS,
     MALFORMED_EXAMPLES,
+    TRANSLATE_TARGET,
+    TRANSLATION,
 )
 from tests.support.openrouter import (
     API_KEY,
@@ -67,6 +69,11 @@ def check_grammar(
 def examples(llm: Any, context: str = EXAMPLES_CONTEXT, language: str = "fr") -> Any:
     """The outcome of one `examples()`: the example set, or the exception raised."""
     return settle(llm.examples(Language(language), EXAMPLES_TARGET, context))
+
+
+def translate(llm: Any, language: str = "fr") -> Any:
+    """The outcome of one `translate()`: the translation, or the exception raised."""
+    return settle(llm.translate(Language(language), TRANSLATE_TARGET))
 
 
 def closed(schema: dict[str, Any]) -> bool:
@@ -209,6 +216,10 @@ def test_an_invalid_verdict_is_retried_once_then_llm_invalid_output(invalid: Rep
     assert replay.sent[1].body == replay.sent[0].body
 
 
+def run_helper(helper: str, llm: Any) -> Any:
+    return {"grammar": check_grammar, "examples": examples, "translate": translate}[helper](llm)
+
+
 FAILED: dict[str, Reply] = {
     "refused": refused,
     "timed-out": timed_out,
@@ -219,29 +230,26 @@ FAILED: dict[str, Reply] = {
 
 @pytest.mark.p0
 @pytest.mark.parametrize("failure", FAILED.values(), ids=FAILED.keys())
-@pytest.mark.parametrize("helper", ["grammar", "examples"])
+@pytest.mark.parametrize("helper", ["grammar", "examples", "translate"])
 def test_a_failed_request_is_llm_failed_with_no_retry(helper: str, failure: Reply) -> None:
     """[P0] M-6 a transport failure, an error status or a non-JSON body is `llm_failed` after
-    one request, for either helper: only invalid output is retried.
+    one request, for every helper: only invalid output is retried.
     """
-    valid = GRAMMAR_INCORRECT if helper == "grammar" else EXAMPLES
-    replay = OpenRouterReplay([failure, answer(valid)])
-    llm = openrouter(replay)
+    valid = {"grammar": GRAMMAR_INCORRECT, "examples": EXAMPLES, "translate": TRANSLATION}
+    replay = OpenRouterReplay([failure, answer(valid[helper])])
 
-    outcome = check_grammar(llm) if helper == "grammar" else examples(llm)
+    outcome = run_helper(helper, openrouter(replay))
 
     assert code_of(outcome) == "llm_failed"
     assert len(replay.sent) == 1
 
 
 @pytest.mark.p1
-@pytest.mark.parametrize("helper", ["grammar", "examples"])
+@pytest.mark.parametrize("helper", ["grammar", "examples", "translate"])
 def test_no_configured_model_is_llm_failed_with_no_request(helper: str) -> None:
     """[P1] M-6 an empty OPENROUTER_MODELS sends nothing: `llm_failed`."""
     replay = OpenRouterReplay([])
-    llm = openrouter(replay, [])
-
-    outcome = check_grammar(llm) if helper == "grammar" else examples(llm)
+    outcome = run_helper(helper, openrouter(replay, []))
 
     assert code_of(outcome) == "llm_failed"
     assert replay.sent == []
@@ -263,3 +271,39 @@ def test_the_helpers_log_no_target_context_or_reply(log_capture: LogCapture) -> 
     assert EXAMPLES_CONTEXT not in logged
     assert EXAMPLES["levels"][0]["sentences"][0]["sentence"] not in logged
     assert API_KEY not in logged
+
+
+@pytest.mark.p0
+def test_translate_returns_the_russian_from_the_shared_request() -> None:
+    """[P0] the translation comes back after one request on the shared path; the text and its
+    Language reach the model, with a closed `{russian}` schema.
+    """
+    replay = OpenRouterReplay([answer(TRANSLATION)])
+
+    outcome = translate(openrouter(replay))
+
+    assert outcome.russian == TRANSLATION["russian"]
+    assert len(replay.sent) == 1
+    schema = assert_shared_request(replay.sent[0])
+    assert closed(schema)
+    assert set(schema["properties"]) == {"russian"}
+    prompt = prompt_text(replay.sent[0].body)
+    assert TRANSLATE_TARGET in prompt
+    assert "French" in prompt
+    assert "Russian" in prompt
+
+
+@pytest.mark.p1
+def test_an_invalid_translation_is_retried_once_then_llm_invalid_output(
+    log_capture: LogCapture,
+) -> None:
+    """[P1] TRANSLATE_FAILS: invalid output twice is `llm_invalid_output`; nothing logged."""
+    invalid = answer({"russian": "  "})
+    replay = OpenRouterReplay([invalid, invalid])
+
+    outcome = translate(openrouter(replay))
+
+    assert code_of(outcome) == "llm_invalid_output"
+    assert len(replay.sent) == 2
+    assert replay.sent[1].body == replay.sent[0].body
+    assert TRANSLATE_TARGET not in log_capture.all_text

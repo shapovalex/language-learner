@@ -412,6 +412,55 @@ main h1 {
   margin: 0;
 }
 
+/* Captures heading with the Language picker for Capture and translate beside it */
+.captures-header {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-2) var(--space-6);
+  margin: var(--space-7) 0;
+}
+
+.captures-header h1 {
+  margin: 0;
+}
+
+.captures-language {
+  display: flex;
+  align-items: center;
+  gap: var(--space-4);
+}
+
+.captures-language .make-item-label {
+  margin: 0;
+}
+
+/* Capture and translate's result in the compose card: "original → Russian" */
+.compose-translation {
+  margin: 0;
+  overflow-wrap: anywhere;
+  font-size: var(--font-size-body);
+}
+
+.compose-translation-original {
+  font-weight: 600;
+}
+
+.compose-translation-arrow,
+.compose-translation-status {
+  color: var(--color-ink-muted);
+}
+
+.compose-translation-status {
+  margin: 0;
+  font-size: var(--font-size-body-sm);
+}
+
+.compose-translation-slot:empty {
+  display: none;
+}
+
 .compose-alert-title {
   margin: 0 0 var(--space-1);
   color: var(--color-danger);

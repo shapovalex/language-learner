@@ -1,5 +1,6 @@
-"""The Target helpers' answers on the wire (AD-11): the grammar verdict and the CEFR example
-sentences, camelCase like `domain/items.py`, and the strict JSON Schemas OpenRouter gets.
+"""The Target helpers' answers on the wire (AD-11): the grammar verdict, the CEFR example
+sentences and the Russian translation of a Capture, camelCase like `domain/items.py`, and the
+strict JSON Schemas OpenRouter gets.
 
 The strict schema can't count array items, so pydantic enforces the examples' shape: exactly the
 six CEFR levels in A1→C2 order, five sentences each. Anything else fails validation, which the
@@ -76,6 +77,12 @@ class ExampleSet(_Answer):
         return self
 
 
+class Translation(_Answer):
+    """A captured text's one natural Russian translation, shown once and never stored."""
+
+    russian: NonBlank
+
+
 def grammar_json_schema() -> dict[str, Any]:
     """The strict JSON Schema of a grammar verdict."""
     return strict_schema(GrammarCheck)
@@ -84,3 +91,8 @@ def grammar_json_schema() -> dict[str, Any]:
 def examples_json_schema() -> dict[str, Any]:
     """The strict JSON Schema of an example set (its 6 × 5 shape is checked on validation)."""
     return strict_schema(ExampleSet)
+
+
+def translation_json_schema() -> dict[str, Any]:
+    """The strict JSON Schema of a translation."""
+    return strict_schema(Translation)

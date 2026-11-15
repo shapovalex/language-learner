@@ -172,6 +172,16 @@ export function exampleSentences(body) {
   });
 }
 
+// The Russian translation of a saved Capture: `{language, target}` in, 200 `{russian}` out;
+// `llm_failed` or `llm_invalid_output` when the model fails. Nothing is stored
+export function translateText(body) {
+  return request("/api/helpers/translate", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(body),
+  });
+}
+
 // Save an Item (FR-20): `multipart/form-data` with the `item` JSON part, ItemContent plus
 // `itemId` and `audio` (Consistency Conventions): `replace` with `audioBlob` as `audioFile`,
 // `keep` or `remove` (AD-6, story 6.2) with none. 200 `{itemId}`; a retry with the same ItemId
