@@ -38,6 +38,15 @@
 // its Russian. The results live only in this module's memory (AD-13), so a fresh mount at that
 // route goes to /captures; the context is used once. A sentence's "Make an Item" puts it into
 // the compose box and opens the Make an Item pane at /captures/make with that Language chosen.
+//
+// "Capture and translate" (plan capture-and-translate) saves exactly like Save Capture, then asks
+// POST /api/helpers/translate for the Russian of the saved text and shows "original → Russian"
+// in the compose card; the screen stays on the list. The Language picker beside the heading says
+// which Language captured text is in (English by default, remembered in voice-pref.js). A failed
+// save is Save Capture's alert, whose Try again saves then translates; a failed translation keeps
+// the Capture and its Try again asks only the translation. The translation lives in this
+// module's memory (AD-13): another Capture and translate, an edit of the text or a remount
+// clears it.
 
 import {
   blankDraft,
@@ -51,6 +60,7 @@ import {
   isApiError,
   listCaptures,
   saveItem,
+  translateText,
 } from "../api.js";
 import { alertBox, element, skeleton, tryAgain } from "../dom.js";
 import { confirmDestructive, confirmLeave, navigate, redirect, setDirty } from "../router.js";
@@ -68,6 +78,7 @@ import {
   saveFailure,
 } from "./make-item.js";
 import { LANGUAGES } from "../catalog.js";
+import { readCaptureLanguage, writeCaptureLanguage } from "../voice-pref.js";
 
 const LABEL = "New Capture";
 const PLACEHOLDER = "Paste or type a word, phrase or sentence";
@@ -101,6 +112,11 @@ const EXAMPLES_LANGUAGE_REASON = "Choose a Language.";
 const EXAMPLES_TEXT_REASON = "Type the text in New Capture.";
 const MAKE_AN_ITEM = "Make an Item";
 const MAKE_DRAFT_PATH = "/captures/make/draft";
+const CAPTURE_AND_TRANSLATE = "Capture and translate";
+const CAPTURE_LANGUAGE = "Language";
+const TRANSLATING = "Translating…";
+const NOT_TRANSLATED = "Couldn't translate";
+const CAPTURE_SAVED = "Your Capture is saved.";
 
 function capturePath(captureId) {
   return `/captures/${encodeURIComponent(captureId)}`;
@@ -224,6 +240,17 @@ function examplesFailure(error) {
   return [NOT_WRITTEN, errorMessage(error)];
 }
 
+// [title, body] of a failed translation: the Capture was saved before it was asked
+function translationFailure(error) {
+  if (isApiError(error, "llm_failed")) {
+    return [NOT_TRANSLATED, `${MODEL_UNREACHABLE}. ${CAPTURE_SAVED}`];
+  }
+  if (isApiError(error, "llm_invalid_output")) {
+    return [NOT_TRANSLATED, `${INVALID_TWICE} ${CAPTURE_SAVED}`];
+  }
+  return [NOT_TRANSLATED, `${errorMessage(error)} ${CAPTURE_SAVED}`];
+}
+
 // The failed delete's alert: no Try again, since Delete Capture is right there
 function deleteAlert(error) {
   const [title, body] = failureCopy(error, [NOT_DELETED_TITLE, NOT_DELETED_BODY], "Not deleted");
@@ -236,11 +263,29 @@ function deleteAlert(error) {
 
 export function mount(root, params = {}) {
   let mounted = true;
-  const state = { captureId: crypto.randomUUID(), busy: false, error: null };
+  // `translate`: the last Save was a Capture and translate, so its Try again translates too
+  const state = { captureId: crypto.randomUUID(), busy: false, error: null, translate: false };
+  // The Language captured text is in, for Capture and translate (remembered across visits)
+  let captureLanguage = readCaptureLanguage();
+  // The last Capture and translate's translation, kept only while the screen is mounted (AD-13)
+  const translation = { request: null, busy: false, error: null, result: null, token: 0 };
   const twoPanes = window.matchMedia(TWO_PANES);
 
   const heading = element("h1", null, "Captures");
   heading.tabIndex = -1; // focus lands here after a delete removes the focused button
+  const [languagePicker, markLanguage] = picker(
+    CAPTURE_LANGUAGE,
+    LANGUAGES,
+    captureLanguage,
+    (value) => {
+      captureLanguage = value;
+      writeCaptureLanguage(value);
+      markLanguage(value);
+    },
+  );
+  languagePicker.classList.add("captures-language");
+  const headerRow = element("div", "captures-header");
+  headerRow.append(heading, languagePicker);
   const card = element("section", "compose-card");
   const label = element("label", "compose-label", LABEL);
   const box = element("textarea", "compose-field");
@@ -248,15 +293,20 @@ export function mount(root, params = {}) {
   box.placeholder = PLACEHOLDER;
   label.append(box);
   const alertSlot = element("div", "compose-alert-slot");
+  // The translation, its loading state or its failure, under the box
+  const translationSlot = element("div", "compose-translation-slot");
   const save = element("button", "button button-primary", "Save Capture");
   save.type = "button";
+  // Saves like Save Capture, then shows the Russian (same enabled rule)
+  const translateButton = element("button", "button button-secondary", CAPTURE_AND_TRANSLATE);
+  translateButton.type = "button";
   // The pane for the compose text, with no Capture (follows Save Capture's enabled rule)
   const make = element("button", "button button-secondary", MAKE_AN_ITEM);
   make.type = "button";
   // The Example sentences pane for the compose text (same enabled rule)
   const examplesButton = element("button", "button button-secondary", EXAMPLE_SENTENCES);
   examplesButton.type = "button";
-  card.append(label, alertSlot, save, make, examplesButton);
+  card.append(label, alertSlot, translationSlot, save, translateButton, make, examplesButton);
 
   // The list: header, then the skeleton, the empty state, the load error or the rows
   const listSection = element("section", "captures-list-section");
@@ -268,7 +318,7 @@ export function mount(root, params = {}) {
   listSection.append(listHeader, listBody);
 
   const listPane = element("div", "captures-list-pane");
-  listPane.append(heading, card, listSection);
+  listPane.append(headerRow, card, listSection);
   const detailPane = element("div", "captures-detail-pane");
   const layout = element("div", "captures-layout");
   layout.append(listPane, detailPane);
@@ -571,6 +621,7 @@ export function mount(root, params = {}) {
   function makeFromSentence(sentence) {
     if (state.busy) return;
     box.value = sentence;
+    clearTranslation();
     state.captureId = crypto.randomUUID();
     state.error = null;
     render();
@@ -946,6 +997,7 @@ export function mount(root, params = {}) {
   function renderButtons() {
     const blocked = state.busy || !box.value.trim();
     save.disabled = blocked;
+    translateButton.disabled = blocked;
     make.disabled = blocked;
     examplesButton.disabled = blocked;
     if (again) again.disabled = blocked;
@@ -959,7 +1011,7 @@ export function mount(root, params = {}) {
       return;
     }
     const [title, body] = saveFailure(state.error);
-    again = tryAgain(submit);
+    again = tryAgain(() => submit(state.translate));
     alertSlot.replaceChildren(
       alertBox(
         "compose-alert",
@@ -972,24 +1024,103 @@ export function mount(root, params = {}) {
   }
 
   function onInput() {
+    // The translation was of the text before this edit
+    if (translation.request) clearTranslation();
     syncDirty();
     renderButtons();
     // The pane shows the compose text, and its actions wait while the box is blank
     if ((making || exploring) && !editing) renderDetail();
   }
 
-  async function submit() {
+  // The translation's place in the compose card: "original → Russian", "Translating…", or the
+  // failure with a Try again that asks only the translation
+  function renderTranslation() {
+    if (translation.busy) {
+      const status = element("p", "compose-translation-status", TRANSLATING);
+      status.setAttribute("role", "status");
+      translationSlot.replaceChildren(status);
+      return;
+    }
+    if (translation.error) {
+      const [title, body] = translationFailure(translation.error);
+      translationSlot.replaceChildren(
+        alertBox(
+          "translation-alert",
+          element("p", "compose-alert-title", title),
+          element("p", "compose-alert-body", body),
+          tryAgain(() => runTranslation(translation.request), "secondary"),
+        ),
+      );
+      return;
+    }
+    if (!translation.result) {
+      translationSlot.replaceChildren();
+      return;
+    }
+    const shown = element("p", "compose-translation");
+    shown.setAttribute("role", "status");
+    const arrow = element("span", "compose-translation-arrow", " → ");
+    const russian = element("span", "compose-translation-russian", translation.result.russian);
+    russian.lang = "ru";
+    shown.append(
+      element("span", "compose-translation-original", translation.request.target),
+      arrow,
+      russian,
+    );
+    translationSlot.replaceChildren(shown);
+  }
+
+  function clearTranslation() {
+    ++translation.token;
+    translation.request = null;
+    translation.busy = false;
+    translation.error = null;
+    translation.result = null;
+    renderTranslation();
+  }
+
+  // Ask for `request`'s Russian; Try again asks the same again. Nothing is saved here
+  async function runTranslation(request) {
+    const token = ++translation.token;
+    translation.request = request;
+    translation.busy = true;
+    translation.error = null;
+    translation.result = null;
+    renderTranslation();
+    try {
+      const result = await translateText(request);
+      if (!mounted || token !== translation.token) return;
+      translation.result = result;
+    } catch (error) {
+      if (!mounted || token !== translation.token) return;
+      translation.error = error;
+    }
+    translation.busy = false;
+    // Try again was rebuilt (or the status replaced it): don't leave focus on nothing
+    const focusLost = !document.activeElement || document.activeElement === document.body;
+    renderTranslation();
+    if (focusLost && translation.error) translationSlot.querySelector("button")?.focus();
+  }
+
+  // Save Capture, or with `withTranslation` Capture and translate: the same save, then the
+  // translation of the saved text in the picker's Language once the save succeeded
+  async function submit(withTranslation = false) {
     const text = box.value;
     if (state.busy || !text.trim()) return;
+    const language = captureLanguage;
     state.busy = true;
     state.error = null;
+    state.translate = withTranslation;
+    // Another Capture and translate: the previous translation goes
+    if (withTranslation) clearTranslation();
     render();
     try {
       const saved = await createCapture(state.captureId, text);
       if (!mounted) return;
       onSaved(saved);
-      // Text typed while the Save was in flight is a new composition: keep it
-      if (box.value === text) {
+      // Text typed while the Save was in flight is a new composition: keep it, untranslated
+      const unchanged = box.value === text;
+      if (unchanged) {
         box.value = "";
         syncDirty();
         if (exploring && !editing) renderDetail();
@@ -1000,6 +1131,7 @@ export function mount(root, params = {}) {
       // Saved from beside the make pane (desktop): the pane's text is now a Capture, so show it
       if (making) navigate(capturePath(saved.captureId));
       box.focus();
+      if (withTranslation && unchanged) runTranslation({ language, target: text.trim() });
     } catch (error) {
       if (!mounted) return;
       state.busy = false;
@@ -1012,7 +1144,8 @@ export function mount(root, params = {}) {
   }
 
   box.addEventListener("input", onInput);
-  save.addEventListener("click", submit);
+  save.addEventListener("click", () => submit());
+  translateButton.addEventListener("click", () => submit(true));
   make.addEventListener("click", () => {
     if (!make.disabled) navigate(MAKE_PATH);
   });

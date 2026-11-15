@@ -5,8 +5,9 @@ the Category's strict JSON Schema as the response format, and `provider.require_
 only providers honouring the schema are reached. No other routing or privacy keys: OpenRouter's
 defaults apply (NFR-8).
 
-The Target helpers (grammar check, CEFR example sentences) go down the same request path with
-their own system prompt and strict schema, so they use the same key, models and provider rule.
+The Target helpers (grammar check, CEFR example sentences, translation) go down the same
+request path with their own system prompt and strict schema, so they use the same key, models
+and provider rule.
 
 An answer that fails validation (not JSON, outside the schema, a refusal, no choices) is asked
 for once more with the same body, then `llm_invalid_output`. A failed request (no connection, a
@@ -27,8 +28,10 @@ from language_lab.domain.errors import AppError, ErrorCode
 from language_lab.domain.helpers import (
     ExampleSet,
     GrammarCheck,
+    Translation,
     examples_json_schema,
     grammar_json_schema,
+    translation_json_schema,
 )
 from language_lab.domain.items import GeneratedFields, generated_model, strict_json_schema
 
@@ -73,6 +76,13 @@ that CEFR level, and each sentence's Russian translation in russian.
 The context, when given, says where the Target was met: use it to pick the meaning.
 """
 
+_TRANSLATE_PROMPT = """\
+You translate for a Russian speaker learning English and French.
+Given a Target text and its Language, answer with the fields of the JSON Schema:
+- russian: the Target translated from its Language into natural Russian, keeping its register.
+  One translation, not a dictionary list.
+"""
+
 
 def _user_prompt(language: Language, category: Category, target: str, context: str) -> str:
     lines = [
@@ -100,6 +110,10 @@ def _examples_prompt(language: Language, target: str, context: str) -> str:
     if context.strip():
         lines.append(f"Context: {context}")
     return "\n".join(lines)
+
+
+def _translate_prompt(language: Language, text: str) -> str:
+    return "\n".join([f"Language: {_LANGUAGES[language]}", f"Target: {text}"])
 
 
 class _InvalidOutput(Exception):
@@ -150,6 +164,15 @@ class OpenRouterLlm:
             "example_sentences",
             examples_json_schema(),
             ExampleSet,
+        )
+
+    async def translate(self, language: Language, text: str) -> Translation:
+        return await self._complete(
+            _TRANSLATE_PROMPT,
+            _translate_prompt(language, text),
+            "translation",
+            translation_json_schema(),
+            Translation,
         )
 
     async def _complete[M: BaseModel](

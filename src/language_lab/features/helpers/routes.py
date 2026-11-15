@@ -1,4 +1,4 @@
-"""The Target helpers' HTTP routes, under /api/helpers. Both answer 200: nothing is created."""
+"""The Target helpers' HTTP routes, under /api/helpers. All answer 200: nothing is created."""
 
 from typing import Any
 
@@ -32,6 +32,15 @@ class ExamplesRequest(BaseModel):
     context: str = ""
 
 
+class TranslateRequest(BaseModel):
+    """The Captures screen's Capture and translate: the saved text and its Language."""
+
+    model_config = ConfigDict(strict=True)
+
+    language: Language = Field(strict=False)
+    target: NonBlank
+
+
 def helpers_router(service: HelperService) -> APIRouter:
     router = APIRouter(prefix="/api/helpers")
 
@@ -44,5 +53,10 @@ def helpers_router(service: HelperService) -> APIRouter:
     async def examples(body: ExamplesRequest) -> dict[str, Any]:
         example_set = await service.examples(body.language, body.target, body.context)
         return example_set.model_dump(by_alias=True, mode="json")
+
+    @router.post("/translate")
+    async def translate(body: TranslateRequest) -> dict[str, Any]:
+        translation = await service.translate(body.language, body.target)
+        return translation.model_dump(by_alias=True, mode="json")
 
     return router

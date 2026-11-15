@@ -1,6 +1,7 @@
 """Target helpers test data, shared by the domain, OpenRouter adapter and helpers API tests
 (tests/unit/test_helpers_domain.py, tests/integration/test_openrouter_helpers.py,
-tests/api/test_helpers_grammar.py, tests/api/test_helpers_examples.py).
+tests/api/test_helpers_grammar.py, tests/api/test_helpers_examples.py,
+tests/api/test_helpers_translate.py).
 
 `GRAMMAR_CORRECT` and `GRAMMAR_INCORRECT` are grammar verdicts on the wire, explained in
 Russian. `EXAMPLES` is an examples answer on the wire: five French sentences with their Russian
@@ -19,6 +20,7 @@ from tests.support.hosts import app_client
 
 GRAMMAR_API = "/api/helpers/grammar"
 EXAMPLES_API = "/api/helpers/examples"
+TRANSLATE_API = "/api/helpers/translate"
 
 LEVELS = ["A1", "A2", "B1", "B2", "C1", "C2"]
 
@@ -26,6 +28,8 @@ CORRECT_TARGET = "jump to conclusions"
 INCORRECT_TARGET = "He go to school."
 CORRECTED_TARGET = "He goes to school."
 EXAMPLES_TARGET = "tirer des conclusions"
+TRANSLATE_TARGET = "tirer des conclusions hâtives"
+TRANSLATION: dict[str, Any] = {"russian": "делать поспешные выводы"}
 EXAMPLES_CONTEXT = "Entendu dans une réunion d'équipe à propos d'une panne."
 
 GRAMMAR_CORRECT: dict[str, Any] = {
@@ -185,10 +189,11 @@ def helpers_llm(
     *,
     grammar: dict[str, Any] | None = None,
     examples: dict[str, Any] | None = None,
+    translation: dict[str, Any] | None = None,
     error: str | None = None,
 ) -> Any:
-    """A `FakeLlm` answering the helpers with `grammar` and `examples`, or raising
-    `AppError(error)`.
+    """A `FakeLlm` answering the helpers with `grammar`, `examples` and `translation`, or
+    raising `AppError(error)`.
     """
     from language_lab.domain.errors import ErrorCode
     from tests.fakes.llm import FakeLlm
@@ -197,6 +202,7 @@ def helpers_llm(
         error=None if error is None else ErrorCode(error),
         grammar_reply=grammar,
         examples_reply=examples,
+        translate_reply=translation,
     )
 
 
@@ -214,3 +220,8 @@ def grammar_body(**overrides: str) -> dict[str, str]:
 def examples_body(**overrides: str) -> dict[str, str]:
     """A French examples request for `EXAMPLES_TARGET`, no context; `overrides` add or replace."""
     return {"language": "fr", "target": EXAMPLES_TARGET, **overrides}
+
+
+def translate_body(**overrides: str) -> dict[str, str]:
+    """A French translate request for `TRANSLATE_TARGET`; `overrides` add or replace keys."""
+    return {"language": "fr", "target": TRANSLATE_TARGET, **overrides}

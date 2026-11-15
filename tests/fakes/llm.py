@@ -4,7 +4,7 @@ from typing import Any
 
 from language_lab.domain.catalog import Category, Language
 from language_lab.domain.errors import AppError, ErrorCode
-from language_lab.domain.helpers import ExampleSet, GrammarCheck
+from language_lab.domain.helpers import ExampleSet, GrammarCheck, Translation
 from language_lab.domain.items import GeneratedFields, generated_model
 
 # A valid answer per Category, on the wire, when no `reply` is given
@@ -156,6 +156,10 @@ _EXAMPLES: dict[str, Any] = {
     ]
 }
 
+# The Russian translation when no `translate_reply` is given
+_TRANSLATIONS: dict[str, str] = {"jump to conclusions": "делать поспешные выводы"}
+_TRANSLATION_FALLBACK = "перевод"
+
 
 class FakeLlm:
     """Records each `generate()` as `(language, category, target, generation_context)` in
@@ -166,6 +170,8 @@ class FakeLlm:
     `grammar_requests` and `examples()` as `(language, target, context)` in `example_requests`.
     Each raises `AppError(error)` too, or answers `grammar_reply` / `examples_reply` (on the
     wire), by default a verdict from `_GRAMMAR_CORRECTIONS` and the English `_EXAMPLES`.
+    `translate()` records `(language, text)` in `translate_requests` and raises
+    `AppError(error)` or answers `translate_reply`, by default from `_TRANSLATIONS`.
     """
 
     def __init__(
@@ -175,6 +181,7 @@ class FakeLlm:
         error: ErrorCode | None = None,
         grammar_reply: dict[str, Any] | None = None,
         examples_reply: dict[str, Any] | None = None,
+        translate_reply: dict[str, Any] | None = None,
     ):
         self.reply = reply
         self.error = error
@@ -183,6 +190,8 @@ class FakeLlm:
         self.requests: list[tuple[Language, Category, str, str]] = []
         self.grammar_requests: list[tuple[Language, Category, str]] = []
         self.example_requests: list[tuple[Language, str, str]] = []
+        self.translate_reply = translate_reply
+        self.translate_requests: list[tuple[Language, str]] = []
 
     async def generate(
         self, language: Language, category: Category, target: str, generation_context: str
@@ -210,3 +219,12 @@ class FakeLlm:
             raise AppError(self.error)
         reply = _EXAMPLES if self.examples_reply is None else self.examples_reply
         return ExampleSet.model_validate(reply)
+
+    async def translate(self, language: Language, text: str) -> Translation:
+        self.translate_requests.append((language, text))
+        if self.error is not None:
+            raise AppError(self.error)
+        reply = self.translate_reply
+        if reply is None:
+            reply = {"russian": _TRANSLATIONS.get(text, _TRANSLATION_FALLBACK)}
+        return Translation.model_validate(reply)
