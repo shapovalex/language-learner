@@ -35,6 +35,13 @@
 // a failed Save keeps them, so a retry resends the same bytes under the same ItemId. A buffer
 // Target that differs from the remaining clip's Target warns "Audio no longer matches the
 // text." without blocking Save. Blob URLs are revoked when replaced, discarded or left behind.
+//
+// Pronunciation is a card after Reference audio: "Practise pronunciation", checked unless the
+// read says `pronunciationExcluded`. A toggle writes at once through PUT
+// /api/items/<lang>/<itemId>/pronunciation (its Pronounce Card suspended or not in Anki, AD-13),
+// never through the Save buffer, so it is no unsaved change. The checkbox shows the new state,
+// disabled, while the write runs; a failure puts it back with an inline alert whose Try again
+// sends the same change.
 
 import {
   deleteItem,
@@ -44,6 +51,7 @@ import {
   isApiError,
   regenerateContent,
   saveItem,
+  setPronunciationExcluded,
 } from "../api.js";
 import { categoryName, languageName } from "../catalog.js";
 import { alertBox, element, skeleton, tryAgain } from "../dom.js";
@@ -122,6 +130,8 @@ const STALE_AUDIO = "Audio no longer matches the text.";
 const TTS_FAILED = "Couldn't make the audio. Current audio is unchanged.";
 const MEDIA_FAILED = "Couldn't load the saved audio.";
 let compareIds = 0; // unique ids for the audio compare headings
+const PRACTISE = "Practise pronunciation";
+const PRACTISE_HINT = "Unchecked, this Item's Pronounce Card stays out of Pronunciation practice.";
 const AUDIO_COMPARE_HINT = "The old audio is removed only after Save succeeds.";
 
 // The Item's Reference audio card (story 6.2). `values()` is the edit buffer, `busy()` whether
@@ -448,6 +458,9 @@ export function mount(root, params) {
   let regenError = null; // {group, error} of the last failed regeneration
   let currentInputs = null; // the rendered inputs, to keep focus across a re-render
   let audioCard = null; // the Reference audio card, built once per read
+  let excluded = false; // the Item's Pronounce Card is suspended, as last read or written
+  let practising = null; // the Practise pronunciation value being written, else null
+  let pronunciationError = null; // {practise, error} of the last failed write
 
   const screen = element("div", "item-detail");
   const back = element("a", "back-link", `‹ ${languageName(lang)} Items`);
@@ -555,7 +568,8 @@ export function mount(root, params) {
       event.preventDefault();
       if (!save.disabled) saveChanges();
     });
-    form.append(header, fields, audioCard.card, alertSlot, actions);
+    const pronunciation = pronunciationCard();
+    form.append(header, fields, audioCard.card, pronunciation.card, alertSlot, actions);
     body.replaceChildren(form);
     audioCard.render();
 
@@ -580,6 +594,7 @@ export function mount(root, params) {
     if (focus === "title") title.focus();
     if (focus === "save") save.focus();
     if (focus === "delete") remove.focus();
+    if (focus === "pronunciation") (pronunciation.retry ?? pronunciation.box).focus();
     if (keepField && focus !== null && !focus.group) keepField = null;
     if (focus?.group && !keepField) {
       const target = focusTargets[focus.group]?.[focus.part];
@@ -594,6 +609,77 @@ export function mount(root, params) {
         // Not every input type keeps a selection
       }
     }
+  }
+
+  // The Pronunciation card: the checkbox, and the alert of a failed write
+  function pronunciationCard() {
+    const card = element("section", "item-pronunciation");
+    card.setAttribute("aria-label", "Pronunciation");
+    const label = element("label", "item-pronunciation-label");
+    const box = document.createElement("input");
+    box.type = "checkbox";
+    box.dataset.control = "practise";
+    box.checked = practising ?? !excluded;
+    box.disabled = busy || practising !== null;
+    box.addEventListener("change", () => setPractise(box.checked));
+    const text = element("span", "item-pronunciation-text", PRACTISE);
+    text.append(element("span", "item-pronunciation-hint", PRACTISE_HINT));
+    label.append(box, text);
+    card.append(element("h2", "make-item-heading", "Pronunciation"), label);
+    if (practising !== null) card.setAttribute("aria-busy", "true");
+    let retry = null;
+    if (pronunciationError) {
+      const { practise, error: failure } = pronunciationError;
+      const unreachable = isApiError(failure, "anki_unavailable");
+      retry = tryAgain(() => setPractise(practise));
+      retry.disabled = busy;
+      card.append(
+        alertBox(
+          "item-pronunciation-alert",
+          element(
+            "p", "compose-alert-title",
+            unreachable ? "Not changed — Anki isn't reachable" : "Not changed",
+          ),
+          element(
+            "p", "draft-alert-body",
+            unreachable
+              ? "Make sure Anki Desktop is open on the Mac mini, then try again."
+              : errorMessage(failure),
+          ),
+          retry,
+        ),
+      );
+    }
+    return { card, box, retry };
+  }
+
+  // Practise pronunciation toggled: written at once, outside the Save buffer
+  async function setPractise(practise) {
+    if (busy || practising !== null || !item) return;
+    practising = practise;
+    pronunciationError = null;
+    renderEditor();
+    try {
+      await setPronunciationExcluded(lang, itemId, !practise);
+    } catch (failure) {
+      if (!mounted) return;
+      practising = null;
+      pronunciationError = { practise, error: failure };
+      renderEditor({ focus: pronunciationFocus() });
+      return;
+    }
+    if (!mounted) return;
+    excluded = !practise;
+    practising = null;
+    renderEditor({ focus: pronunciationFocus() });
+  }
+
+  // Back to the Pronunciation card only when focus is still there (or was dropped by the
+  // disabled checkbox), so a field the user moved to keeps it
+  function pronunciationFocus() {
+    const active = document.activeElement;
+    if (!active || active === document.body) return "pronunciation";
+    return body.querySelector(".item-pronunciation")?.contains(active) ? "pronunciation" : null;
   }
 
   async function onDelete(trigger) {
@@ -765,6 +851,7 @@ export function mount(root, params) {
     }
     if (!mounted) return;
     item = read;
+    excluded = read.pronunciationExcluded === true;
     loadedValues = generatedValues(read);
     values = { ...loadedValues };
     audioCard = itemAudioCard({

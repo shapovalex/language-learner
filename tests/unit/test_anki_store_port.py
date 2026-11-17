@@ -78,6 +78,7 @@ def test_anki_store_port_adds_the_setup_preview_read_and_the_fake_matches() -> N
         "delete_item",
         "get_media",
         "pronunciation_queue",
+        "set_pronunciation_excluded",
         "answer_card",
     }
     assert inspect.iscoroutinefunction(AnkiStore.setup_preview)

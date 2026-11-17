@@ -1,6 +1,7 @@
 """Items: Save, create-or-update by ItemId in the AnkiStore (AD-6, AD-20), and the Item reads:
 the search and the duplicate check, both matched on normalized text here (AD-12), and one Item
-by ItemId, and permanent deletion with retryable media cleanup.
+by ItemId, permanent deletion with retryable media cleanup, and excluding an Item from
+Pronunciation (its Pronounce Card suspended in Anki, AD-13).
 """
 
 from language_lab.domain.catalog import Category, Language
@@ -66,6 +67,15 @@ class ItemService:
     async def delete(self, language: Language, item_id: str) -> None:
         """Permanently delete the scoped Item, then clean its media; retries finish cleanup."""
         await self._anki.delete_item(language, item_id)
+
+    async def set_pronunciation_excluded(
+        self, language: Language, item_id: str, excluded: bool
+    ) -> None:
+        """Exclude the Item `item_id` from Pronunciation, or include it again; a flag that
+        already matches writes nothing. Raises
+        `AppError(NOT_FOUND | SETUP_REQUIRED | ANKI_UNAVAILABLE | ANKI_BUSY)`.
+        """
+        await self._anki.set_pronunciation_excluded(language, item_id, excluded)
 
 
 def _matches(item: Item, wanted: str) -> bool:

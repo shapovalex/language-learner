@@ -10,6 +10,11 @@
 // chip. A failed Rating keeps the Card current with an inline alert whose Try again resends the
 // same Rating (AD-20).
 //
+// "Don't practise this card" excludes the current Card's Item from Pronunciation at once, with
+// no confirmation and no Attempt needed: PUT /api/items/<lang>/<itemId>/pronunciation suspends
+// its Pronounce Card in Anki, then the queue is read again for the next Card. A failed exclude
+// keeps the Card current with an inline alert whose Try again sends it again.
+//
 // Record captures one Attempt of the current Card's Target (AttemptRecorder, at most
 // MAX_ATTEMPT_SECONDS) and posts it to /api/pronunciation/<lang>/attempt; nothing of it is kept.
 // The Assessment shows the overall score, the sub-scores the locale has, the word pills with the
@@ -30,6 +35,7 @@ import {
   rateCard,
   sessionBeacon,
   sessionSignal,
+  setPronunciationExcluded,
 } from "../api.js";
 import { AttemptRecorder } from "../attempt-recorder.js";
 import { categoryName, languageName } from "../catalog.js";
@@ -45,6 +51,8 @@ const RATINGS = [
 ];
 const PROMPT = "How did that feel? You decide.";
 const RATING_FAILED = "Rating not saved — Anki isn't reachable.";
+const EXCLUDE = "Don't practise this card";
+const EXCLUDE_FAILED = "Card not excluded — Anki isn't reachable.";
 const EMPTY_BODY = "No new or due Pronounce Cards right now.";
 const REFERENCE = "Play reference audio";
 const RECORD_LABELS = {
@@ -89,8 +97,10 @@ export function mount(root, params) {
   let seq = 0;
   let queue = null; // the latest read: {due, new, cards}
   let readError = null; // the latest read's failure
-  let busy = false; // a Rating or the read after it is in flight
-  let failed = null; // {body, error}: the Rating that failed, for Try again
+  let busy = false; // a Rating or an exclude, or the read after it, is in flight
+  // {kind, body, error}: the Rating ("rating", body its request) or the exclude ("exclude",
+  // body its Card) that failed, for Try again
+  let failed = null;
   let inSession = false; // a session start was sent and no end since
   let player = null; // the current Card's Reference <audio>, made on the first tap
   let playerFor = null; // the cardId that player belongs to
@@ -383,6 +393,11 @@ export function mount(root, params) {
     }
     section.append(element("p", "review-prompt", PROMPT), buttons);
     if (!eligible) section.append(element("p", "review-prompt", "Record an Attempt to enable Rating."));
+    // Needs no Attempt: only a write in flight disables it
+    const skip = action(EXCLUDE, "exclude", () => exclude(card));
+    skip.className = "button-link review-exclude";
+    skip.disabled = busy;
+    section.append(skip);
     if (busy) section.setAttribute("aria-busy", "true");
     return section;
   }
@@ -416,18 +431,16 @@ export function mount(root, params) {
     const left = element("div", "review-main-column");
     const nodes = [targetCard(card)];
     if (failed) {
+      const rating = failed.kind === "rating";
       const message = isApiError(failed.error, "setup_required")
-        ? `Rating not saved — ${errorMessage(failed.error)}`
-        : RATING_FAILED;
-      nodes.push(
-        alertBox(
-          "review-alert",
-          element("p", "review-alert-body", message),
-          tryAgain(() => {
-            if (!busy) submit(failed.body);
-          }),
-        ),
-      );
+        ? `${rating ? "Rating not saved" : "Card not excluded"} — ${errorMessage(failed.error)}`
+        : rating ? RATING_FAILED : EXCLUDE_FAILED;
+      const retry = tryAgain(() => {
+        if (busy) return;
+        if (failed.kind === "rating") submit(failed.body);
+        else exclude(failed.body);
+      });
+      nodes.push(alertBox("review-alert", element("p", "review-alert-body", message), retry));
     }
     left.append(...nodes);
     const layout = element("div", "review-layout");
@@ -490,7 +503,32 @@ export function mount(root, params) {
         return;
       }
       busy = false;
-      failed = { body: rating, error };
+      failed = { kind: "rating", body: rating, error };
+      render();
+      return;
+    }
+    if (!mounted) return;
+    discardAttempt(true);
+    await load();
+  }
+
+  // Exclude the Card's Item from Pronunciation, then read the queue for the next Card
+  async function exclude(card) {
+    if (busy) return;
+    busy = true;
+    failed = null;
+    render();
+    try {
+      await setPronunciationExcluded(lang, card.itemId, true);
+    } catch (error) {
+      if (!mounted) return;
+      if (isApiError(error, "not_found")) {
+        // The Item is gone from Anki since the read: show what is queued now
+        await load();
+        return;
+      }
+      busy = false;
+      failed = { kind: "exclude", body: card, error };
       render();
       return;
     }

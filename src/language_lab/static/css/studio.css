@@ -2075,3 +2075,48 @@ button.segment {
     grid-template-columns: repeat(4, minmax(0, 1fr));
   }
 }
+
+/* Item detail Pronunciation (S-ItemDetail): "Practise pronunciation", written at once, the
+   whole row its label as the Setup repair rows */
+.item-pronunciation {
+  min-width: 0;
+  padding: var(--space-7);
+  border: 1px solid var(--color-border);
+  border-radius: 12px;
+}
+
+.item-pronunciation-label {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--space-5);
+  min-height: var(--space-target-min);
+  margin-top: var(--space-5);
+  cursor: pointer;
+}
+
+.item-pronunciation-label input {
+  flex: none;
+  width: 1.125rem;
+  height: 1.125rem;
+  margin: 0.125rem 0 0;
+  accent-color: var(--color-accent);
+}
+
+.item-pronunciation-label:has(input:disabled) {
+  cursor: not-allowed;
+}
+
+.item-pronunciation-hint {
+  display: block;
+  color: var(--color-ink-muted);
+  font-size: var(--font-size-label);
+}
+
+.item-pronunciation-alert {
+  margin-top: var(--space-5);
+}
+
+/* Pronunciation's "Don't practise this card": a quiet text button under the Ratings */
+.review-exclude {
+  align-self: flex-start;
+}

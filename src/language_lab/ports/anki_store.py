@@ -2,7 +2,8 @@
 
 Each method is one complete use case that the adapter runs under the Anki lock: readiness, sync,
 the SetupState, the Setup preview and apply, Create, List, Get and Delete Capture, Save and Delete
-Item, the Item reads, and the Pronunciation queue and Rating.
+Item, the Item reads, the Pronunciation queue and Rating, and excluding an Item from
+Pronunciation.
 Later entries add methods here, to the AnkiConnect adapter and to the fake in tests/fakes/ together.
 """
 
@@ -124,7 +125,8 @@ class AnkiStore(Protocol):
 
     async def get_item(self, language: Language, item_id: str) -> Item:
         """The Item `item_id` of either Category of `language`, matched in Python and never in a
-        query (AD-4), from reads only under one lock hold; not gated (AD-19). Raises
+        query (AD-4), from reads only under one lock hold; not gated (AD-19). Its
+        `pronunciation_excluded` is whether its Pronounce Card (ord 3) is suspended. Raises
         `AppError(NOT_FOUND | ANKI_UNAVAILABLE | ANKI_BUSY)`.
         """
         ...
@@ -156,5 +158,18 @@ class AnkiStore(Protocol):
         The answer is Prefix guarded and Setup gated. Raises `AppError(NOT_FOUND)` for a card
         outside the Language's Pronounce scope, and
         `AppError(SETUP_REQUIRED | ANKI_UNAVAILABLE | ANKI_BUSY)`.
+        """
+        ...
+
+    async def set_pronunciation_excluded(
+        self, language: Language, item_id: str, excluded: bool
+    ) -> None:
+        """Exclude the Item `item_id` of `language` from Pronunciation (suspend its Pronounce
+        Card, ord 3), or include it again (unsuspend it), under one lock hold. The Item is found
+        in the exact scopes of both Categories, its ItemId matched in Python (AD-4); the flag
+        lives in Anki only (AD-13). Only that one card is written, Prefix guarded and Setup
+        gated, and only when its state differs: a flag that already matches writes nothing.
+        The Study cards (ords 0-2) are never touched. Raises
+        `AppError(NOT_FOUND | SETUP_REQUIRED | ANKI_UNAVAILABLE | ANKI_BUSY)`.
         """
         ...

@@ -40,6 +40,14 @@ there changes their schedule without any pronunciation check.
 
 This is a convention you keep. Nothing in Anki or LanguageLab enforces it.
 
+## Leave an Item out of Pronunciation
+
+To stop practising an Item aloud, tap "Don't practise this card" on the Pronunciation screen, or
+uncheck "Practise pronunciation" on the Item's page. LanguageLab suspends only that Item's
+Pronounce card in Anki; its Study cards are not changed. Check "Practise pronunciation" again to
+bring it back: it returns to Pronunciation the next time it is new or due. A Pronounce card you
+suspend in Anki yourself counts as left out too.
+
 ## French reading rules deck
 
 Setup creates `<Prefix>::Study::French::Reading Rules` and fills it with 46 French reading rules,

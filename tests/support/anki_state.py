@@ -38,8 +38,9 @@ Cards and media (story 2.11): `add_card()` gives a note a card of an ord in a de
 not, and `collection.media` holds media file names. `findCards` answers an exact
 `note:"<type>"` query, `cardsInfo` answers in AnkiConnect's documented shape (the spike recorded
 none), and `getMediaFilesNames` matches its `pattern` case-sensitively (spike 2.2 Surprises).
-With `writes=True` the collection also answers `changeDeck`, `suspend` and `deleteMediaFile`
-(`REPAIR_WRITE_ACTIONS`).
+With `writes=True` the collection also answers `changeDeck`, `suspend`, `unsuspend` and
+`deleteMediaFile` (`REPAIR_WRITE_ACTIONS`; `unsuspend` is what including an Item in Pronunciation
+again sends).
 
 French reading rules: `apply_manifest()` also puts every seeded rule in the collection as Setup
 leaves it (`reading_rule_note()`): its note, its card in the Reading Rules deck and its three
@@ -110,7 +111,7 @@ NOTE_WRITE_ACTIONS = frozenset({"addNote", "updateNoteFields", "deleteNotes"})
 
 
 # The writes of the opt-in repairs the simulator answers with `writes=True` (story 2.11)
-REPAIR_WRITE_ACTIONS = frozenset({"changeDeck", "suspend", "deleteMediaFile"})
+REPAIR_WRITE_ACTIONS = frozenset({"changeDeck", "suspend", "unsuspend", "deleteMediaFile"})
 
 
 # The media write Setup's reading rule Create sends, answered with `writes=True`
@@ -444,7 +445,9 @@ def _answer_note_write(
 def _answer_repair_write(
     collection: Collection, action: str, params: dict[str, Any]
 ) -> dict[str, Any]:
-    """`changeDeck`, `suspend` and `deleteMediaFile` as AnkiConnect v6 documents them."""
+    """`changeDeck`, `suspend`, `unsuspend` and `deleteMediaFile` as AnkiConnect v6 documents
+    them.
+    """
     match action:
         case "changeDeck":
             ids = params.get("cards", [])
@@ -464,6 +467,12 @@ def _answer_repair_write(
             for card in cards:
                 card.suspended = True
             return _ok(changed)  # false when every card was already suspended
+        case "unsuspend":
+            cards = [collection.cards[i] for i in params.get("cards", []) if i in collection.cards]
+            changed = any(card.suspended for card in cards)
+            for card in cards:
+                card.suspended = False
+            return _ok(changed)  # false when no card was suspended
         case "deleteMediaFile":
             collection.media.discard(params.get("filename", ""))
             return _ok(None)

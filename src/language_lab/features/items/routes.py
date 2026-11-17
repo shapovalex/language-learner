@@ -1,11 +1,13 @@
-"""Items' HTTP routes, under /api/items: Save, list/search, duplicate read, detail and Delete."""
+"""Items' HTTP routes, under /api/items: Save, list/search, duplicate read, detail, Delete, and
+the Pronunciation flag.
+"""
 
 import json
 import re
 from typing import Annotated, Any, Literal, TypedDict
 
 from fastapi import APIRouter, File, Form, Query, Response, UploadFile
-from pydantic import BaseModel, Field, TypeAdapter, ValidationError
+from pydantic import BaseModel, ConfigDict, Field, StrictBool, TypeAdapter, ValidationError
 
 from language_lab.domain.audio import MAX_AUDIO_BYTES, audio_upload
 from language_lab.domain.catalog import UUID4, Category, Language
@@ -21,6 +23,12 @@ class _SaveIntent(BaseModel):
 
     item_id: str = Field(alias="itemId", pattern=UUID4)
     audio: Literal[AudioIntent.KEEP, AudioIntent.REPLACE, AudioIntent.REMOVE]
+
+
+class _PronunciationBody(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    excluded: StrictBool
 
 
 class SavedBody(TypedDict):
@@ -108,13 +116,24 @@ def items_router(service: ItemService) -> APIRouter:
         if re.fullmatch(UUID4, item_id) is None:
             raise AppError(ErrorCode.NOT_FOUND)
         item = await service.get(lang, item_id)
-        return {**item.wire(), "audio": item.audio}
+        return {
+            **item.wire(),
+            "audio": item.audio,
+            "pronunciationExcluded": item.pronunciation_excluded,
+        }
 
     @router.delete("/{lang}/{item_id}", status_code=204)
     async def delete_item(lang: Language, item_id: str) -> Response:
         if re.fullmatch(UUID4, item_id) is None:
             raise AppError(ErrorCode.NOT_FOUND)
         await service.delete(lang, item_id)
+        return Response(status_code=204)
+
+    @router.put("/{lang}/{item_id}/pronunciation", status_code=204)
+    async def set_pronunciation(lang: Language, item_id: str, body: _PronunciationBody) -> Response:
+        if re.fullmatch(UUID4, item_id) is None:
+            raise AppError(ErrorCode.NOT_FOUND)
+        await service.set_pronunciation_excluded(lang, item_id, body.excluded)
         return Response(status_code=204)
 
     return router

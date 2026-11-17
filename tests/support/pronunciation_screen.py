@@ -25,6 +25,8 @@ from tests.support.captures_screen import main
 
 RATINGS = ("Again", "Hard", "Good", "Easy")
 RATING_FAILED = "Rating not saved — Anki isn't reachable."
+EXCLUDE = "Don't practise this card"
+EXCLUDE_FAILED = "Card not excluded — Anki isn't reachable."
 EMPTY_TITLE = "Nothing to practice in {language}"
 EMPTY_BODY = "No new or due Pronounce Cards right now."
 REFERENCE = re.compile(r"^(Play reference audio|Reference)$")
@@ -60,6 +62,14 @@ def rating_button(page: Page, name: str) -> Locator:
 
 def reference_button(page: Page) -> Locator:
     return main(page).get_by_role("button", name=REFERENCE)
+
+
+def exclude_button(page: Page) -> Locator:
+    return main(page).get_by_role("button", name=EXCLUDE, exact=True)
+
+
+def exclude_alert(page: Page) -> Locator:
+    return main(page).get_by_role("alert").filter(has_text=EXCLUDE_FAILED)
 
 
 def rating_alert(page: Page) -> Locator:
@@ -99,7 +109,12 @@ class ReviewApi:
     `hold_queue` a queue read is recorded and left unanswered until `release_queue()`. With
     `hold_start` a session start is recorded and never answered, as a slow pre-session Sync
     would leave it if the endpoint waited. `events` lists what arrived, in order: "queue",
-    "rating", "start" or "end". `ratings` holds each Rating's JSON body.
+    "rating", "exclude", "start" or "end". `ratings` holds each Rating's JSON body.
+
+    An exclude (PUT /api/items/<lang>/<itemId>/pronunciation) is recorded in `exclusions` as
+    `(itemId, body)`; `{excluded: true}` drops that Item's Cards from the queue and answers 204,
+    as a suspended Pronounce Card leaves Anki's. `exclude_error` answers it 503
+    `anki_unavailable` and changes nothing.
     """
 
     def __init__(
@@ -117,6 +132,8 @@ class ReviewApi:
         self.new = list(new or [])
         self.rating_error = False
         self.queue_error = False
+        self.exclude_error = False
+        self.exclusions: list[tuple[str, dict[str, Any]]] = []
         self.gone: set[int] = set()
         self.hold_start = hold_start
         self.hold_queue = False
@@ -130,6 +147,7 @@ class ReviewApi:
         page.route(f"{base}/rating", self._rating)
         page.route(f"{base}/session/*", self._session)
         page.route("**/api/media/*", self._media)
+        page.route(f"**/api/items/{lang}/*/pronunciation", self._exclude)
 
     @property
     def sessions(self) -> list[str]:
@@ -185,6 +203,22 @@ class ReviewApi:
             cards[:] = [card for card in cards if card["cardId"] != body.get("cardId")]
         answer = {"alreadyAnswered": False}
         route.fulfill(status=200, content_type="application/json", body=json.dumps(answer))
+
+    def _exclude(self, route: Route) -> None:
+        if route.request.method != "PUT":
+            route.fallback()
+            return
+        self.events.append("exclude")
+        item_id = urlparse(route.request.url).path.split("/")[-2]
+        body = route.request.post_data_json
+        self.exclusions.append((item_id, body))
+        if self.exclude_error:
+            _unavailable(route)
+            return
+        if body.get("excluded") is True:
+            for cards in (self.due, self.new):
+                cards[:] = [card for card in cards if card["itemId"] != item_id]
+        route.fulfill(status=204, body="")
 
     def _session(self, route: Route) -> None:
         signal = urlparse(route.request.url).path.rsplit("/", 1)[-1]
