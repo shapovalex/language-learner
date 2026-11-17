@@ -217,6 +217,17 @@ export function deleteItem(lang, itemId) {
   });
 }
 
+// Exclude the Item from Pronunciation (`excluded: true`, its Pronounce Card suspended in Anki)
+// or include it again (204). A flag that already matches writes nothing, so a retry is safe
+export function setPronunciationExcluded(lang, itemId, excluded) {
+  const path = `/api/items/${encodeURIComponent(lang)}/${encodeURIComponent(itemId)}/pronunciation`;
+  return request(path, {
+    method: "PUT",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ excluded }),
+  });
+}
+
 // The Items of `lang`, both Categories (FR-22): `{items: [{itemId, ...ItemContent, hasAudio}]}`,
 // those whose normalized Target, Russian meaning or an alternative contains `query` (AD-12).
 // A blank `query` is not sent, and lists every Item

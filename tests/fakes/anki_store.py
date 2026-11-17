@@ -66,6 +66,12 @@ class FakeAnkiStore:
     refuses when Setup is not ready, and otherwise records `(card_id, Rating)` in `answers` and
     drops the Card from the queue. Both raise `anki_busy` or `anki_unavailable` as the other
     methods do.
+
+    `set_pronunciation_excluded()` adds the ItemId to `excluded` or drops it from there, raising
+    `not_found` for an Item of no `items` entry in that Language and refusing when Setup is not
+    ready, but only when the flag changes; each change is recorded in `exclusions`.
+    `pronunciation_queue()` leaves out the excluded Items' cards, `answer_card()` raises
+    `not_found` for one, and `get_item()` reports the flag.
     """
 
     def __init__(
@@ -101,6 +107,8 @@ class FakeAnkiStore:
         self.audio: dict[str, str] = {}
         self.pronounce: list[tuple[Language, bool, PronounceCard]] = []
         self.answers: list[tuple[int, Rating]] = []
+        self.excluded: set[str] = set()
+        self.exclusions: list[tuple[str, bool]] = []
 
     async def reachable(self) -> bool:
         if self.busy:
@@ -239,7 +247,13 @@ class FakeAnkiStore:
         stored = self.items.get(item_id)
         if stored is None or stored[0] is not language:
             raise AppError(ErrorCode.NOT_FOUND)
-        return Item(item_id, stored[1], item_id in self.audio, self.audio.get(item_id))
+        return Item(
+            item_id,
+            stored[1],
+            item_id in self.audio,
+            self.audio.get(item_id),
+            pronunciation_excluded=item_id in self.excluded,
+        )
 
     async def delete_item(self, language: Language, item_id: str) -> None:
         if self.busy:
@@ -266,8 +280,13 @@ class FakeAnkiStore:
             raise AppError(ErrorCode.ANKI_BUSY)
         if not self.available:
             raise AppError(ErrorCode.ANKI_UNAVAILABLE)
-        due = [card for lang, is_due, card in self.pronounce if lang is language and is_due]
-        new = [card for lang, is_due, card in self.pronounce if lang is language and not is_due]
+        queued = [
+            (is_due, card)
+            for lang, is_due, card in self.pronounce
+            if lang is language and card.item_id not in self.excluded
+        ]
+        due = [card for is_due, card in queued if is_due]
+        new = [card for is_due, card in queued if not is_due]
         return PronunciationQueue(len(due), len(new), (*due, *new))
 
     async def answer_card(
@@ -280,7 +299,8 @@ class FakeAnkiStore:
         entry = next(
             (e for e in self.pronounce if e[0] is language and e[2].card_id == card_id), None
         )
-        if entry is None:
+        # An excluded Item's card is suspended: out of the Pronounce scope, as the adapter's
+        if entry is None or entry[2].item_id in self.excluded:
             raise AppError(ErrorCode.NOT_FOUND)
         if entry[2].reps != reps:
             return True
@@ -289,6 +309,26 @@ class FakeAnkiStore:
         self.answers.append((card_id, rating))
         self.pronounce.remove(entry)
         return False
+
+    async def set_pronunciation_excluded(
+        self, language: Language, item_id: str, excluded: bool
+    ) -> None:
+        if self.busy:
+            raise AppError(ErrorCode.ANKI_BUSY)
+        if not self.available:
+            raise AppError(ErrorCode.ANKI_UNAVAILABLE)
+        stored = self.items.get(item_id)
+        if stored is None or stored[0] is not language:
+            raise AppError(ErrorCode.NOT_FOUND)
+        if (item_id in self.excluded) is excluded:
+            return
+        if self.preview.state is not SetupState.READY:
+            raise AppError(ErrorCode.SETUP_REQUIRED)
+        if excluded:
+            self.excluded.add(item_id)
+        else:
+            self.excluded.discard(item_id)
+        self.exclusions.append((item_id, excluded))
 
     async def sync(self) -> SyncOutcome:
         self.sync_calls += 1
