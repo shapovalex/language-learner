@@ -37,7 +37,10 @@
 // Generate asks POST /api/helpers/examples for five sentences per CEFR level A1 to C2, each with
 // its Russian. The results live only in this module's memory (AD-13), so a fresh mount at that
 // route goes to /captures; the context is used once. A sentence's "Make an Item" puts it into
-// the compose box and opens the Make an Item pane at /captures/make with that Language chosen.
+// the compose box and opens a Sentence Draft at /captures/make/draft in that Language, its Target
+// and Russian meaning taken from the sentence and its shown Russian (POST /api/drafts/blank for
+// the ItemId; the model isn't asked again). If that fails, the Make an Item pane opens for the
+// sentence with the Language chosen and the failure shown.
 //
 // A shown Capture has "Copy to compose box" and "Copy" under its time (plan
 // capture-copy-actions). The first replaces the compose text with the Capture's text as a new
@@ -364,6 +367,8 @@ export function mount(root, params = {}) {
     error: null,
     result: null,
     token: 0,
+    // A sentence's Make an Item is asking for the Draft's ItemId
+    making: false,
   };
   // The Language the next Make an Item pane opens with (from an example sentence), or null
   let presetLanguage = null;
@@ -623,7 +628,7 @@ export function mount(root, params = {}) {
         );
         const makeIt = element("button", "button-link examples-make", MAKE_AN_ITEM);
         makeIt.type = "button";
-        makeIt.addEventListener("click", () => makeFromSentence(sentence));
+        makeIt.addEventListener("click", () => makeFromSentence(sentence, russian));
         li.append(words, makeIt);
         ul.append(li);
       }
@@ -668,18 +673,52 @@ export function mount(root, params = {}) {
     if (examples.error) detailPane.querySelector(".examples-alert button")?.focus();
   }
 
-  // A sentence's Make an Item: it becomes the compose text (a new composition), and the Make an
-  // Item pane opens for it with the examples Language chosen. Nothing is saved
-  function makeFromSentence(sentence) {
-    if (state.busy) return;
+  // A sentence's Make an Item: it becomes the compose text (a new composition), and a Sentence
+  // Draft opens in the examples Language with the sentence and its Russian, so the model isn't
+  // asked again. The Draft's back link and Discard lead to the Make an Item pane for it, with the
+  // Language chosen; a failed ItemId request opens that pane with the failure. Nothing is saved
+  async function makeFromSentence(sentence, russian) {
+    if (state.busy || examples.making) return;
     box.value = sentence;
     clearTranslation();
     state.captureId = crypto.randomUUID();
     state.error = null;
     render();
     syncDirty();
-    presetLanguage = examples.language;
-    navigate(MAKE_PATH);
+    // The Language the shown sentences were written in, not the picker's current one
+    const picked = { language: examples.request.language, category: "sentence" };
+    // Still on the examples pane with this sentence as the compose text after the await
+    const stillHere = () => mounted && exploring && !editing && box.value === sentence;
+    examples.making = true;
+    let itemId;
+    try {
+      ({ itemId } = await blankDraft());
+    } catch (error) {
+      examples.making = false;
+      if (!stillHere()) return;
+      presetLanguage = picked.language;
+      await navigate(MAKE_PATH);
+      if (!mounted || !making) {
+        presetLanguage = null;
+        return;
+      }
+      choice.error = errorMessage(error);
+      renderDetail();
+      return;
+    }
+    examples.making = false;
+    if (!stillHere()) return;
+    const values = blankValues(picked.category, sentence);
+    values.russian = russian;
+    const pending = newDraft({ captureId: null, text: sentence }, picked, { itemId, values });
+    draft = pending;
+    presetLanguage = picked.language;
+    await navigate(MAKE_DRAFT_PATH);
+    // The route didn't open the editor (the leave was refused): drop the Draft and the preset
+    if (!mounted || draft !== pending || !editing) {
+      if (draft === pending) draft = null;
+      presetLanguage = null;
+    }
   }
 
   // What the pane makes a Draft from: the open Capture, or the compose text at /captures/make
