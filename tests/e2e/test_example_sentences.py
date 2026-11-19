@@ -4,9 +4,10 @@ target-grammar-check-and-cefr-examples, AC-3 to AC-5).
 - **Generate.** "Example sentences" in the compose card opens a pane at /captures/examples for
   the compose text. Choose a Language, optionally add context, press Generate: six groups A1 to
   C2, each with 5 sentences and their Russian.
-- **Make an Item.** A sentence's "Make an Item" puts it into the compose box and opens the
-  existing Make an Item pane at /captures/make with the examples Language chosen. No Capture
-  is created.
+- **Make an Item.** A sentence's "Make an Item" puts it into the compose box and opens a
+  Sentence Draft at /captures/make/draft in the examples Language, with the sentence as Target
+  and its shown Russian as Russian meaning; the model isn't asked again and no Capture is
+  created. Discarding the Draft leads to the Make an Item pane with the Language chosen.
 - **Failure.** A failed generation shows an alert with "Try again"; the compose text is
   unchanged, and Try again asks the same again.
 
@@ -45,17 +46,19 @@ from tests.support.items_screen import (
     TRY_AGAIN,
     USE_AS_IS,
     choice,
-    choose,
     field,
     pane,
-    write_it_myself,
 )
 from tests.support.navigation import path_pattern
-from tests.support.network import record_json_bodies
+from tests.support.network import record_json_bodies, stub_api_error
+from tests.support.unsaved import discard_button
 
 MAKE_PATH = "/captures/make"
 MAKE_DRAFT_PATH = "/captures/make/draft"
 MODEL_UNREACHABLE = "Couldn't reach the model"
+GENERATE_API = "/api/drafts/generate"
+BLANK_DRAFT_API = "/api/drafts/blank"
+BLANK_FAILURE = "No ItemId today"
 
 
 def open_examples(page: Page, text: str = PHRASE) -> None:
@@ -100,29 +103,61 @@ def test_generate_shows_six_cefr_groups_of_five_sentences_with_russian(page: Pag
 
 
 @pytest.mark.p0
-def test_a_sentences_make_an_item_opens_the_pane_with_it_and_no_capture(page: Page) -> None:
-    """[P0] AC-4 a B1 sentence's Make an Item: /captures/make with that sentence as the text
-    (Use as is, the compose box) and English chosen; no POST /api/captures is sent.
+def test_a_sentences_make_an_item_opens_its_sentence_draft_with_its_russian(page: Page) -> None:
+    """[P0] AC-4 a B1 sentence's Make an Item: the Draft editor at /captures/make/draft as an
+    English Sentence, Target the sentence and Russian meaning its Russian; no Draft generation
+    and no POST /api/captures are sent. Discard returns to the pane with the sentence and English.
     """
     capture_saves = record_json_bodies(page, API)
+    generations: list[str] = []
+    page.on(
+        "request",
+        lambda request: (
+            generations.append(request.url) if request.url.endswith(GENERATE_API) else None
+        ),
+    )
     ExamplesApi(page)
     open_examples(page)
     generate(page)
-    sentence = EXAMPLES_REPLY["levels"][2]["sentences"][0]["sentence"]
+    picked = EXAMPLES_REPLY["levels"][2]["sentences"][0]
+    sentence, russian = picked["sentence"], picked["russian"]
     expect(level_group(page, "B1")).to_contain_text(sentence)
     sentence_item(page, sentence).get_by_role("button", name=MAKE_AN_ITEM, exact=True).click()
 
-    expect(page).to_have_url(path_pattern(MAKE_PATH))
+    expect(page).to_have_url(path_pattern(MAKE_DRAFT_PATH))
+    expect(field(page, "Target")).to_have_value(sentence)
+    expect(field(page, "Russian meaning")).to_have_value(russian)
+    expect(main(page)).to_contain_text("English Sentence")
+    assert generations == []
+    assert capture_saves == []
 
-    expect(pane(page)).to_be_visible()
+    main(page).get_by_role("button", name="Discard", exact=True).click()
+    discard_button(page).click()
+    expect(page).to_have_url(path_pattern(MAKE_PATH))
     expect(compose_box(page)).to_have_value(sentence)
     expect(pane(page).get_by_role("radio", name=USE_AS_IS, exact=True)).to_be_checked()
     expect(choice(page, "English")).to_have_attribute("aria-pressed", "true")
-    choose(page, "English", "Sentence")
-    write_it_myself(page).click()
-    expect(page).to_have_url(path_pattern(MAKE_DRAFT_PATH))
-    expect(field(page, "Target")).to_have_value(sentence)
-    assert capture_saves == []
+
+
+@pytest.mark.p1
+def test_a_failed_draft_request_opens_the_pane_with_its_language_and_the_error(
+    page: Page,
+) -> None:
+    """[P1] the Draft's ItemId request fails: the Make an Item pane opens for the sentence with
+    the Language the sentences were written in (not the picker's later choice) and the failure.
+    """
+    stub_api_error(page, BLANK_DRAFT_API, status=500, code="internal", message=BLANK_FAILURE)
+    ExamplesApi(page)
+    open_examples(page)
+    generate(page)
+    examples_language(page, "French").click()
+    sentence = EXAMPLES_REPLY["levels"][0]["sentences"][0]["sentence"]
+    sentence_item(page, sentence).get_by_role("button", name=MAKE_AN_ITEM, exact=True).click()
+
+    expect(page).to_have_url(path_pattern(MAKE_PATH))
+    expect(pane(page)).to_contain_text(BLANK_FAILURE)
+    expect(choice(page, "English")).to_have_attribute("aria-pressed", "true")
+    expect(compose_box(page)).to_have_value(sentence)
 
 
 @pytest.mark.p1
