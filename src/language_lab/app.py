@@ -398,10 +398,11 @@ def create_app(
     )
     app.include_router(setup_router(setup))
     app.include_router(captures_router(CaptureService(anki_store)))
-    app.include_router(audio_router(AudioService(speech)))
+    audio = AudioService(speech)
+    app.include_router(audio_router(audio))
     app.include_router(drafts_router(DraftService(llm)))
     app.include_router(helpers_router(HelperService(llm)))
-    app.include_router(items_router(ItemService(anki_store)))
+    app.include_router(items_router(ItemService(anki_store, audio)))
     app.include_router(media_router(ItemService(anki_store)))
     app.include_router(
         pronunciation_router(PronunciationService(anki_store, sync=sync, speech=speech))

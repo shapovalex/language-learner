@@ -2,8 +2,8 @@
 
 Each method is one complete use case that the adapter runs under the Anki lock: readiness, sync,
 the SetupState, the Setup preview and apply, Create, List, Get and Delete Capture, Save and Delete
-Item, the Item reads, the Pronunciation queue and Rating, and excluding an Item from
-Pronunciation.
+Item, the Item reads, the Pronunciation queue and Rating, excluding an Item from
+Pronunciation, and the example audio backfill.
 Later entries add methods here, to the AnkiConnect adapter and to the fake in tests/fakes/ together.
 """
 
@@ -98,6 +98,7 @@ class AnkiStore(Protocol):
         audio: AudioIntent = AudioIntent.KEEP,
         *,
         audio_bytes: bytes | None = None,
+        example_audio_bytes: bytes | None = None,
     ) -> None:
         """Save the Item `item_id`, create-or-update by ItemId (AD-20), under one lock hold. The
         ItemId is matched in Python, never in a query (AD-4). A new one is added to its
@@ -106,8 +107,25 @@ class AnkiStore(Protocol):
         exact MP3 bytes before the note and deletes differing old managed media after the
         note write and card placement succeed. `remove` stores nothing, writes an empty Audio
         field, then deletes the old managed media; a failure stops without compensation and
-        leaves any leftover clip for Setup's `orphanMedia` repair. Raises
-        `AppError(SETUP_REQUIRED | ANKI_UNAVAILABLE | ANKI_BUSY)`.
+        leaves any leftover clip for Setup's `orphanMedia` repair. `example_audio_bytes`
+        (a Vocabulary Item only, else `VALIDATION_FAILED`) is stored the same way as its
+        `ExampleAudio`, and the Example card (ord 4) Anki then makes goes to its Study deck,
+        unsuspended; a Vocabulary Item saved with a blank Example or ExampleRussian, or with
+        another Example and no new bytes, has `ExampleAudio` emptied, its old clip deleted and
+        its Example card suspended. A clip either audio field still names is never deleted. Raises
+        `AppError(VALIDATION_FAILED | SETUP_REQUIRED | ANKI_UNAVAILABLE | ANKI_BUSY)`.
+        """
+        ...
+
+    async def store_example_audio(
+        self, language: Language, item_id: str, example: str, audio_bytes: bytes
+    ) -> bool:
+        """Give the Vocabulary Item `item_id` of `language` its example audio (the backfill),
+        under one lock hold: store the MP3 by its AD-7 name, write `ExampleAudio`, and move the
+        Example card to its Study deck. Nothing is written, and False comes back, when the Item
+        is gone, its Example is no longer `example`, its ExampleRussian is blank or its
+        `ExampleAudio` already holds something. Prefix guarded and Setup gated. Raises
+        `AppError(VALIDATION_FAILED | SETUP_REQUIRED | ANKI_UNAVAILABLE | ANKI_BUSY)`.
         """
         ...
 
@@ -144,7 +162,7 @@ class AnkiStore(Protocol):
         """The Language's new and due, unsuspended (and unburied) Pronounce Cards (ord 3) in its
         Pronunciation decks, from the exact manifest scopes only, under one lock hold; not gated
         (AD-19). Due Cards first, oldest due first, then new Cards in creation order (FR-30,
-        AD-6), each Target decoded through the codec (AD-9). Raises
+        AD-6), each Target decoded through the codec (AD-9) and marked new or not. Raises
         `AppError(ANKI_UNAVAILABLE | ANKI_BUSY)`.
         """
         ...

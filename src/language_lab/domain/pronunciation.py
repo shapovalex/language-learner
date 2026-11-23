@@ -25,7 +25,9 @@ class Rating(StrEnum):
 
 @dataclass(frozen=True)
 class PronounceCard:
-    """One queued Pronounce Card: `audio` is the managed Reference clip's name, or None."""
+    """One queued Pronounce Card: `audio` is the managed Reference clip's name, or None;
+    `is_new` whether Anki still has it as a new card.
+    """
 
     card_id: int
     item_id: str
@@ -33,6 +35,7 @@ class PronounceCard:
     category: Category
     target: str
     audio: str | None
+    is_new: bool = False  # a new Card; else a due one (the client mixes the two kinds)
 
     def wire(self) -> dict[str, object]:
         return {
@@ -42,6 +45,7 @@ class PronounceCard:
             "category": self.category.value,
             "target": self.target,
             "audio": self.audio,
+            "isNew": self.is_new,
         }
 
 

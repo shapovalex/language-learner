@@ -5,26 +5,30 @@ confirmed Setup apply, never at startup or on a preview.
 steps are `AddField(note_type, field)`: append a field with `modelFieldAdd` (spike 2.2: no
 modal; no `index`, since it inserts there), skipped when Anki's note type already has it.
 
-`run_migrations(invoke, manifest, migrations, state)` runs them sorted by `from_version`, from
+`add_fields(invoke, manifest, migrations, state)` runs their steps sorted by `from_version`, from
 the lowest effective version among the notes below the manifest's SchemaVersion (none: from the
-first migration) up to the manifest's, then sets each such note's `SchemaVersion` to the
-manifest's with `updateNoteFields`. A note's effective version is its stored integer when it is
+first migration) up to the manifest's. `stamp_versions(invoke, manifest, state)` then sets
+each such note's `SchemaVersion` to the manifest's with `updateNoteFields`. Setup's apply adds
+the fields before its Create and Repair items and stamps after them: a card template may name
+a field only once the note type has it. A note's effective version is its stored integer when it is
 at least the first migration's `from_version`; an empty, non-integer or lower one counts as the
 first's.
 
 Every write is one `invoke` (the client's guarded, ungated Setup path). A `PrefixViolation`
 propagates; a failed write (`AppError`) doesn't end the run: the verification reports it.
 
-`build_migrations(prefix)` is the production list: empty at SchemaVersion 1.
+`build_migrations(prefix)` is the production list. v1 to v2 appends `ExampleAudio` to both
+Vocabulary note types (their Example card template comes with the templates Repair).
 """
 
 from collections.abc import Iterable
 from dataclasses import dataclass
 
-from language_lab.adapters.anki.manifest import Manifest
+from language_lab.adapters.anki.manifest import EXAMPLE_AUDIO_FIELD, Manifest, build_manifest
 from language_lab.adapters.anki.setup_apply import Invoke, try_write
 from language_lab.adapters.anki.setup_diff import AnkiState
 from language_lab.adapters.anki.setup_gate import SCHEMA_VERSION_FIELD
+from language_lab.domain.catalog import Category, Language
 
 
 @dataclass(frozen=True)
@@ -40,9 +44,10 @@ class Migration:
 
 
 def build_migrations(prefix: str) -> tuple[Migration, ...]:
-    """The production migrations for `prefix`'s note types: none at SchemaVersion 1."""
-    del prefix  # names derive from it once a migration exists
-    return ()
+    """The production migrations for `prefix`'s note types, names from the manifest (AD-3)."""
+    manifest = build_manifest(prefix)
+    vocabulary = (manifest.item_note_type(lang, Category.VOCABULARY) for lang in Language)
+    return (Migration(1, tuple(AddField(name, EXAMPLE_AUDIO_FIELD) for name in vocabulary)),)
 
 
 def _effective(version: int | None, first: int) -> int:
@@ -67,24 +72,28 @@ async def _add_field(invoke: Invoke, step: AddField, fields: dict[str, list[str]
     present.append(step.field)
 
 
-async def run_migrations(
+async def add_fields(
     invoke: Invoke, manifest: Manifest, migrations: Iterable[Migration], state: AnkiState
 ) -> None:
-    """Run the migrations Anki's older notes need, then stamp them with the manifest's
-    SchemaVersion (module docstring).
-    """
+    """Run the steps of the migrations Anki's older notes need (module docstring)."""
     current = manifest.schema_version
     ordered = sorted(migrations, key=lambda m: m.from_version)
+    if not ordered:
+        return
     older = _older(state, current)
-    if ordered:
-        first = ordered[0].from_version
-        start = min((_effective(v, first) for _, v in older), default=first)
-        fields = {name: list(model.fields) for name, model in state.managed_models.items()}
-        for migration in ordered:
-            if start <= migration.from_version < current:
-                for step in migration.steps:
-                    await _add_field(invoke, step, fields)
-    for note_id, _ in older:
+    first = ordered[0].from_version
+    start = min((_effective(v, first) for _, v in older), default=first)
+    fields = {name: list(model.fields) for name, model in state.managed_models.items()}
+    for migration in ordered:
+        if start <= migration.from_version < current:
+            for step in migration.steps:
+                await _add_field(invoke, step, fields)
+
+
+async def stamp_versions(invoke: Invoke, manifest: Manifest, state: AnkiState) -> None:
+    """Set every managed note below the manifest's SchemaVersion to it."""
+    current = manifest.schema_version
+    for note_id, _ in _older(state, current):
         await try_write(
             invoke,
             "updateNoteFields",

@@ -5,8 +5,9 @@ With a `SetupGate` shared with the client (AD-19), every SetupState the store co
 startup `setup_state()`, each preview, each apply's verification) is set in the gate.
 
 `migrations` (adapters/anki/migrations.py) run only inside a confirmed apply whose plan has a
-Migrate item, after its Create and Repair items (FR-7, AD-3). The opt-in repairs the user
-checked (entry 11) run last, under the same lock hold.
+Migrate item: their fields are added before its Create and Repair items (a repaired card
+template may name a new field), the SchemaVersion rewrite runs after them (FR-7, AD-3). The
+opt-in repairs the user checked (entry 11) run last, under the same lock hold.
 
 Create Capture (story 3.1) writes through `client.invoke`, so the Prefix guard and the setup gate
 both apply to it (AD-4, AD-19).
@@ -46,6 +47,12 @@ matched note's cards. `set_pronunciation_excluded` finds the note as `delete_ite
 Category scopes, the ItemId matched in Python) and sends `suspend` or `unsuspend` for that one
 card only when its state differs, guarded and gated, all under one lock hold; ords 0-2 are never
 written. A card the user suspended in Anki reads as excluded too.
+
+Example audio (SchemaVersion 2): Save takes optional example audio bytes for a Vocabulary Item,
+stored by the AD-7 name into `ExampleAudio`; Anki then makes the Example card (ord 4) in the
+deck of the note's first card, so Save moves it to its Study deck. `store_example_audio` is the
+backfill's write for one Item. Old example media is cleaned up like `Audio`'s, and a clip either
+field still names is kept. Each Pronounce Card in the queue says whether it is new.
 """
 
 import asyncio
@@ -66,8 +73,14 @@ from language_lab.adapters.anki.codec import (
 )
 from language_lab.adapters.anki.guard import is_int, media_pattern
 from language_lab.adapters.anki.lock import AnkiLock
-from language_lab.adapters.anki.manifest import PRONOUNCE_ORD, STUDY_ORDS, Manifest
-from language_lab.adapters.anki.migrations import Migration, run_migrations
+from language_lab.adapters.anki.manifest import (
+    EXAMPLE_AUDIO_FIELD,
+    EXAMPLE_ORD,
+    PRONOUNCE_ORD,
+    STUDY_ORDS,
+    Manifest,
+)
+from language_lab.adapters.anki.migrations import Migration, add_fields, stamp_versions
 from language_lab.adapters.anki.query import note_query, pronounce_queue_query
 from language_lab.adapters.anki.setup_apply import run_plan, run_repairs
 from language_lab.adapters.anki.setup_gate import (
@@ -76,7 +89,7 @@ from language_lab.adapters.anki.setup_gate import (
     SetupGate,
     read_preview,
 )
-from language_lab.domain.audio import audio_upload, media_name
+from language_lab.domain.audio import audio_upload, media_name, validate_mp3
 from language_lab.domain.captures import Capture
 from language_lab.domain.catalog import Category, Language
 from language_lab.domain.errors import AppError, ErrorCode
@@ -182,7 +195,26 @@ def _stored_item(info: dict[str, Any], category: Category, prefix: str) -> Item:
     )
     has_audio = bool(_optional(info, _AUDIO).strip())
     audio = _audio_name(_optional(info, _AUDIO), prefix)
-    return Item(_field(info, _ITEM_ID).strip(), content, has_audio, audio)
+    example_audio = _optional(info, EXAMPLE_AUDIO_FIELD)
+    return Item(
+        _field(info, _ITEM_ID).strip(),
+        content,
+        has_audio,
+        audio,
+        has_example_audio=bool(example_audio.strip()),
+        example_audio=_audio_name(example_audio, prefix),
+    )
+
+
+def _has_example(content: ItemContent) -> bool:
+    """A Vocabulary content whose Example and its Russian both hold text: the Example card's
+    front renders once its note has example audio too.
+    """
+    return (
+        isinstance(content, VocabularyContent)
+        and bool(content.example.strip())
+        and bool(content.example_russian.strip())
+    )
 
 
 def _audio_name(value: str, prefix: str) -> str | None:
@@ -332,9 +364,14 @@ class AnkiConnectStore:
                 raise AppError(ErrorCode.PLAN_CHANGED)
             if before.state is SetupState.NEWER_SCHEMA:
                 raise AppError(ErrorCode.SETUP_REQUIRED)
-            await run_plan(self._client.invoke_setup, manifest, state, before.items)
-            if any(i.action is PlanAction.MIGRATE for i in before.items):
-                await run_migrations(self._client.invoke_setup, manifest, self._migrations, state)
+            invoke = self._client.invoke_setup
+            migrate = any(i.action is PlanAction.MIGRATE for i in before.items)
+            # Fields first: a templates Repair may add a card template naming a new field
+            if migrate:
+                await add_fields(invoke, manifest, self._migrations, state)
+            await run_plan(invoke, manifest, state, before.items)
+            if migrate:
+                await stamp_versions(invoke, manifest, state)
             await run_repairs(self._client.invoke_setup, checked)
             _, verified = await read_preview(self._client.invoke, manifest)
             self._set_gate(verified)
@@ -419,35 +456,54 @@ class AnkiConnectStore:
         audio: AudioIntent = AudioIntent.KEEP,
         *,
         audio_bytes: bytes | None = None,
+        example_audio_bytes: bytes | None = None,
     ) -> None:
         """Update the note whose decoded ItemId is `item_id` (matched in Python, AD-4), or add
-        it to its Pronunciation deck and move cards 0-2 to their Study decks (AD-6), under one
-        lock hold. Replacement stores media first and cleans old managed media last; removal
-        stores nothing, empties Audio, then cleans the old managed media last. A failure stops
-        the sequence with no compensation: leftovers are Setup's `orphanMedia` repairs. Raises
-        `AppError(SETUP_REQUIRED | ANKI_UNAVAILABLE | ANKI_BUSY)`.
+        it to its Pronunciation deck and move cards 0-2 (and a Vocabulary note's Example card)
+        to their Study decks (AD-6), under one lock hold. Replacement stores media first and
+        cleans old managed media last; removal stores nothing, empties Audio, then cleans the
+        old managed media last. `example_audio_bytes` (Vocabulary only) is stored the same way
+        as `ExampleAudio`, and the Example card Anki then makes is moved to its Study deck (and
+        unsuspended). A Vocabulary Item whose Example or ExampleRussian is blank, or whose
+        Example changed with no new bytes, has its `ExampleAudio` emptied, the old clip deleted
+        and its Example card suspended.
+        A clip still named by either audio field is never deleted. A failure stops the sequence
+        with no compensation: leftovers are Setup's `orphanMedia` repairs. Raises
+        `AppError(VALIDATION_FAILED | SETUP_REQUIRED | ANKI_UNAVAILABLE | ANKI_BUSY)`.
         """
         audio_upload(audio, audio_bytes)
+        vocabulary = content.category is Category.VOCABULARY
+        if example_audio_bytes is not None:
+            if not vocabulary:
+                raise AppError(ErrorCode.VALIDATION_FAILED)
+            validate_mp3(example_audio_bytes)
         manifest = self._require_manifest()
         model = manifest.item_note_type(language, content.category)
         fields = _content_fields(content)
         async with self._lock.hold():
             infos = await self._note_infos(manifest, model)
             stored = next(_matching(infos, _ITEM_ID, item_id), None)
-            old_name = _audio_name(_optional(stored, _AUDIO), manifest.prefix) if stored else None
-            name = None
+            prefix = manifest.prefix
+            old_name = _audio_name(_optional(stored, _AUDIO), prefix) if stored else None
+            stored_example = _optional(stored, EXAMPLE_AUDIO_FIELD) if stored else ""
+            old_example = _audio_name(stored_example, prefix)
+            name = example_name = None
             if audio_bytes is not None:
-                name = media_name(manifest.prefix, item_id, audio_bytes)
-                result = await self._client.invoke(
-                    "storeMediaFile",
-                    filename=name,
-                    data=base64.b64encode(audio_bytes).decode("ascii"),
-                )
-                if result != name:
-                    raise AppError(ErrorCode.ANKI_UNAVAILABLE)
+                name = await self._store_media(manifest, item_id, audio_bytes)
                 fields[_AUDIO] = f"[sound:{name}]"
             elif audio is AudioIntent.REMOVE:
                 fields[_AUDIO] = ""
+            example_cleared = False
+            if example_audio_bytes is not None:
+                example_name = await self._store_media(manifest, item_id, example_audio_bytes)
+                fields[EXAMPLE_AUDIO_FIELD] = f"[sound:{example_name}]"
+            elif vocabulary and stored_example.strip():
+                # No Example card to make, or the clip speaks an Example no longer stored
+                old_text = _optional(stored, "Example") if stored else ""
+                assert isinstance(content, VocabularyContent)
+                if not _has_example(content) or old_text != content.example:
+                    fields[EXAMPLE_AUDIO_FIELD] = ""
+                    example_cleared = True
             if stored is not None:
                 note_id = stored.get("noteId")
                 if not is_int(note_id):
@@ -455,6 +511,11 @@ class AnkiConnectStore:
                 await self._client.invoke(
                     "updateNoteFields", note={"id": note_id, "fields": _encoded(fields)}
                 )
+                if example_name is not None:
+                    # Anki makes the Example card in the deck of the note's first card
+                    await self._place_example_card(manifest, model, note_id)
+                elif example_cleared:
+                    await self._place_example_card(manifest, model, note_id, enabled=False)
             else:
                 fields |= {
                     _AUDIO: fields.get(_AUDIO, ""),
@@ -473,13 +534,92 @@ class AnkiConnectStore:
                 if not is_int(note_id):
                     raise AppError(ErrorCode.ANKI_UNAVAILABLE)
                 for ord, card_id in (await self._cards_by_ord(note_id)).items():
-                    if ord in STUDY_ORDS:
+                    if ord in STUDY_ORDS or ord == EXAMPLE_ORD:
                         await self._client.invoke(
                             "changeDeck", cards=[card_id], deck=manifest.card_deck(model, ord)
                         )
-            superseded = audio is AudioIntent.REMOVE or (name is not None and name != old_name)
-            if old_name and superseded:
-                await self._client.invoke("deleteMediaFile", filename=old_name)
+            kept = {
+                name or (None if audio is AudioIntent.REMOVE else old_name),
+                example_name or (None if example_cleared else old_example),
+            }
+            for old in sorted({n for n in (old_name, old_example) if n and n not in kept}):
+                await self._client.invoke("deleteMediaFile", filename=old)
+
+    async def store_example_audio(
+        self, language: Language, item_id: str, example: str, audio_bytes: bytes
+    ) -> bool:
+        """Give the Vocabulary Item `item_id` of `language` its example audio, under one lock
+        hold: store the clip by its AD-7 name, write `ExampleAudio`, and move the Example card
+        Anki makes to its Study deck. Writes nothing and returns False when the Item is gone,
+        its decoded Example is no longer `example`, it lacks an ExampleRussian, or its
+        `ExampleAudio` already holds something; True once written. Raises
+        `AppError(VALIDATION_FAILED | SETUP_REQUIRED | ANKI_UNAVAILABLE | ANKI_BUSY)`.
+        """
+        validate_mp3(audio_bytes)
+        manifest = self._require_manifest()
+        model = manifest.item_note_type(language, Category.VOCABULARY)
+        async with self._lock.hold():
+            infos = await self._note_infos(manifest, model)
+            info = next(_matching(infos, _ITEM_ID, item_id), None)
+            if info is None:
+                return False
+            item = _stored_item(info, Category.VOCABULARY, manifest.prefix)
+            content = item.content
+            if (
+                item.has_example_audio
+                or not _has_example(content)
+                or getattr(content, "example", None) != example
+            ):
+                return False
+            note_id = info.get("noteId")
+            if not is_int(note_id):
+                raise AppError(ErrorCode.ANKI_UNAVAILABLE)
+            name = await self._store_media(manifest, item_id, audio_bytes)
+            fields = {EXAMPLE_AUDIO_FIELD: f"[sound:{name}]"}
+            await self._client.invoke(
+                "updateNoteFields", note={"id": note_id, "fields": _encoded(fields)}
+            )
+            await self._place_example_card(manifest, model, note_id)
+        return True
+
+    async def _store_media(self, manifest: Manifest, item_id: str, data: bytes) -> str:
+        """Store `data` under its AD-7 name and return it; `ANKI_UNAVAILABLE` when Anki answers
+        another name.
+        """
+        name = media_name(manifest.prefix, item_id, data)
+        result = await self._client.invoke(
+            "storeMediaFile", filename=name, data=base64.b64encode(data).decode("ascii")
+        )
+        if result != name:
+            raise AppError(ErrorCode.ANKI_UNAVAILABLE)
+        return name
+
+    async def _place_example_card(
+        self, manifest: Manifest, model: str, note_id: int, *, enabled: bool = True
+    ) -> None:
+        """Move the note's Example card (ord 4), when Anki made one, to its Study deck unless it
+        is there already, and unsuspend it if suspended; with `enabled=False` (its
+        `ExampleAudio` emptied, so its front is empty) suspend it instead, never deleted.
+        `ANKI_UNAVAILABLE` on a malformed reply.
+        """
+        cards = await self._note_cards(note_id)
+        infos = _present_entries(await self._client.invoke("cardsInfo", cards=cards), len(cards))
+        deck = manifest.card_deck(model, EXAMPLE_ORD)
+        for info in infos:
+            if info.get("ord") != EXAMPLE_ORD:
+                continue
+            card_id = info.get("cardId")
+            if not is_int(card_id):
+                raise AppError(ErrorCode.ANKI_UNAVAILABLE)
+            suspended = info.get("queue") == _SUSPENDED_QUEUE
+            if not enabled:
+                if not suspended:
+                    await self._client.invoke("suspend", cards=[card_id])
+                continue
+            if info.get("deckName") != deck:
+                await self._client.invoke("changeDeck", cards=[card_id], deck=deck)
+            if suspended:
+                await self._client.invoke("unsuspend", cards=[card_id])
 
     async def get_media(self, name: str) -> bytes:
         manifest = self._require_manifest()
@@ -617,6 +757,7 @@ class AnkiConnectStore:
                 category=found[card_id],
                 target=_field(note, "Target"),
                 audio=_audio_name(_optional(note, _AUDIO), manifest.prefix),
+                is_new=info["type"] == _NEW_TYPE,
             )
             if info["type"] == _NEW_TYPE:
                 new.append((card_id, card))

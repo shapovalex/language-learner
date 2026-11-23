@@ -393,3 +393,75 @@ class TestReviewLoopGreenPhase:
                   document.dispatchEvent(new Event("visibilitychange"));
                 }"""
             )
+
+
+class TestNewAndDueMix:
+    """The next Card mixes new and due ones (plan example-audio-card-and-pronunciation-mix):
+    the Card just rated is left out while another is queued, and with both kinds queued the
+    kind is drawn with Math.random (stubbed by `ReviewApi(random=…)`), due with probability
+    due/(due + new).
+    """
+
+    @pytest.mark.p0
+    @pytest.mark.parametrize("draw", [0.0, 0.99], ids=["draw-due", "draw-new"])
+    def test_a_new_card_rated_good_is_never_shown_straight_again(
+        self, page: Page, draw: float
+    ) -> None:
+        """AC: 5 new Cards, the first rated Good comes back due; the next Card is another new
+        one while the chip reads "1 due · 4 new", whichever kind the draw favours.
+        """
+        page.set_viewport_size(viewports.PHONE)
+        new = [review_card(f"new {i}") for i in range(5)]
+        api = ReviewApi(page, lang="en", new=new, random=draw, relearn=True)
+        page.goto("/en/pronunciation")
+        expect(queue_chip(page, 0, 5)).to_have_text("0 due · 5 new")
+        expect(target_text(page, "new 0")).to_be_visible()
+
+        finish_attempt(page)
+        rating_button(page, "Good").click()
+
+        expect(queue_chip(page, 1, 4)).to_have_text("1 due · 4 new")
+        expect(target_text(page, "new 1")).to_be_visible()
+        expect(target_text(page, "new 0")).to_have_count(0)
+        assert api.ratings == [{"cardId": new[0]["cardId"], "reps": 0, "rating": "good"}]
+
+    @pytest.mark.p0
+    def test_the_draw_picks_a_new_card_over_a_due_one(self, page: Page) -> None:
+        """Both kinds queued and the draw past due/(due + new): the first new Card shows."""
+        page.set_viewport_size(viewports.DESKTOP)
+        ReviewApi(
+            page, lang="en", due=[review_card("due 0")], new=[review_card("new 0")], random=0.6
+        )
+
+        page.goto("/en/pronunciation")
+
+        expect(queue_chip(page, 1, 1)).to_have_text("1 due · 1 new")
+        expect(target_text(page, "new 0")).to_be_visible()
+        expect(target_text(page, "due 0")).to_have_count(0)
+
+    @pytest.mark.p1
+    def test_the_draw_is_weighted_by_the_due_and_new_counts(self, page: Page) -> None:
+        """3 due and 1 new: a draw of 0.6 is under 3/4, so the first due Card shows."""
+        page.set_viewport_size(viewports.DESKTOP)
+        due = [review_card(f"due {i}") for i in range(3)]
+        ReviewApi(page, lang="en", due=due, new=[review_card("new 0")], random=0.6)
+
+        page.goto("/en/pronunciation")
+
+        expect(target_text(page, "due 0")).to_be_visible()
+
+    @pytest.mark.p1
+    def test_the_only_card_left_shows_again_after_its_rating(self, page: Page) -> None:
+        """One kind, one Card: rated and due again, it is the Card shown (nothing else exists)."""
+        page.set_viewport_size(viewports.PHONE)
+        only = review_card("alone")
+        ReviewApi(page, lang="en", new=[only], relearn=True)
+        page.goto("/en/pronunciation")
+
+        finish_attempt(page)
+        rating_button(page, "Good").click()
+
+        expect(queue_chip(page, 1, 0)).to_have_text("1 due · 0 new")
+        expect(target_text(page, "alone")).to_be_visible()
+        for name in RATINGS:
+            expect(rating_button(page, name)).to_be_disabled()

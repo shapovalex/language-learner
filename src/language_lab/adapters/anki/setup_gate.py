@@ -15,10 +15,10 @@ Only manifest note types are read (exact `note_query`), so another Prefix's note
 The same `notesInfo` answer gives the reading rule notes' decoded `RuleId`s, which the diff
 matches against the seeded rules.
 
-For the opt-in repairs (entry 11) the preview also reads, still reads only: the `Audio` and
-`Example<n>Audio` names the same `notesInfo` answer references, the manifest note types' cards
-(one `multi` of `findCards` beside `getMediaFilesNames` for `<prefix lowercased>_*`, then one
-`cardsInfo`). They never change the SetupState.
+For the opt-in repairs (entry 11) the preview also reads, still reads only: the `Audio`,
+`ExampleAudio` and `Example<n>Audio` names the same `notesInfo` answer references, the manifest
+note types' cards (one `multi` of `findCards` beside `getMediaFilesNames` for
+`<prefix lowercased>_*`, then one `cardsInfo`). They never change the SetupState.
 
 `SetupGate(manifest)` is shared by the client and the store. `check(action, params, lookup)`
 runs after the Prefix guard on every non-Setup request: reads (and `multi` of reads) pass, and
@@ -45,8 +45,9 @@ from language_lab.domain.setup import PlanAction, ResourceKind, SetupPreview, Se
 SCHEMA_VERSION_FIELD = "SchemaVersion"
 AUDIO_FIELD = "Audio"
 RULE_ID_FIELD = "RuleId"
-# The fields that may hold `[sound:]` tags: an Item's, then a reading rule's examples'
-_AUDIO_FIELDS = (AUDIO_FIELD, "Example1Audio", "Example2Audio", "Example3Audio")
+# The fields that may hold `[sound:]` tags: an Item's (a Vocabulary one's example too), then a
+# reading rule's examples'
+_AUDIO_FIELDS = (AUDIO_FIELD, "ExampleAudio", "Example1Audio", "Example2Audio", "Example3Audio")
 _SOUND = re.compile(r"\[sound:([^\]]+)\]")
 _SUSPENDED_QUEUE = -1
 _MODEL_READS = ("modelFieldNames", "modelTemplates", "modelStyling")

@@ -74,6 +74,7 @@ import {
 import { alertBox, copyText, element, skeleton, tryAgain } from "../dom.js";
 import { confirmDestructive, confirmLeave, navigate, redirect, setDirty } from "../router.js";
 import {
+  EXAMPLE_AUDIO_FAILED,
   blankValues,
   chosenText,
   draftEditor,
@@ -145,9 +146,10 @@ function draftPath(captureId) {
   return captureId === null ? MAKE_DRAFT_PATH : `${capturePath(captureId)}/new`;
 }
 
-function savedFlash(target, captureId) {
-  if (captureId === null) return `Saved “${target}” to Anki.`;
-  return `Saved “${target}” to Anki. Make another Item from this Capture, or delete it.`;
+function savedFlash(target, captureId, exampleFailed = false) {
+  const warning = exampleFailed ? ` ${EXAMPLE_AUDIO_FAILED}` : "";
+  if (captureId === null) return `Saved “${target}” to Anki.${warning}`;
+  return `Saved “${target}” to Anki. Make another Item from this Capture, or delete it.${warning}`;
 }
 
 // The pane's choices, as a Capture opens: Use as is, nothing picked
@@ -916,8 +918,9 @@ export function mount(root, params = {}) {
         return;
       }
     }
+    let saved;
     try {
-      await saveItem(saving.language, item, saving.audio?.accepted?.blob);
+      saved = await saveItem(saving.language, item, saving.audio?.accepted?.blob);
     } catch (error) {
       if (!mounted || draft !== saving) return;
       saving.busy = false;
@@ -927,15 +930,17 @@ export function mount(root, params = {}) {
     }
     if (!mounted || draft !== saving) return;
     setDirty(null);
+    const exampleFailed = Boolean(saved?.exampleAudioFailed);
     if (saving.captureId === null) {
       // Made from the compose text: it's used, so the box starts afresh
       box.value = "";
       renderButtons();
-      await navigate("/captures", { flash: savedFlash(item.target, null) });
+      await navigate("/captures", { flash: savedFlash(item.target, null, exampleFailed) });
       if (mounted) box.focus();
       return;
     }
-    navigate(capturePath(saving.captureId), { flash: savedFlash(item.target, saving.captureId) });
+    const flash = savedFlash(item.target, saving.captureId, exampleFailed);
+    navigate(capturePath(saving.captureId), { flash });
   }
 
   function openSheet(saving, matches) {

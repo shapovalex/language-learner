@@ -307,6 +307,9 @@ def test_audio_can_be_played_and_saved_for_each_draft_at_all_widths(
     assert api.saves[0].audio_file == MP3
     assert api.saves[0].item["category"] == category.lower()
     assert api.preview_requests[0]["language"] == language
+    # Only a Vocabulary Save names its Voice for example audio; a Sentence has none
+    voice_sent = api.saves[0].item.get("exampleVoice")
+    assert voice_sent == (api.preview_requests[0]["voice"] if category == "Vocabulary" else None)
 
 
 @pytest.mark.p1
@@ -541,6 +544,9 @@ def test_a_new_draft_saves_its_automatic_audio_with_no_audio_clicks(
     assert (saved.item["itemId"], saved.item["audio"]) == (item_id, "replace")
     assert saved.audio_file == MP3
     assert len(api.preview_requests) == 1
+    # A Vocabulary Save names the Draft's Voice, so the server can make its example audio
+    vocabulary = saved.item["category"] == "vocabulary"
+    assert saved.item.get("exampleVoice") == (SECOND_VOICE[language] if vocabulary else None)
 
 
 @pytest.mark.p1

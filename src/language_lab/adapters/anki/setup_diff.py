@@ -22,8 +22,9 @@ Decks under the Prefix and note types named `<Prefix> …` that the manifest doe
 `unmanaged`: listed, never planned.
 
 Opt-in repairs (entry 11) go in `repairs`, one row per resource, never in `items`: orphan
-media (an AD-7 media name no managed note's decoded `Audio` or `Example<n>Audio` holds as
-`[sound:<name>]` and no reading rule Create row of the same diff stores), sorted by name; then
+media (an AD-7 media name no managed note's decoded `Audio`, `ExampleAudio` or
+`Example<n>Audio` holds as `[sound:<name>]` and no reading rule Create row of the same diff
+stores), sorted by name; then
 each managed card in a deck other than `manifest.card_deck(note type, ord)`; then each
 unsuspended Capture card; cards by id. Only manifest note types' cards count, and a card whose
 ord its note type doesn't declare isn't offered.

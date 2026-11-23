@@ -1617,6 +1617,28 @@ button.segment {
   font-weight: 600;
 }
 
+.items-backfill {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-3);
+  margin: 0 0 var(--space-4);
+}
+
+.items-backfill[hidden] {
+  display: none;
+}
+
+.items-backfill-progress {
+  margin: 0;
+  color: var(--color-ink-muted);
+  font-size: var(--font-size-body-sm);
+}
+
+.items-backfill .inline-alert-error {
+  flex-basis: 100%;
+}
+
 .items-list {
   display: flex;
   flex-direction: column;

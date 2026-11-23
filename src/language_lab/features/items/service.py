@@ -2,16 +2,54 @@
 the search and the duplicate check, both matched on normalized text here (AD-12), and one Item
 by ItemId, permanent deletion with retryable media cleanup, and excluding an Item from
 Pronunciation (its Pronounce Card suspended in Anki, AD-13).
+
+Example audio: a Vocabulary Save given a Voice makes the example sentence's audio when the
+Example and ExampleRussian both hold text and the stored Item has no example audio or another
+Example; speech runs outside the Anki lock, and a failed synthesis saves the Item without it
+(the caller warns). The backfill gives a batch of a Language's Vocabulary Items that lack it
+their example audio, one Item at a time, a failed one counted and skipped.
 """
 
+from dataclasses import dataclass
+
 from language_lab.domain.catalog import Category, Language
-from language_lab.domain.items import AudioIntent, Item, ItemContent, normalize_text
+from language_lab.domain.errors import AppError, ErrorCode
+from language_lab.domain.items import (
+    AudioIntent,
+    Item,
+    ItemContent,
+    VocabularyContent,
+    normalize_text,
+)
+from language_lab.features.audio.service import AudioService
 from language_lab.ports.anki_store import AnkiStore
+
+BACKFILL_BATCH = 5  # Items per backfill request: each one is a synthesis and a Save
+
+
+@dataclass(frozen=True)
+class BackfillBatch:
+    """One backfill batch: Items given example audio, Items that failed (skipped), and Items
+    still waiting after the `skip` the caller passed and this batch.
+    """
+
+    done: int
+    failed: int
+    remaining: int
+
+
+def _wants_example(content: ItemContent) -> bool:
+    return (
+        isinstance(content, VocabularyContent)
+        and bool(content.example.strip())
+        and bool(content.example_russian.strip())
+    )
 
 
 class ItemService:
-    def __init__(self, anki: AnkiStore) -> None:
+    def __init__(self, anki: AnkiStore, audio: AudioService | None = None) -> None:
         self._anki = anki
+        self._audio = audio
 
     async def save(
         self,
@@ -20,11 +58,94 @@ class ItemService:
         content: ItemContent,
         audio: AudioIntent,
         audio_bytes: bytes | None = None,
-    ) -> None:
-        """Save the Item `item_id`; a retry with the same ItemId updates it. Raises
+        example_voice: str | None = None,
+    ) -> bool:
+        """Save the Item `item_id`; a retry with the same ItemId updates it. With
+        `example_voice`, a Vocabulary Item whose example audio is missing or whose Example
+        changed gets new example audio in that Voice first (module docstring). Returns True when
+        that audio couldn't be made, so the Item was saved without it. Raises
         `AppError(SETUP_REQUIRED | ANKI_UNAVAILABLE | ANKI_BUSY)`.
         """
-        await self._anki.save_item(item_id, language, content, audio, audio_bytes=audio_bytes)
+        example_bytes = None
+        failed = False
+        if example_voice and self._audio is not None and _wants_example(content):
+            assert isinstance(content, VocabularyContent)
+            if await self._example_changed(language, item_id, content):
+                try:
+                    example_bytes = await self._audio.preview(
+                        language, example_voice, content.example
+                    )
+                except AppError:
+                    failed = True
+        await self._anki.save_item(
+            item_id,
+            language,
+            content,
+            audio,
+            audio_bytes=audio_bytes,
+            example_audio_bytes=example_bytes,
+        )
+        return failed
+
+    async def _example_changed(
+        self, language: Language, item_id: str, content: VocabularyContent
+    ) -> bool:
+        """Whether the stored Item lacks example audio or holds another Example (or is new)."""
+        try:
+            stored = await self._anki.get_item(language, item_id)
+        except AppError as exc:
+            if exc.code is ErrorCode.NOT_FOUND:
+                return True
+            raise
+        if not stored.has_example_audio:
+            return True
+        old = stored.content
+        return not isinstance(old, VocabularyContent) or old.example != content.example
+
+    async def backfill_example_audio(
+        self, language: Language, voice: str, skip: int = 0, limit: int = BACKFILL_BATCH
+    ) -> BackfillBatch:
+        """Give up to `limit` of `language`'s Vocabulary Items with an Example and its Russian
+        but no example audio that audio in `voice`, after skipping the first `skip` such Items
+        (the ones earlier batches failed). Each is synthesized outside the Anki lock, then
+        written only if the Item is unchanged. Only a failed synthesis counts as `failed` (the
+        caller's next `skip`); an Item changed since the read counts as neither. An unknown
+        Voice is `VALIDATION_FAILED` before anything is written. Raises
+        `AppError(VALIDATION_FAILED | SETUP_REQUIRED | ANKI_UNAVAILABLE | ANKI_BUSY)`.
+        """
+        if self._audio is None or not voice.strip():
+            raise AppError(ErrorCode.VALIDATION_FAILED)
+        if not any(v.name == voice for v in await self._audio.voices(language)):
+            raise AppError(ErrorCode.VALIDATION_FAILED)
+        candidates = await self._anki.item_candidates(language, Category.VOCABULARY)
+        pending = [
+            item
+            for item in candidates
+            if not item.has_example_audio and _wants_example(item.content)
+        ][skip:]
+        done = failed = skipped = 0
+        for item in pending[:limit]:
+            content = item.content
+            assert isinstance(content, VocabularyContent)
+            try:
+                data = await self._audio.preview(language, voice, content.example)
+                written = await self._anki.store_example_audio(
+                    language, item.item_id, content.example, data
+                )
+            except AppError as exc:
+                # A clip that couldn't be made (or isn't an MP3) fails the Item, which the
+                # caller then skips; Anki failing ends the batch
+                if exc.code not in (ErrorCode.TTS_FAILED, ErrorCode.VALIDATION_FAILED):
+                    raise
+                failed += 1
+                continue
+            if written:
+                done += 1
+            else:
+                # Gone, edited or given audio since the read: neither done nor failed; it drops
+                # out of the next read or is pending there again
+                skipped += 1
+        return BackfillBatch(done, failed, max(0, len(pending) - done - failed - skipped))
 
     async def media(self, name: str) -> bytes:
         return await self._anki.get_media(name)
