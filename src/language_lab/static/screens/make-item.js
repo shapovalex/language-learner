@@ -46,6 +46,8 @@ const BACK = "‹ Capture";
 const BACK_TO_PANE = "‹ Make an Item";
 const UNREACHABLE_TITLE = "Not saved — Anki isn't reachable";
 const MAKING_AUDIO = "Making audio…";
+// A Save whose example audio couldn't be made: the Item is saved without it
+export const EXAMPLE_AUDIO_FAILED = "Example audio couldn't be made. Add it later from Items.";
 const AUTO_ERROR = "Couldn't make the audio. The Draft will save without audio.";
 const CHECK_GRAMMAR = "Check grammar";
 const CHECKING_GRAMMAR = "Checking grammar…";
@@ -133,6 +135,8 @@ export function itemPart(draft) {
       item[key] = draft.values[key];
     }
   }
+  // The Draft's Voice: a Vocabulary Save makes the example sentence's audio in it
+  if (draft.category === "vocabulary" && draft.audio?.voice) item.exampleVoice = draft.audio.voice;
   return item;
 }
 

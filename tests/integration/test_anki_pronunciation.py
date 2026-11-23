@@ -104,6 +104,8 @@ class TestPronunciationQueue:
         assert cards[0].item_id == long_due.item_id
         assert cards[0].category is Category.SENTENCE
         assert cards[0].target == long_due.target
+        # each Card says whether it is new, so the screen can mix the two kinds
+        assert [card.is_new for card in cards] == [False] * 3 + [True] * 3
 
 
 class TestRating:

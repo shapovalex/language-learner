@@ -23,6 +23,7 @@ class Exercise(StrEnum):
     PRODUCE = "produce"
     WRITE = "write"
     PRONOUNCE = "pronounce"
+    EXAMPLE = "example"  # Vocabulary only: produce the example sentence from its Russian
 
 
 # The Voice locales of each Language, in list order: one French list holds Canada then France

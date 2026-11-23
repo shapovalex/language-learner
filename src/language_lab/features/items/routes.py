@@ -1,5 +1,5 @@
-"""Items' HTTP routes, under /api/items: Save, list/search, duplicate read, detail, Delete, and
-the Pronunciation flag.
+"""Items' HTTP routes, under /api/items: Save, list/search, duplicate read, detail, Delete, the
+Pronunciation flag, and the example audio backfill.
 """
 
 import json
@@ -7,7 +7,15 @@ import re
 from typing import Annotated, Any, Literal, TypedDict
 
 from fastapi import APIRouter, File, Form, Query, Response, UploadFile
-from pydantic import BaseModel, ConfigDict, Field, StrictBool, TypeAdapter, ValidationError
+from pydantic import (
+    BaseModel,
+    ConfigDict,
+    Field,
+    NonNegativeInt,
+    StrictBool,
+    TypeAdapter,
+    ValidationError,
+)
 
 from language_lab.domain.audio import MAX_AUDIO_BYTES, audio_upload
 from language_lab.domain.catalog import UUID4, Category, Language
@@ -23,6 +31,18 @@ class _SaveIntent(BaseModel):
 
     item_id: str = Field(alias="itemId", pattern=UUID4)
     audio: Literal[AudioIntent.KEEP, AudioIntent.REPLACE, AudioIntent.REMOVE]
+    # The Draft's Voice: a Vocabulary Save makes its example audio in it when needed
+    example_voice: str | None = Field(default=None, alias="exampleVoice")
+
+
+_INTENT_KEYS = ("itemId", "audio", "exampleVoice")
+
+
+class _BackfillBody(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    voice: str
+    skip: NonNegativeInt = 0
 
 
 class _PronunciationBody(BaseModel):
@@ -31,8 +51,15 @@ class _PronunciationBody(BaseModel):
     excluded: StrictBool
 
 
-class SavedBody(TypedDict):
+class SavedBody(TypedDict, total=False):
     itemId: str
+    exampleAudioFailed: bool  # present (true) only when the example audio couldn't be made
+
+
+class BackfillBody(TypedDict):
+    done: int
+    failed: int
+    remaining: int
 
 
 def _parse(item: str) -> tuple[_SaveIntent, ItemContent]:
@@ -42,7 +69,7 @@ def _parse(item: str) -> tuple[_SaveIntent, ItemContent]:
         if not isinstance(payload, dict):
             raise ValueError("not an object")
         intent = _SaveIntent.model_validate(payload)
-        rest = {k: v for k, v in payload.items() if k not in ("itemId", "audio")}
+        rest = {k: v for k, v in payload.items() if k not in _INTENT_KEYS}
         return intent, _CONTENT.validate_python(rest)
     except ValueError, ValidationError:  # json.JSONDecodeError is a ValueError
         raise AppError(ErrorCode.VALIDATION_FAILED) from None
@@ -90,8 +117,19 @@ def items_router(service: ItemService) -> APIRouter:
             finally:
                 await audio_file.close()
         data = audio_upload(intent.audio, data)
-        await service.save(intent.item_id, lang, content, intent.audio, data)
-        return {"itemId": intent.item_id}
+        failed = await service.save(
+            intent.item_id, lang, content, intent.audio, data, example_voice=intent.example_voice
+        )
+        body: SavedBody = {"itemId": intent.item_id}
+        if failed:
+            body["exampleAudioFailed"] = True
+        return body
+
+    # One batch of the example audio backfill: `skip` is how many Items earlier batches failed
+    @router.post("/{lang}/example-audio")
+    async def backfill_example_audio(lang: Language, body: _BackfillBody) -> BackfillBody:
+        batch = await service.backfill_example_audio(lang, body.voice, body.skip)
+        return {"done": batch.done, "failed": batch.failed, "remaining": batch.remaining}
 
     @router.get("/{lang}")
     async def search(lang: Language, q: str | None = None) -> ItemsBody:

@@ -7,15 +7,26 @@
 // slow earlier reply never replaces newer results. Matching is the server's (AD-12). An empty
 // collection hides the search; a search with no match says so; a failed read shows an inline
 // alert with Try again.
+//
+// Example audio (backfill): once a read lists Vocabulary Items, "Add example audio" gives every
+// Vocabulary Item with an Example and its Russian but no example audio that audio, in the saved
+// Voice (the first listed when none is saved). It posts one batch at a time to
+// /api/items/<lang>/example-audio and shows the progress after each; a failed Item is counted
+// and skipped (`skip`), and running it again retries it. A failed request stops with an alert
+// whose Try again goes on.
 
-import { errorMessage, listItems } from "../api.js";
+import { backfillExampleAudio, errorMessage, getVoices, listItems } from "../api.js";
 import { CATEGORIES, categoryName, languageName } from "../catalog.js";
 import { alertBox, element, skeleton, tryAgain } from "../dom.js";
+import { chooseVoice } from "../reference-audio.js";
 
 const DEBOUNCE_MS = 300;
 const PLACEHOLDER = "Search English or Russian";
 const EMPTY_BODY = "Items are made from Captures.";
 const AUDIO = "Reference audio";
+const BACKFILL = "Add example audio";
+const BACKFILL_FAILED = "Example audio stopped";
+const NO_VOICE = "No voices available for this language.";
 const SVG = "http://www.w3.org/2000/svg";
 
 // A speaker icon named "Reference audio" (the row's audio indicator; not a control)
@@ -59,9 +70,82 @@ export function mount(root, params) {
   search.hidden = true;
   const count = element("p", "items-count");
   count.hidden = true;
+  const backfill = element("section", "items-backfill");
+  backfill.setAttribute("aria-label", "Example audio");
+  backfill.hidden = true;
   const body = element("div", "items-body");
-  screen.append(heading, search, count, body);
+  screen.append(heading, backfill, search, count, body);
   root.replaceChildren(screen);
+
+  // {running, done, failed, remaining, error}: the backfill's progress; null before a run
+  let progress = null;
+
+  function renderBackfill() {
+    const button = element("button", "button button-secondary", BACKFILL);
+    button.type = "button";
+    button.disabled = Boolean(progress?.running);
+    button.addEventListener("click", () => runBackfill());
+    const nodes = [button];
+    if (progress) {
+      const { running, done, failed, remaining } = progress;
+      let text = running
+        ? `Adding example audio… ${done} added · ${remaining ?? "?"} left`
+        : `Example audio added to ${done} ${done === 1 ? "Item" : "Items"} · ${remaining} left`;
+      if (failed) text += ` · ${failed} couldn't be made`;
+      const status = element("p", "items-backfill-progress", text);
+      status.setAttribute("role", "status");
+      nodes.push(status);
+      if (progress.error) {
+        nodes.push(
+          alertBox(
+            "items-alert",
+            element("p", "items-alert-body", `${BACKFILL_FAILED} — ${progress.error}`),
+            tryAgain(() => runBackfill(true)),
+          ),
+        );
+      }
+    }
+    backfill.replaceChildren(...nodes);
+  }
+
+  // The saved Voice of the Language, else the first one listed
+  async function backfillVoice() {
+    const { voices } = await getVoices(lang);
+    return chooseVoice(voices, null, lang);
+  }
+
+  // Post batches until none is left; `resume` goes on from the last run's counts
+  async function runBackfill(resume = false) {
+    if (progress?.running) return;
+    const carried = resume && progress ? progress : { done: 0, failed: 0, remaining: null };
+    progress = { ...carried, running: true, error: null };
+    renderBackfill();
+    try {
+      const voice = await backfillVoice();
+      if (!mounted) return;
+      if (!voice) {
+        progress.error = NO_VOICE;
+        progress.running = false;
+        renderBackfill();
+        return;
+      }
+      do {
+        const batch = await backfillExampleAudio(lang, { voice, skip: progress.failed });
+        if (!mounted) return;
+        progress.done += batch.done;
+        progress.failed += batch.failed;
+        progress.remaining = batch.remaining;
+        renderBackfill();
+      } while (progress.remaining > 0);
+    } catch (error) {
+      if (!mounted) return;
+      progress.error = errorMessage(error);
+    }
+    progress.running = false;
+    renderBackfill();
+    // The list's audio state may have changed: read it again
+    load(shown?.query ?? "");
+  }
 
   function row(item) {
     const li = element("li");
@@ -115,6 +199,10 @@ export function mount(root, params) {
       return;
     }
     count.hidden = !blank;
+    if (blank && items.some((item) => item.category === "vocabulary") && backfill.hidden) {
+      backfill.hidden = false;
+      renderBackfill();
+    }
     const noun = items.length === 1 ? "Item" : "Items";
     const present = CATEGORIES.filter(([key]) => items.some((item) => item.category === key));
     const kinds = present.map(([key]) => categoryName(key)).join(" and ");

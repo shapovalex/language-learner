@@ -2,9 +2,15 @@
 
 Only API boundaries are stubbed: the real screen reads the queue, plays Reference audio from
 /api/media, posts Ratings and sends the session signals. `ReviewApi` answers the proposed
-contracts of tests/api/test_pronunciation.py from its own `due` and `new` lists; a successful
-Rating removes that Card, so a re-read returns the rest. Armed before navigation; nothing is
-shared with the live server's fake store.
+contracts of tests/api/test_pronunciation.py from its own `due` and `new` lists, each Card
+flagged `isNew` by its list; a successful Rating removes that Card, so a re-read returns the
+rest (with `relearn=True` the Card instead goes to the head of `due` with its reps bumped, as
+a new Card rated Good comes back due in learning). Armed before navigation; nothing is shared
+with the live server's fake store.
+
+The screen draws the next Card's kind with Math.random when both kinds are queued:
+`ReviewApi` stubs it to return `random` (0.0 by default, so a due Card always wins, as before
+the mix); `random=None` leaves the browser's own.
 
 Copy comes from EXPERIENCE.md (Queue header, Review states). Selector choices the builder may
 change with these helpers: the Reference control is a button named "Play reference audio" or
@@ -125,6 +131,8 @@ class ReviewApi:
         due: list[dict[str, Any]] | None = None,
         new: list[dict[str, Any]] | None = None,
         hold_start: bool = False,
+        random: float | None = 0.0,
+        relearn: bool = False,
     ) -> None:
         self.page = page
         self.lang = lang
@@ -136,12 +144,15 @@ class ReviewApi:
         self.exclusions: list[tuple[str, dict[str, Any]]] = []
         self.gone: set[int] = set()
         self.hold_start = hold_start
+        self.relearn = relearn
         self.hold_queue = False
         self._held: list[Route] = []
         self._held_queue: list[Route] = []
         self.events: list[str] = []
         self.ratings: list[dict[str, Any]] = []
         self.media_requests: list[str] = []
+        if random is not None:
+            page.add_init_script(f"Math.random = () => {float(random)};")
         base = f"**/api/pronunciation/{lang}"
         page.route(f"{base}/queue*", self._queue)
         page.route(f"{base}/rating", self._rating)
@@ -183,7 +194,9 @@ class ReviewApi:
         if self.queue_error:
             _unavailable(route)
             return
-        body = {"due": len(self.due), "new": len(self.new), "cards": self.due + self.new}
+        cards = [{**card, "isNew": False} for card in self.due]
+        cards += [{**card, "isNew": True} for card in self.new]
+        body = {"due": len(self.due), "new": len(self.new), "cards": cards}
         route.fulfill(status=200, content_type="application/json", body=json.dumps(body))
 
     def _rating(self, route: Route) -> None:
@@ -199,8 +212,11 @@ class ReviewApi:
             error = {"error": {"code": "not_found", "message": "Not found.", "requestId": "r"}}
             route.fulfill(status=404, content_type="application/json", body=json.dumps(error))
             return
+        rated = [c for c in self.due + self.new if c["cardId"] == body.get("cardId")]
         for cards in (self.due, self.new):
             cards[:] = [card for card in cards if card["cardId"] != body.get("cardId")]
+        if self.relearn and rated:
+            self.due.insert(0, {**rated[0], "reps": rated[0]["reps"] + 1})
         answer = {"alreadyAnswered": False}
         route.fulfill(status=200, content_type="application/json", body=json.dumps(answer))
 

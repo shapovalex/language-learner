@@ -73,6 +73,7 @@ class TestQueueRead:
             "category": "vocabulary",
             "target": "through",
             "audio": word.audio,
+            "isNew": False,
         }
         assert response.status_code == 200
         assert (body["due"], body["new"]) == (1, 1)
@@ -83,6 +84,7 @@ class TestQueueRead:
             "category": "sentence",
             "target": "I'd rather not jump.",
             "audio": None,
+            "isNew": True,
         }
         assert sent_writes(rig.replay.sent) == []
 

@@ -63,6 +63,7 @@ import {
 } from "../reference-audio.js";
 import { confirmDestructive, confirmLeave, navigate, setDirty } from "../router.js";
 import {
+  EXAMPLE_AUDIO_FAILED,
   duplicateSheet,
   editorFields,
   generatedValues,
@@ -384,6 +385,7 @@ function itemAudioCard({ language, audioName, target, values, busy, changed }) {
       + Number(state.removing),
     intent: () => (state.accepted ? "replace" : state.removing ? "remove" : "keep"),
     blob: () => state.accepted?.blob ?? null,
+    voice: () => state.voice,
     // A successful Save of `intent`: the accepted clip becomes Current, or the clip is gone
     saved(intent) {
       if (state.disposed) return;
@@ -450,6 +452,7 @@ export function mount(root, params) {
   let values = null;
   let busy = false;
   let error = null;
+  let exampleWarning = false; // the last Save couldn't make the example audio
   let deleteError = null;
   let createdAnyway = null; // the Target Create anyway accepted, which skips the check
   let sheet = null;
@@ -534,6 +537,12 @@ export function mount(root, params) {
           element("p", "draft-alert-body", alertBody),
         ),
       );
+    }
+    if (exampleWarning) {
+      const warning = element("div", "inline-alert-warning draft-alert");
+      warning.setAttribute("role", "status");
+      warning.append(element("p", "draft-alert-body", EXAMPLE_AUDIO_FAILED));
+      alertSlot.append(warning);
     }
     if (deleteError) {
       const unreachable = isApiError(deleteError, "anki_unavailable");
@@ -870,9 +879,13 @@ export function mount(root, params) {
     if (busy || !values) return;
     busy = true;
     error = null;
+    exampleWarning = false;
     renderEditor();
     const part = itemPart({ category: item.category, itemId: item.itemId, values });
     part.audio = audioCard.intent();
+    // The card's Voice makes the example audio when the Example changed or has none
+    const voice = audioCard.voice();
+    if (item.category === "vocabulary" && voice) part.exampleVoice = voice;
     const audioBlob = part.audio === "replace" ? audioCard.blob() : null;
     if (part.target !== item.target && part.target !== createdAnyway) {
       let matches;
@@ -897,8 +910,9 @@ export function mount(root, params) {
         return;
       }
     }
+    let result;
     try {
-      await saveItem(lang, part, audioBlob);
+      result = await saveItem(lang, part, audioBlob);
     } catch (failure) {
       if (!mounted) return;
       busy = false;
@@ -908,8 +922,9 @@ export function mount(root, params) {
     }
     if (!mounted) return;
     // The saved values are now the Item's: clean again
-    const { audio: intent, ...saved } = part;
+    const { audio: intent, exampleVoice: _voice, ...saved } = part;
     item = saved;
+    exampleWarning = Boolean(result?.exampleAudioFailed);
     loadedValues = generatedValues(saved);
     values = { ...loadedValues };
     busy = false;

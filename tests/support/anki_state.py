@@ -42,6 +42,14 @@ With `writes=True` the collection also answers `changeDeck`, `suspend`, `unsuspe
 `deleteMediaFile` (`REPAIR_WRITE_ACTIONS`; `unsuspend` is what including an Item in Pronunciation
 again sends).
 
+Card generation (example card): as Anki does, a note gets a card for a template only when the
+template's front renders non-empty. The simulator reads that from the front's outer
+`{{#Field}}…{{/Field}}` sections: each wrapping field must hold something (a front with no
+outer section always renders). `addNote` and `item_note()` make only those cards; with
+`writes=True`, `updateNoteFields` and `modelTemplateAdd` make the cards that newly render, in
+the deck of the note's first card (Anki's behaviour). `modelTemplateAdd` refuses a template
+naming a field the model lacks, as Anki refuses to save it.
+
 French reading rules: `apply_manifest()` also puts every seeded rule in the collection as Setup
 leaves it (`reading_rule_note()`): its note, its card in the Reading Rules deck and its three
 media files. With `writes=True` the collection answers `storeMediaFile` too
@@ -325,8 +333,42 @@ def item_note(
     stored["SchemaVersion"] = str(manifest.schema_version)
     note_id = add_note(collection, note_type, stored)
     for template in declared.templates:
-        add_card(collection, note_id, template.ord, manifest.card_deck(note_type, template.ord))
+        if front_renders(template.front, stored):
+            add_card(collection, note_id, template.ord, manifest.card_deck(note_type, template.ord))
     return note_id
+
+
+_OUTER_SECTION = re.compile(r"\{\{#([^}]+)\}\}(.*)\{\{/\1\}\}", re.DOTALL)
+_FIELD_REF = re.compile(r"\{\{[#^/]?([^}#^/]+)\}\}")
+_SPECIAL_FIELDS = frozenset({"FrontSide", "Tags", "Type", "Deck", "Subdeck", "Card", "CardFlag"})
+
+
+def front_renders(front: str, fields: dict[str, str]) -> bool:
+    """Whether Anki would make a card of a template with this `front` for a note's `fields`:
+    every outer `{{#Field}}` section must hold something.
+    """
+    text = front.strip()
+    while (match := _OUTER_SECTION.fullmatch(text)) is not None:
+        if not fields.get(match.group(1), "").strip():
+            return False
+        text = match.group(2).strip()
+    return True
+
+
+def _generate_cards(collection: Collection, note_id: int) -> None:
+    """Give note `note_id` a card for each template whose front now renders and has none, in
+    the deck of the note's first card (Anki's behaviour).
+    """
+    note = collection.notes[note_id]
+    model = collection.models[note.model]
+    cards = _cards_of(collection, note_id)
+    if not cards:
+        return
+    have = {collection.cards[i].ord for i in cards}
+    deck = collection.cards[cards[0]].deck
+    for ord, sides in enumerate(model.templates.values()):
+        if ord not in have and front_renders(sides["Front"], note.fields):
+            add_card(collection, note_id, ord, deck)
 
 
 def add_card(
@@ -421,9 +463,11 @@ def _answer_note_write(
             if not allow_duplicate and _is_duplicate(collection, note["modelName"], first):
                 return _error("cannot create note because it is a duplicate")
             note_id = add_note(collection, note["modelName"], fields)
-            # Anki gives the new note one card per template, every one in the note's deck
-            for ord in range(len(model.templates)):
-                add_card(collection, note_id, ord, deck)
+            # Anki gives the new note one card per template whose front renders, every one in
+            # the note's deck
+            for ord, sides in enumerate(model.templates.values()):
+                if front_renders(sides["Front"], fields):
+                    add_card(collection, note_id, ord, deck)
             return _ok(note_id)
         case "updateNoteFields":
             stored = collection.notes.get(note.get("id"))
@@ -432,6 +476,7 @@ def _answer_note_write(
             stored.fields.update(
                 {k: v for k, v in note.get("fields", {}).items() if k in stored.fields}
             )
+            _generate_cards(collection, note["id"])
             return _ok(None)
         case "deleteNotes":
             for note_id in params.get("notes", []):
@@ -619,10 +664,17 @@ def _answer_write(
                 return _error(f"model was not found: {params.get('modelName')}")
             if template["Name"] in model.templates:
                 return _error("template name already exists")
+            refs = _FIELD_REF.findall(template["Front"] + template["Back"])
+            named = {ref.split(":")[-1].strip() for ref in refs}  # `type:Target` names Target
+            if named - set(model.fields) - _SPECIAL_FIELDS:
+                return _error("Found a field reference with no field of that name")
             model.templates[template["Name"]] = {
                 "Front": template["Front"],
                 "Back": template["Back"],
             }
+            for note_id, stored in list(collection.notes.items()):
+                if stored.model == params["modelName"]:
+                    _generate_cards(collection, note_id)
             return _ok(None)
         case "modelFieldAdd":
             # Spike 2.2: answers null; with `index` it inserts there, else it appends. Every

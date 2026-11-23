@@ -1,7 +1,7 @@
 """The managed manifest (AD-3, A3): the one source of Anki names and structure.
 
 `build_manifest(prefix)` declares, from the Prefix alone, the six note types with their fields,
-card templates and CSS (read from `templates/` as package data), the 29-deck tree, where each
+card templates and CSS (read from `templates/` as package data), the 31-deck tree, where each
 card ord goes, the `<Prefix>` preset with its three bury flags, and the current SchemaVersion.
 Setup diffs Anki against it; every feature reads Anki names from it.
 
@@ -9,6 +9,12 @@ The sixth note type, `<Prefix> French Reading Rule` (one card, Read), holds the 
 reading rules (`domain/reading_rules.py`, `Manifest.reading_rules`) in
 `<Prefix>::Study::French::Reading Rules`. It has a Language and no Category, so it is neither an
 Item nor the Capture note type; Setup creates its notes and no feature writes them.
+
+SchemaVersion 2 gave the two Vocabulary note types an `ExampleAudio` field (appended, as
+`modelFieldAdd` appends) and a fifth card template, Example (ord 4), whose cards go in
+`<Prefix>::Study::<Language>::Vocabulary::Example`. Its front renders only when `ExampleAudio`
+and `ExampleRussian` both hold something, so Anki makes the card only once the note has example
+audio. Sentence note types keep their four templates.
 """
 
 import re
@@ -21,13 +27,25 @@ from language_lab.domain.catalog import Category, Exercise, Language
 from language_lab.domain.reading_rules import ReadingRule, reading_rules
 from language_lab.settings import PREFIX_PATTERN
 
-SCHEMA_VERSION = 1
+SCHEMA_VERSION = 2
 
 EXERCISE_BY_ORD: Mapping[int, Exercise] = MappingProxyType(
-    {0: Exercise.UNDERSTAND, 1: Exercise.PRODUCE, 2: Exercise.WRITE, 3: Exercise.PRONOUNCE}
+    {
+        0: Exercise.UNDERSTAND,
+        1: Exercise.PRODUCE,
+        2: Exercise.WRITE,
+        3: Exercise.PRONOUNCE,
+        4: Exercise.EXAMPLE,
+    }
 )
-STUDY_ORDS = (0, 1, 2)
+STUDY_ORDS = (0, 1, 2)  # every Item's Study cards
 PRONOUNCE_ORD = 3  # goes to the Pronunciation branch
+EXAMPLE_ORD = 4  # Vocabulary only; a Study card made once the note has example audio
+_ORDS: Mapping[Category, tuple[int, ...]] = {
+    Category.VOCABULARY: (*STUDY_ORDS, PRONOUNCE_ORD, EXAMPLE_ORD),
+    Category.SENTENCE: (*STUDY_ORDS, PRONOUNCE_ORD),
+}
+EXAMPLE_AUDIO_FIELD = "ExampleAudio"
 
 _LANGUAGE_NAMES: Mapping[Language, str] = {Language.EN: "English", Language.FR: "French"}
 # (note type word, deck word): the note type is singular, the deck plural (A3)
@@ -53,6 +71,7 @@ _FIELDS: Mapping[Category | None, tuple[str, ...]] = {
         "Audio",
         "ItemId",
         "SchemaVersion",
+        "ExampleAudio",  # SchemaVersion 2: `modelFieldAdd` appends it
     ),
     Category.SENTENCE: (
         "Target",
@@ -154,7 +173,7 @@ class Manifest:
         if note_type.language is None or note_type.category is None:
             return f"{self.prefix}::Captures"
         branch = _branch(note_type.language, note_type.category)
-        if ord in STUDY_ORDS:
+        if ord in STUDY_ORDS or ord == EXAMPLE_ORD:
             return f"{self.prefix}::Study::{branch}::{EXERCISE_BY_ORD[ord].title()}"
         return f"{self.prefix}::Pronunciation::{branch}"
 
@@ -176,6 +195,7 @@ def _item_templates(category: Category) -> tuple[CardTemplate, ...]:
             back=_template_text(f"{category}-{exercise}-back.html"),
         )
         for ord, exercise in EXERCISE_BY_ORD.items()
+        if ord in _ORDS[category]
     )
 
 
@@ -188,7 +208,8 @@ def _decks(prefix: str) -> tuple[str, ...]:
         for category in Category:
             branch = _branch(language, category)
             decks += [f"{study}::{branch}", f"{pronunciation}::{branch}"]
-            decks += [f"{study}::{branch}::{EXERCISE_BY_ORD[o].title()}" for o in STUDY_ORDS]
+            ords = [o for o in _ORDS[category] if o != PRONOUNCE_ORD]
+            decks += [f"{study}::{branch}::{EXERCISE_BY_ORD[o].title()}" for o in ords]
     return tuple(decks)
 
 

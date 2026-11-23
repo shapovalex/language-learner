@@ -2,13 +2,20 @@
 // params.lang is "en" or "fr".
 //
 // Every mount reads GET /api/pronunciation/<lang>/queue (a skeleton in the Target card
-// meanwhile) and shows the first Card: its Category, the "N due · M new" chip, the Target text,
-// Reference (only when the Card has Reference audio) and the four Rating buttons. Only then is
-// the session start sent, never awaited and with no Sync UI (FR-36, AD-17). Reference never
-// autoplays: /api/media/<name> is requested on the first tap only (FR-31). A Rating posts the
-// Card's cardId and reps; once Anki confirms, the queue is read again for the next Card and the
-// chip. A failed Rating keeps the Card current with an inline alert whose Try again resends the
-// same Rating (AD-20).
+// meanwhile) and shows one Card (`pickCard`): its Category, the "N due · M new" chip, the
+// Target text, Reference (only when the Card has Reference audio) and the four Rating buttons.
+// Only then is the session start sent, never awaited and with no Sync UI (FR-36, AD-17).
+// Reference never autoplays: /api/media/<name> is requested on the first tap only (FR-31). A
+// Rating posts the Card's cardId and reps; once Anki confirms, the queue is read again for the
+// next Card and the chip. A failed Rating keeps the Card current with an inline alert whose Try
+// again resends the same Rating (AD-20).
+//
+// The next Card mixes new and due ones (`pickCard`): the queue lists due Cards then new ones,
+// each flagged `isNew`. The Card just rated is left out while another Card is queued (a new
+// Card rated once is due again at once). When both kinds remain, the kind is drawn at random,
+// due with probability due/(due + new) of the remaining Cards, and that kind's first Card
+// shows; with one kind, its first Card. The draw uses Math.random, which tests stub. Nothing of
+// it is stored: each read picks afresh (AD-17).
 //
 // "Don't practise this card" excludes the current Card's Item from Pronunciation at once, with
 // no confirmation and no Attempt needed: PUT /api/items/<lang>/<itemId>/pronunciation suspends
@@ -75,6 +82,17 @@ const ERROR_LABELS = new Map([
 ]);
 const SVG = "http://www.w3.org/2000/svg";
 
+// The Card to show from a queue read's `cards`, leaving out `skip` (the cardId just rated)
+// while another Card is queued; `random` returns a number in [0, 1)
+export function pickCard(cards, skip = null, random = Math.random) {
+  const others = cards.filter((card) => card.cardId !== skip);
+  const candidates = others.length ? others : cards;
+  const due = candidates.filter((card) => !card.isNew);
+  const fresh = candidates.filter((card) => card.isNew);
+  if (!due.length || !fresh.length) return candidates[0] ?? null;
+  return random() < due.length / (due.length + fresh.length) ? due[0] : fresh[0];
+}
+
 function speakerIcon() {
   const svg = document.createElementNS(SVG, "svg");
   svg.setAttribute("viewBox", "0 0 24 24");
@@ -96,6 +114,8 @@ export function mount(root, params) {
   let mounted = true;
   let seq = 0;
   let queue = null; // the latest read: {due, new, cards}
+  let current = null; // the Card on screen, picked from `queue` (pickCard)
+  let justRated = null; // the cardId of the Card rated last, left out of the next pick
   let readError = null; // the latest read's failure
   let busy = false; // a Rating or an exclude, or the read after it, is in flight
   // {kind, body, error}: the Rating ("rating", body its request) or the exclude ("exclude",
@@ -235,28 +255,28 @@ export function mount(root, params) {
     discardAttempt();
     dropPlayer();
     const token = attemptSeq;
-    const current = () => mounted && token === attemptSeq;
+    const stillCurrent = () => mounted && token === attemptSeq;
     attemptState = "permission";
     render();
     recorder = new AttemptRecorder({
       recording: () => {
-        if (!current()) return;
+        if (!stillCurrent()) return;
         attemptState = "recording";
         render();
         focusRecord();
       },
       level: value => {
-        if (!current()) return;
+        if (!stillCurrent()) return;
         const meter = body.querySelector("meter");
         if (meter) meter.value = value;
       },
       stopping: () => {
-        if (!current()) return;
+        if (!stillCurrent()) return;
         attemptState = "assessing";
         render();
       },
       complete: blob => {
-        if (!current()) return;
+        if (!stillCurrent()) return;
         recorder = null;
         attemptState = "assessing";
         render();
@@ -266,7 +286,7 @@ export function mount(root, params) {
         blob = null;
         // The request settled, as a result or a failure: show it and keep focus on Record
         const settle = update => {
-          if (!current()) return;
+          if (!stillCurrent()) return;
           attemptRequest = null;
           attemptState = "result";
           update();
@@ -287,7 +307,7 @@ export function mount(root, params) {
         }));
       },
       error: reason => {
-        if (!current()) return;
+        if (!stillCurrent()) return;
         recorder = null;
         attemptState = "idle";
         attemptWarning = reason === "size" ? "size" : "mic";
@@ -413,7 +433,7 @@ export function mount(root, params) {
       );
       return;
     }
-    const card = queue.cards[0];
+    const card = current;
     if (!card) {
       dropPlayer();
       const empty = element("div", "review-empty");
@@ -474,8 +494,10 @@ export function mount(root, params) {
     busy = false;
     readError = error;
     if (next) {
-      if (queue?.cards[0]?.cardId !== next.cards[0]?.cardId) discardAttempt(true);
+      const picked = pickCard(next.cards, justRated);
+      if (current?.cardId !== picked?.cardId) discardAttempt(true);
       queue = next;
+      current = picked;
       failed = null;
     }
     render();
@@ -509,6 +531,7 @@ export function mount(root, params) {
     }
     if (!mounted) return;
     discardAttempt(true);
+    justRated = rating.cardId;
     await load();
   }
 

@@ -1,15 +1,16 @@
 """Fake AnkiStore: the port in memory, kept in step with `ports/anki_store.py` (AD-1)."""
 
 import asyncio
+import dataclasses
 import re
 from collections.abc import Collection
 from datetime import datetime
 
-from language_lab.domain.audio import audio_upload, media_name
+from language_lab.domain.audio import audio_upload, media_name, validate_mp3
 from language_lab.domain.captures import Capture
 from language_lab.domain.catalog import UUID4, Category, Language
 from language_lab.domain.errors import AppError, ErrorCode
-from language_lab.domain.items import AudioIntent, Item, ItemContent
+from language_lab.domain.items import AudioIntent, Item, ItemContent, VocabularyContent
 from language_lab.domain.pronunciation import PronounceCard, PronunciationQueue, Rating
 from language_lab.domain.setup import SetupPreview, SetupState
 from language_lab.domain.setup import plan_hash as _plan_hash
@@ -51,6 +52,11 @@ class FakeAnkiStore:
 
     `save_item()` is create-or-update by ItemId over `items`, each held as `(Language,
     ItemContent)` (AD-20). It raises `anki_busy` or `anki_unavailable` as the other methods do.
+    Reference audio names go in `audio`, example audio names in `example_audio` (emptied for a
+    Vocabulary Item saved with a blank Example or ExampleRussian, or another Example and no new
+    example bytes), both clips in `media`; a
+    clip either still names is kept. `store_example_audio()` is the backfill's write: it
+    returns False and writes nothing for an Item gone, changed or already with example audio.
 
     `item_candidates()` returns the `items` of one Language and Category, in insertion order (as
     the adapter returns note order). `get_item()` returns the one of that Language or raises
@@ -105,6 +111,7 @@ class FakeAnkiStore:
         self.items: dict[str, tuple[Language, ItemContent]] = {}
         self.media: dict[str, bytes] = {}
         self.audio: dict[str, str] = {}
+        self.example_audio: dict[str, str] = {}
         self.pronounce: list[tuple[Language, bool, PronounceCard]] = []
         self.answers: list[tuple[int, Rating]] = []
         self.excluded: set[str] = set()
@@ -196,6 +203,7 @@ class FakeAnkiStore:
         audio: AudioIntent = AudioIntent.KEEP,
         *,
         audio_bytes: bytes | None = None,
+        example_audio_bytes: bytes | None = None,
     ) -> None:
         if self.busy:
             raise AppError(ErrorCode.ANKI_BUSY)
@@ -204,18 +212,66 @@ class FakeAnkiStore:
         if self.preview.state is not SetupState.READY:
             raise AppError(ErrorCode.SETUP_REQUIRED)
         data = audio_upload(audio, audio_bytes)
+        vocabulary = isinstance(content, VocabularyContent)
+        if example_audio_bytes is not None:
+            if not vocabulary:
+                raise AppError(ErrorCode.VALIDATION_FAILED)
+            validate_mp3(example_audio_bytes)
+        old = {self.audio.get(item_id), self.example_audio.get(item_id)}
+        previous = self.items.get(item_id)
+        old_example = getattr(previous[1], "example", None) if previous else None
         if data is not None:
             name = media_name("LanguageLab", item_id, data)
             self.media[name] = data
-            old = self.audio.get(item_id)
             self.audio[item_id] = name
-            if old and old != name:
-                self.media.pop(old, None)
         elif audio is AudioIntent.REMOVE:
-            old = self.audio.pop(item_id, None)
-            if old:
-                self.media.pop(old, None)
+            self.audio.pop(item_id, None)
+        if example_audio_bytes is not None:
+            name = media_name("LanguageLab", item_id, example_audio_bytes)
+            self.media[name] = example_audio_bytes
+            self.example_audio[item_id] = name
+        elif vocabulary and (not _has_example(content) or old_example != content.example):
+            self.example_audio.pop(item_id, None)
+        kept = {self.audio.get(item_id), self.example_audio.get(item_id)}
+        for name in old - kept:
+            if name:
+                self.media.pop(name, None)
         self.items[item_id] = (language, content)
+
+    async def store_example_audio(
+        self, language: Language, item_id: str, example: str, audio_bytes: bytes
+    ) -> bool:
+        if self.busy:
+            raise AppError(ErrorCode.ANKI_BUSY)
+        if not self.available:
+            raise AppError(ErrorCode.ANKI_UNAVAILABLE)
+        validate_mp3(audio_bytes)
+        stored = self.items.get(item_id)
+        if stored is None or stored[0] is not language or item_id in self.example_audio:
+            return False
+        content = stored[1]
+        if not isinstance(content, VocabularyContent) or not _has_example(content):
+            return False
+        if content.example != example:
+            return False
+        if self.preview.state is not SetupState.READY:
+            raise AppError(ErrorCode.SETUP_REQUIRED)
+        name = media_name("LanguageLab", item_id, audio_bytes)
+        self.media[name] = audio_bytes
+        self.example_audio[item_id] = name
+        return True
+
+    def _item(self, item_id: str, content: ItemContent, **extra: bool) -> Item:
+        example = self.example_audio.get(item_id)
+        return Item(
+            item_id,
+            content,
+            item_id in self.audio,
+            self.audio.get(item_id),
+            has_example_audio=example is not None,
+            example_audio=example,
+            **extra,
+        )
 
     async def get_media(self, name: str) -> bytes:
         if not _MEDIA.fullmatch(name):
@@ -234,7 +290,7 @@ class FakeAnkiStore:
         if not self.available:
             raise AppError(ErrorCode.ANKI_UNAVAILABLE)
         return [
-            Item(item_id, content, item_id in self.audio, self.audio.get(item_id))
+            self._item(item_id, content)
             for item_id, (stored_language, content) in self.items.items()
             if stored_language is language and content.category is category
         ]
@@ -247,13 +303,7 @@ class FakeAnkiStore:
         stored = self.items.get(item_id)
         if stored is None or stored[0] is not language:
             raise AppError(ErrorCode.NOT_FOUND)
-        return Item(
-            item_id,
-            stored[1],
-            item_id in self.audio,
-            self.audio.get(item_id),
-            pronunciation_excluded=item_id in self.excluded,
-        )
+        return self._item(item_id, stored[1], pronunciation_excluded=item_id in self.excluded)
 
     async def delete_item(self, language: Language, item_id: str) -> None:
         if self.busy:
@@ -272,6 +322,7 @@ class FakeAnkiStore:
             raise AppError(ErrorCode.SETUP_REQUIRED)
         self.items.pop(item_id, None)
         self.audio.pop(item_id, None)
+        self.example_audio.pop(item_id, None)
         for name in names:
             self.media.pop(name, None)
 
@@ -285,8 +336,8 @@ class FakeAnkiStore:
             for lang, is_due, card in self.pronounce
             if lang is language and card.item_id not in self.excluded
         ]
-        due = [card for is_due, card in queued if is_due]
-        new = [card for is_due, card in queued if not is_due]
+        due = [dataclasses.replace(card, is_new=False) for is_due, card in queued if is_due]
+        new = [dataclasses.replace(card, is_new=True) for is_due, card in queued if not is_due]
         return PronunciationQueue(len(due), len(new), (*due, *new))
 
     async def answer_card(
@@ -358,3 +409,11 @@ class FakeAnkiStore:
         """End the oldest in-flight gated `sync()`: return a `SyncOutcome`, raise an `ErrorCode`."""
         gate = self._gates.pop(0)
         gate.set_result(end)
+
+
+def _has_example(content: ItemContent) -> bool:
+    return (
+        isinstance(content, VocabularyContent)
+        and bool(content.example.strip())
+        and bool(content.example_russian.strip())
+    )

@@ -184,8 +184,10 @@ export function translateText(body) {
 
 // Save an Item (FR-20): `multipart/form-data` with the `item` JSON part, ItemContent plus
 // `itemId` and `audio` (Consistency Conventions): `replace` with `audioBlob` as `audioFile`,
-// `keep` or `remove` (AD-6, story 6.2) with none. 200 `{itemId}`; a retry with the same ItemId
-// updates the Item (AD-20). The part is a string field: a Blob would arrive as a file
+// `keep` or `remove` (AD-6, story 6.2) with none. An optional `exampleVoice` lets a Vocabulary
+// Save make its example audio in that Voice. 200 `{itemId}`, with `exampleAudioFailed: true`
+// when that audio couldn't be made (the Item is saved without it); a retry with the same
+// ItemId updates the Item (AD-20). The part is a string field: a Blob would arrive as a file
 export function saveItem(lang, item, audioBlob = null) {
   const body = new FormData();
   body.append("item", JSON.stringify(item));
@@ -235,6 +237,16 @@ export function listItems(lang, query = "") {
   const path = `/api/items/${encodeURIComponent(lang)}`;
   if (!query.trim()) return request(path);
   return request(`${path}?${new URLSearchParams({ q: query })}`);
+}
+
+// One batch of the example audio backfill: `{voice, skip}` in, `skip` the Items earlier
+// batches failed; 200 `{done, failed, remaining}` out, `remaining` the Items still waiting
+export function backfillExampleAudio(lang, { voice, skip = 0 }) {
+  return request(`/api/items/${encodeURIComponent(lang)}/example-audio`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ voice, skip }),
+  });
 }
 
 export function getVoices(language) {

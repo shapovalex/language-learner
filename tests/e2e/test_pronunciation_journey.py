@@ -152,6 +152,7 @@ def test_one_review_session_from_queue_to_empty_state(
     page.set_viewport_size(WIDTHS[width])
     seed = SEEDS[language]
     install_microphone(page)
+    page.add_init_script("Math.random = () => 0;")  # the due/new draw: the due Card first
 
     # Open: the chip counts the seeded queue; the due Card is first; Ratings wait for an Attempt.
     page.goto(f"{seeded_server.server.url}/{language}/pronunciation")

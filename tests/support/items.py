@@ -75,13 +75,16 @@ def keep() -> Any:
 
 def stored_fields(wire: dict[str, Any], item_id: str) -> dict[str, str]:
     """The fields a new note holds after Save of `wire`: each through the codec, the
-    alternatives joined with `", "`, Audio empty (keep, with no audio), ItemId and SchemaVersion.
+    alternatives joined with `", "`, Audio empty (keep, with no audio), ItemId and SchemaVersion,
+    and a Vocabulary note's ExampleAudio empty.
     """
     fields = {FIELDS[key]: encode_field(value) for key, value in wire.items() if key in FIELDS}
     fields["RussianAlternatives"] = encode_field(join_alternatives(wire["russianAlternatives"]))
     fields["Audio"] = ""
     fields["ItemId"] = item_id
     fields["SchemaVersion"] = str(SCHEMA_VERSION)
+    if wire["category"] == "vocabulary":
+        fields["ExampleAudio"] = ""  # the simulator stores every field of the model
     return fields
 
 

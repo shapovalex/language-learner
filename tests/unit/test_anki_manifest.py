@@ -1,13 +1,17 @@
 """Story 2.4: the managed manifest, the one source of Anki names and structure (AD-3, A3).
 
 `build_manifest(prefix)` declares, from `ANKI_PREFIX`, the six note types and their fields, the
-card templates and CSS read from `adapters/anki/templates/`, the 29-deck tree, the card ord to
+card templates and CSS read from `adapters/anki/templates/`, the 31-deck tree, the card ord to
 Exercise to deck mapping, the `<Prefix>` preset with its three bury flags, and the current
 SchemaVersion. Setup diffs Anki against it (entry 6) and every feature reads names from it.
 
 The French reading rules deck adds the sixth note type, `<Prefix> French Reading Rule` (one
 Read card, its `RuleId` hidden), and the `<Prefix>::Study::French::Reading Rules` deck, on the
 preset like every Study deck.
+
+SchemaVersion 2 gives the Vocabulary note types `ExampleAudio` (appended last, as
+`modelFieldAdd` appends) and a fifth card, Example (ord 4), in
+`<Prefix>::Study::<Language>::Vocabulary::Example`; its front renders only with example audio.
 
 Fields put Target (or Text) first, decided with the user on 2026-10-21: Anki sorts and marks
 duplicates by the first field. The ids and SchemaVersion are hidden: no template renders them.
@@ -36,6 +40,7 @@ LANGUAGES = ("English", "French")
 CATEGORIES = (("Vocabulary", "Vocabulary"), ("Sentence", "Sentences"))
 STUDY_EXERCISES = ("Understand", "Produce", "Write")  # ord 0-2; ord 3 Pronounce has its own branch
 EXERCISES = (*STUDY_EXERCISES, "Pronounce")
+VOCABULARY_EXERCISES = (*EXERCISES, "Example")  # ord 4: Vocabulary only
 
 VOCABULARY_FIELDS = (
     "Target",
@@ -50,6 +55,7 @@ VOCABULARY_FIELDS = (
     "Audio",
     "ItemId",
     "SchemaVersion",
+    "ExampleAudio",
 )
 SENTENCE_FIELDS = (
     "Target",
@@ -94,6 +100,8 @@ def _expected_decks(prefix: str) -> list[str]:
             study = f"{prefix}::Study::{lang}::{deck_word}"
             decks += [study, f"{prefix}::Pronunciation::{lang}::{deck_word}"]
             decks += [f"{study}::{exercise}" for exercise in STUDY_EXERCISES]
+            if deck_word == "Vocabulary":
+                decks.append(f"{study}::Example")
     decks.append(f"{prefix}::Study::French::Reading Rules")
     return sorted(decks)
 
@@ -165,23 +173,30 @@ def test_manifest_declares_six_note_types_with_their_fields() -> None:
 
 @pytest.mark.p1
 def test_item_note_types_have_four_card_templates_and_capture_one() -> None:
-    """AC-3: Understand, Produce, Write, Pronounce at ord 0-3 per Item type; one Capture card;
-    one Read card per reading rule.
+    """AC-3: Understand, Produce, Write, Pronounce at ord 0-3 per Item type, and Example at ord
+    4 per Vocabulary type; one Capture card; one Read card per reading rule.
     """
     manifest = build_manifest(RELEASE)
     counts = {nt.name: len(nt.templates) for nt in manifest.note_types}
     cards = {nt.name: tuple((t.ord, t.name) for t in nt.templates) for nt in manifest.note_types}
     capture, *items, reading_rule = _note_type_names(RELEASE)
 
-    assert counts == {capture: 1, reading_rule: 1} | {name: 4 for name in items}
+    vocabulary = {name for name in items if name.endswith(" Vocabulary")}
+    assert counts == {capture: 1, reading_rule: 1} | {
+        name: 5 if name in vocabulary else 4 for name in items
+    }
     assert cards[capture] == ((0, "Capture"),)
     assert cards[reading_rule] == ((0, "Read"),)
-    assert all(cards[name] == tuple(enumerate(EXERCISES)) for name in items)
+    for name in items:
+        exercises = VOCABULARY_EXERCISES if name in vocabulary else EXERCISES
+        assert cards[name] == tuple(enumerate(exercises))
 
 
 @pytest.mark.p0
 def test_card_ord_maps_to_its_exercise_and_deck() -> None:
-    """AC-4: ord 0-2 go to Study::<Language>::<Category>::<Exercise>, ord 3 to Pronunciation."""
+    """AC-4: ord 0-2 go to Study::<Language>::<Category>::<Exercise>, ord 3 to Pronunciation,
+    a Vocabulary type's ord 4 to Study::<Language>::Vocabulary::Example.
+    """
     manifest = build_manifest(RELEASE)
     expected = {
         ("LanguageLab Capture", 0): "LanguageLab::Captures",
@@ -193,6 +208,8 @@ def test_card_ord_maps_to_its_exercise_and_deck() -> None:
             for ord_, exercise in enumerate(STUDY_EXERCISES):
                 expected[note_type, ord_] = f"LanguageLab::Study::{lang}::{deck_word}::{exercise}"
             expected[note_type, 3] = f"LanguageLab::Pronunciation::{lang}::{deck_word}"
+            if word == "Vocabulary":
+                expected[note_type, 4] = f"LanguageLab::Study::{lang}::Vocabulary::Example"
     actual = {
         (nt.name, t.ord): manifest.card_deck(nt.name, t.ord)
         for nt in manifest.note_types
@@ -206,18 +223,21 @@ def test_card_ord_maps_to_its_exercise_and_deck() -> None:
         1: Exercise.PRODUCE,
         2: Exercise.WRITE,
         3: Exercise.PRONOUNCE,
+        4: Exercise.EXAMPLE,
     }
+    with pytest.raises(ValueError):
+        manifest.card_deck("LanguageLab English Sentence", 4)
 
 
 @pytest.mark.p1
-def test_manifest_declares_the_29_deck_tree() -> None:
+def test_manifest_declares_the_31_deck_tree() -> None:
     """AC-5: the root, Captures, the Study tree to each Exercise and the French Reading Rules,
     and the Pronunciation tree.
     """
     decks = build_manifest(RELEASE).decks
 
     assert sorted(decks) == _expected_decks(RELEASE)
-    assert len(decks) == len(set(decks)) == 29
+    assert len(decks) == len(set(decks)) == 31
     write = decks.index("LanguageLab::Study::French::Sentences::Write")
     assert decks[write + 1] == "LanguageLab::Study::French::Reading Rules"
     # parents before children, so creating in order never relies on Anki making a parent
@@ -245,15 +265,15 @@ def test_preset_turns_off_the_three_bury_flags_on_every_study_and_pronunciation_
     assert sorted(manifest.preset.decks) == sorted(
         d for d in manifest.decks if any(_in_deck_scope(d, root) for root in branches)
     )
-    assert len(manifest.preset.decks) == 27
+    assert len(manifest.preset.decks) == 29
     assert "LanguageLab::Study::French::Reading Rules" in manifest.preset.decks
 
 
 @pytest.mark.p2
 def test_manifest_declares_the_current_schema_version() -> None:
-    """AC-7: SchemaVersion 1, the same for every Prefix (AD-3: bumps only with a migration)."""
-    assert build_manifest(RELEASE).schema_version == 1
-    assert SCHEMA_VERSION == 1
+    """AC-7: SchemaVersion 2, the same for every Prefix (AD-3: bumps only with a migration)."""
+    assert build_manifest(RELEASE).schema_version == 2
+    assert SCHEMA_VERSION == 2
     assert build_manifest(DEV).schema_version == SCHEMA_VERSION
 
 
@@ -282,13 +302,17 @@ def test_card_templates_and_css_come_from_template_files_and_render_only_shown_f
             assert front | back <= declared, (nt.name, t.name)  # no unknown field
             assert not (front | back) & hidden, (nt.name, t.name)
             assert front & shown, (nt.name, t.name)  # Anki makes no card from an empty front
-            if nt is not capture:  # every back shows the whole note (FR-21), FrontSide included
+            if t.name == "Example":  # the example sentence and its audio only (decided 2026-11-23)
+                assert _field_refs(t.back) == {"Example", "ExampleAudio"}, nt.name
+                assert front == {"ExampleAudio", "ExampleRussian"}, nt.name
+            elif nt is not capture:  # every back shows the whole note (FR-21), FrontSide included
                 on_back = back | (front if "{{FrontSide}}" in t.back else set())
-                assert on_back == shown, (nt.name, t.name)
+                # ords 0-3 stay byte-identical: ExampleAudio shows on the Example card only
+                assert on_back == shown - {"ExampleAudio"}, (nt.name, t.name)
                 assert "RussianAlternatives" not in front, (nt.name, t.name)  # AD-10
     assert "Text" in _field_refs(capture.templates[0].front)
     for nt in items:
-        understand, produce, write, pronounce = nt.templates
+        understand, produce, write, pronounce = nt.templates[:4]
         assert "Target" in _field_refs(understand.front)
         assert "Russian" not in _field_refs(understand.front)
         assert "Russian" in _field_refs(produce.front)
@@ -319,7 +343,7 @@ def test_study_templates_place_russian_and_audio_per_fr21_and_css_uses_the_studi
     capture, *items, reading_rule = manifest.note_types
 
     for nt in items:
-        understand, produce, write, _pronounce = nt.templates
+        understand, produce, write, _pronounce = nt.templates[:4]
         assert "Audio" in _field_refs(understand.front), nt.name
         for t in (produce, write):
             front = _field_refs(t.front)
