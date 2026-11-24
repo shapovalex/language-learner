@@ -1,11 +1,12 @@
 """Target helpers test data, shared by the domain, OpenRouter adapter and helpers API tests
 (tests/unit/test_helpers_domain.py, tests/integration/test_openrouter_helpers.py,
 tests/api/test_helpers_grammar.py, tests/api/test_helpers_examples.py,
-tests/api/test_helpers_translate.py).
+tests/api/test_helpers_translate.py, tests/api/test_helpers_example_choices.py).
 
 `GRAMMAR_CORRECT` and `GRAMMAR_INCORRECT` are grammar verdicts on the wire, explained in
 Russian. `EXAMPLES` is an examples answer on the wire: five French sentences with their Russian
 for each CEFR level, A1 to C2, in order. `examples_with(...)` derives a malformed one from it.
+`EXAMPLE_CHOICES` is an Item's ten example choices on the wire; `MALFORMED_CHOICES` are invalid.
 """
 
 import copy
@@ -21,6 +22,7 @@ from tests.support.hosts import app_client
 GRAMMAR_API = "/api/helpers/grammar"
 EXAMPLES_API = "/api/helpers/examples"
 TRANSLATE_API = "/api/helpers/translate"
+EXAMPLE_CHOICES_API = "/api/helpers/example-choices"
 
 LEVELS = ["A1", "A2", "B1", "B2", "C1", "C2"]
 
@@ -185,11 +187,39 @@ MALFORMED_EXAMPLES: dict[str, dict[str, Any]] = {
 }
 
 
+# Ten example choices on the wire for `EXAMPLES_TARGET`: the B1 and B2 sentences
+CHOICE_SENTENCES = [*_SENTENCES["B1"], *_SENTENCES["B2"]]
+EXAMPLE_CHOICES: dict[str, Any] = {
+    "sentences": [{"sentence": s, "russian": r} for s, r in CHOICE_SENTENCES]
+}
+CHOICES_MEANING = "делать выводы"
+CHOICES_CONTEXT = "Chez le vétérinaire, à propos d'un chat malade."
+
+
+def choices_with(count: int) -> dict[str, Any]:
+    """`EXAMPLE_CHOICES` cut or padded to `count` sentences."""
+    pool = EXAMPLE_CHOICES["sentences"] * 2
+    return {"sentences": copy.deepcopy(pool[:count])}
+
+
+MALFORMED_CHOICES: dict[str, dict[str, Any]] = {
+    "nine": choices_with(9),
+    "eleven": choices_with(11),
+    "blank-russian": {
+        "sentences": [
+            *EXAMPLE_CHOICES["sentences"][:9],
+            {"sentence": CHOICE_SENTENCES[9][0], "russian": "  "},
+        ]
+    },
+}
+
+
 def helpers_llm(
     *,
     grammar: dict[str, Any] | None = None,
     examples: dict[str, Any] | None = None,
     translation: dict[str, Any] | None = None,
+    choices: dict[str, Any] | None = None,
     error: str | None = None,
 ) -> Any:
     """A `FakeLlm` answering the helpers with `grammar`, `examples` and `translation`, or
@@ -203,6 +233,7 @@ def helpers_llm(
         grammar_reply=grammar,
         examples_reply=examples,
         translate_reply=translation,
+        choices_reply=choices,
     )
 
 
@@ -219,6 +250,13 @@ def grammar_body(**overrides: str) -> dict[str, str]:
 
 def examples_body(**overrides: str) -> dict[str, str]:
     """A French examples request for `EXAMPLES_TARGET`, no context; `overrides` add or replace."""
+    return {"language": "fr", "target": EXAMPLES_TARGET, **overrides}
+
+
+def choices_body(**overrides: str) -> dict[str, str]:
+    """A French example-choices request for `EXAMPLES_TARGET`, no context or meaning;
+    `overrides` add or replace keys.
+    """
     return {"language": "fr", "target": EXAMPLES_TARGET, **overrides}
 
 

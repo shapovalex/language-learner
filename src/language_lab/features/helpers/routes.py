@@ -32,6 +32,19 @@ class ExamplesRequest(BaseModel):
     context: str = ""
 
 
+class ExampleChoicesRequest(BaseModel):
+    """The Item detail's Regenerate example: the Item's Target and Language, an optional
+    context, used once, and the Item's current Russian meaning, when it has one.
+    """
+
+    model_config = ConfigDict(strict=True)
+
+    language: Language = Field(strict=False)
+    target: NonBlank
+    context: str = ""
+    meaning: str = ""
+
+
 class TranslateRequest(BaseModel):
     """The Captures screen's Capture and translate: the saved text and its Language."""
 
@@ -53,6 +66,13 @@ def helpers_router(service: HelperService) -> APIRouter:
     async def examples(body: ExamplesRequest) -> dict[str, Any]:
         example_set = await service.examples(body.language, body.target, body.context)
         return example_set.model_dump(by_alias=True, mode="json")
+
+    @router.post("/example-choices")
+    async def example_choices(body: ExampleChoicesRequest) -> dict[str, Any]:
+        choices = await service.example_choices(
+            body.language, body.target, body.context, body.meaning
+        )
+        return choices.model_dump(by_alias=True, mode="json")
 
     @router.post("/translate")
     async def translate(body: TranslateRequest) -> dict[str, Any]:

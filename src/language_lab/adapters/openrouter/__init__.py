@@ -5,7 +5,8 @@ the Category's strict JSON Schema as the response format, and `provider.require_
 only providers honouring the schema are reached. No other routing or privacy keys: OpenRouter's
 defaults apply (NFR-8).
 
-The Target helpers (grammar check, CEFR example sentences, translation) go down the same
+The Target helpers (grammar check, CEFR example sentences, an Item's example choices,
+translation) go down the same
 request path with their own system prompt and strict schema, so they use the same key, models
 and provider rule.
 
@@ -26,9 +27,11 @@ from pydantic import BaseModel, ValidationError
 from language_lab.domain.catalog import Category, Language
 from language_lab.domain.errors import AppError, ErrorCode
 from language_lab.domain.helpers import (
+    ExampleChoices,
     ExampleSet,
     GrammarCheck,
     Translation,
+    example_choices_json_schema,
     examples_json_schema,
     grammar_json_schema,
     translation_json_schema,
@@ -76,6 +79,15 @@ that CEFR level, and each sentence's Russian translation in russian.
 The context, when given, says where the Target was met: use it to pick the meaning.
 """
 
+_EXAMPLE_CHOICES_PROMPT = """\
+You write example sentences for a Russian speaker learning English and French.
+Given a Target word or phrase and its Language, answer with the fields of the JSON Schema:
+sentences, exactly ten entries. Each sentence is natural, in the Language, uses the Target, and
+differs from the others in situation and structure; russian is its Russian translation.
+The Russian meaning, when given, is the sense of the Target to use in every sentence.
+The context, when given, says what the sentences should be about: follow it.
+"""
+
 _TRANSLATE_PROMPT = """\
 You translate for a Russian speaker learning English and French.
 Given a Target text and its Language, answer with the fields of the JSON Schema:
@@ -107,6 +119,15 @@ def _grammar_prompt(language: Language, category: Category, target: str) -> str:
 
 def _examples_prompt(language: Language, target: str, context: str) -> str:
     lines = [f"Language: {_LANGUAGES[language]}", f"Target: {target}"]
+    if context.strip():
+        lines.append(f"Context: {context}")
+    return "\n".join(lines)
+
+
+def _example_choices_prompt(language: Language, target: str, context: str, meaning: str) -> str:
+    lines = [f"Language: {_LANGUAGES[language]}", f"Target: {target}"]
+    if meaning.strip():
+        lines.append(f"Russian meaning: {meaning}")
     if context.strip():
         lines.append(f"Context: {context}")
     return "\n".join(lines)
@@ -164,6 +185,17 @@ class OpenRouterLlm:
             "example_sentences",
             examples_json_schema(),
             ExampleSet,
+        )
+
+    async def example_choices(
+        self, language: Language, target: str, context: str, meaning: str
+    ) -> ExampleChoices:
+        return await self._complete(
+            _EXAMPLE_CHOICES_PROMPT,
+            _example_choices_prompt(language, target, context, meaning),
+            "example_choices",
+            example_choices_json_schema(),
+            ExampleChoices,
         )
 
     async def translate(self, language: Language, text: str) -> Translation:

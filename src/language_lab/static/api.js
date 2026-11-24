@@ -172,6 +172,18 @@ export function exampleSentences(body) {
   });
 }
 
+// Ten candidate examples for an Item's Example: `{language, target, context, meaning}` in,
+// `meaning` the Item's Russian meaning; 200 `{sentences: [{sentence, russian}] × 10}` out;
+// `llm_failed` or `llm_invalid_output` when the model fails. The context is used once, never
+// stored
+export function exampleChoices(body) {
+  return request("/api/helpers/example-choices", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(body),
+  });
+}
+
 // The Russian translation of a saved Capture: `{language, target}` in, 200 `{russian}` out;
 // `llm_failed` or `llm_invalid_output` when the model fails. Nothing is stored
 export function translateText(body) {

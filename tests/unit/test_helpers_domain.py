@@ -14,10 +14,12 @@ import pytest
 from pydantic import ValidationError
 
 from tests.support.helpers import (
+    EXAMPLE_CHOICES,
     EXAMPLES,
     GRAMMAR_CORRECT,
     GRAMMAR_INCORRECT,
     LEVELS,
+    MALFORMED_CHOICES,
     MALFORMED_EXAMPLES,
     TRANSLATION,
 )
@@ -154,3 +156,40 @@ def test_the_translation_schema_is_strict() -> None:
     assert schema["type"] == "object"
     assert schema["additionalProperties"] is False
     assert schema["required"] == ["russian"]
+
+
+def example_choices(reply: dict[str, Any]) -> Any:
+    from language_lab.domain.helpers import ExampleChoices
+
+    return ExampleChoices.model_validate(reply)
+
+
+@pytest.mark.p1
+def test_ten_example_choices_round_trip_on_the_wire() -> None:
+    """[P1] Regenerate example: exactly ten `{sentence, russian}` pairs validate and dump back
+    unchanged.
+    """
+    choices = example_choices(EXAMPLE_CHOICES)
+
+    assert len(choices.sentences) == 10
+    assert choices.model_dump(by_alias=True, mode="json") == EXAMPLE_CHOICES
+
+
+@pytest.mark.p1
+@pytest.mark.parametrize("malformed", MALFORMED_CHOICES.values(), ids=MALFORMED_CHOICES.keys())
+def test_anything_but_ten_non_blank_choices_fails_validation(malformed: dict[str, Any]) -> None:
+    """[P1] nine or eleven pairs, or a blank field, fail validation: the adapter's retry."""
+    with pytest.raises(ValidationError):
+        example_choices(malformed)
+
+
+@pytest.mark.p2
+def test_the_example_choices_schema_is_strict() -> None:
+    """[P2] the strict schema is closed, with `sentences` the only, required property."""
+    from language_lab.domain.helpers import example_choices_json_schema
+
+    schema = example_choices_json_schema()
+
+    assert schema["type"] == "object"
+    assert schema["additionalProperties"] is False
+    assert schema["required"] == ["sentences"]

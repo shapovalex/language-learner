@@ -4,7 +4,7 @@ from typing import Any
 
 from language_lab.domain.catalog import Category, Language
 from language_lab.domain.errors import AppError, ErrorCode
-from language_lab.domain.helpers import ExampleSet, GrammarCheck, Translation
+from language_lab.domain.helpers import ExampleChoices, ExampleSet, GrammarCheck, Translation
 from language_lab.domain.items import GeneratedFields, generated_model
 
 # A valid answer per Category, on the wire, when no `reply` is given
@@ -156,6 +156,14 @@ _EXAMPLES: dict[str, Any] = {
     ]
 }
 
+# Ten example choices for an Item's Example when no `choices_reply` is given
+_CHOICES: dict[str, Any] = {
+    "sentences": [
+        {"sentence": s, "russian": r}
+        for s, r in [*_EXAMPLE_SENTENCES["A2"], *_EXAMPLE_SENTENCES["B1"]]
+    ]
+}
+
 # The Russian translation when no `translate_reply` is given
 _TRANSLATIONS: dict[str, str] = {"jump to conclusions": "делать поспешные выводы"}
 _TRANSLATION_FALLBACK = "перевод"
@@ -170,6 +178,8 @@ class FakeLlm:
     `grammar_requests` and `examples()` as `(language, target, context)` in `example_requests`.
     Each raises `AppError(error)` too, or answers `grammar_reply` / `examples_reply` (on the
     wire), by default a verdict from `_GRAMMAR_CORRECTIONS` and the English `_EXAMPLES`.
+    `example_choices()` records `(language, target, context, meaning)` in `choice_requests` and
+    raises `AppError(error)` or answers `choices_reply`, by default the ten `_CHOICES`.
     `translate()` records `(language, text)` in `translate_requests` and raises
     `AppError(error)` or answers `translate_reply`, by default from `_TRANSLATIONS`.
     """
@@ -182,6 +192,7 @@ class FakeLlm:
         grammar_reply: dict[str, Any] | None = None,
         examples_reply: dict[str, Any] | None = None,
         translate_reply: dict[str, Any] | None = None,
+        choices_reply: dict[str, Any] | None = None,
     ):
         self.reply = reply
         self.error = error
@@ -192,6 +203,8 @@ class FakeLlm:
         self.example_requests: list[tuple[Language, str, str]] = []
         self.translate_reply = translate_reply
         self.translate_requests: list[tuple[Language, str]] = []
+        self.choices_reply = choices_reply
+        self.choice_requests: list[tuple[Language, str, str, str]] = []
 
     async def generate(
         self, language: Language, category: Category, target: str, generation_context: str
@@ -219,6 +232,15 @@ class FakeLlm:
             raise AppError(self.error)
         reply = _EXAMPLES if self.examples_reply is None else self.examples_reply
         return ExampleSet.model_validate(reply)
+
+    async def example_choices(
+        self, language: Language, target: str, context: str, meaning: str
+    ) -> ExampleChoices:
+        self.choice_requests.append((language, target, context, meaning))
+        if self.error is not None:
+            raise AppError(self.error)
+        reply = _CHOICES if self.choices_reply is None else self.choices_reply
+        return ExampleChoices.model_validate(reply)
 
     async def translate(self, language: Language, text: str) -> Translation:
         self.translate_requests.append((language, text))

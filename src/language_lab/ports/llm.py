@@ -8,7 +8,7 @@ per-field regeneration, taking the one field it needs from the full generated mo
 from typing import Protocol
 
 from language_lab.domain.catalog import Category, Language
-from language_lab.domain.helpers import ExampleSet, GrammarCheck, Translation
+from language_lab.domain.helpers import ExampleChoices, ExampleSet, GrammarCheck, Translation
 from language_lab.domain.items import GeneratedFields
 
 
@@ -35,6 +35,16 @@ class Llm(Protocol):
     async def examples(self, language: Language, target: str, context: str) -> ExampleSet:
         """Five example sentences using `target` in `language` for each CEFR level A1 to C2,
         each with its Russian translation. `context` is a hint used once and never kept.
+        Same errors as `generate`.
+        """
+        ...
+
+    async def example_choices(
+        self, language: Language, target: str, context: str, meaning: str
+    ) -> ExampleChoices:
+        """Ten varied example sentences using `target` in `language`, each with its Russian
+        translation, for an Item's Example. `context` is a hint used once and never kept;
+        `meaning`, the Item's Russian meaning when it has one, keeps the same sense.
         Same errors as `generate`.
         """
         ...
