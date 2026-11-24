@@ -1602,12 +1602,33 @@ button.segment {
 }
 
 .items-search {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
   margin: 0 0 var(--space-5);
 }
 
+.items-search[hidden] {
+  display: none;
+}
+
 .items-search-field {
+  flex: 1 1 auto;
+  min-width: 0;
   border-radius: var(--radius-full);
   padding-inline: var(--space-9);
+}
+
+/* The Flagged filter toggle: pressed reads as the accent, like a chosen segment */
+.items-flag-toggle {
+  flex: none;
+  border-radius: var(--radius-full);
+}
+
+.items-flag-toggle[aria-pressed="true"] {
+  border-color: var(--color-accent);
+  background: var(--color-accent-soft);
+  color: var(--color-on-accent-soft);
 }
 
 .items-count {
@@ -1688,6 +1709,17 @@ button.segment {
 }
 
 .item-row-audio svg {
+  width: 20px;
+  height: 20px;
+  fill: currentColor;
+}
+
+.item-row-flag {
+  display: inline-flex;
+  color: var(--color-danger);
+}
+
+.item-row-flag svg {
   width: 20px;
   height: 20px;
   fill: currentColor;
@@ -2135,6 +2167,38 @@ button.segment {
 }
 
 .item-pronunciation-alert {
+  margin-top: var(--space-5);
+}
+
+/* The flag notice of an Item flagged in Anki, with Clear flag */
+.item-flag {
+  min-width: 0;
+  padding: var(--space-7);
+  border: 1px solid var(--color-danger-outline);
+  border-radius: 12px;
+  background: var(--color-danger-soft);
+}
+
+.item-flag-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-3) var(--space-5);
+}
+
+.item-flag-title {
+  margin: 0;
+  font-weight: 600;
+}
+
+.item-flag-hint {
+  margin: 0;
+  color: var(--color-ink-muted);
+  font-size: var(--font-size-label);
+}
+
+.item-flag-alert {
   margin-top: var(--space-5);
 }
 

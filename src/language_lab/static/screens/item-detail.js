@@ -53,8 +53,16 @@
 // never through the Save buffer, so it is no unsaved change. The checkbox shows the new state,
 // disabled, while the write runs; a failure puts it back with an inline alert whose Try again
 // sends the same change.
+//
+// Flagged Items: when the read says `flagged` (a card of the Item carries a flag in Anki), a
+// "Flagged in Anki" notice with a "Clear flag" button sits before the Pronunciation card. Clear
+// flag writes at once through DELETE /api/items/<lang>/<itemId>/flag (every flagged card set to
+// flag 0 in Anki), never through the Save buffer, and Save never clears it. The button is
+// disabled while the write runs; success hides the notice, a failure keeps it with an inline
+// alert whose Try again clears again.
 
 import {
+  clearFlag,
   deleteItem,
   errorMessage,
   exampleChoices,
@@ -149,6 +157,9 @@ const TTS_FAILED = "Couldn't make the audio. Current audio is unchanged.";
 const MEDIA_FAILED = "Couldn't load the saved audio.";
 let compareIds = 0; // unique ids for the audio compare headings
 const CHOICES_CONTEXT_ID = "item-example-context";
+const FLAGGED = "Flagged in Anki";
+const FLAGGED_HINT = "Fix what you flagged while reviewing, then clear the flag.";
+const CLEAR_FLAG = "Clear flag";
 const PRACTISE = "Practise pronunciation";
 const PRACTISE_HINT = "Unchecked, this Item's Pronounce Card stays out of Pronunciation practice.";
 const AUDIO_COMPARE_HINT = "The old audio is removed only after Save succeeds.";
@@ -485,6 +496,9 @@ export function mount(root, params) {
   let excluded = false; // the Item's Pronounce Card is suspended, as last read or written
   let practising = null; // the Practise pronunciation value being written, else null
   let pronunciationError = null; // {practise, error} of the last failed write
+  let flagged = false; // a card of the Item carries an Anki flag, as last read or cleared
+  let clearing = false; // the Clear flag write is running
+  let flagError = null; // the last failed Clear flag write's error
 
   const screen = element("div", "item-detail");
   const back = element("a", "back-link", `‹ ${languageName(lang)} Items`);
@@ -606,8 +620,11 @@ export function mount(root, params) {
       event.preventDefault();
       if (!save.disabled) saveChanges();
     });
+    const flag = flagCard();
     const pronunciation = pronunciationCard();
-    form.append(header, fields, audioCard.card, pronunciation.card, alertSlot, actions);
+    form.append(header, fields, audioCard.card);
+    if (flag) form.append(flag.card);
+    form.append(pronunciation.card, alertSlot, actions);
     body.replaceChildren(form);
     audioCard.render();
 
@@ -633,6 +650,7 @@ export function mount(root, params) {
     if (focus === "save") save.focus();
     if (focus === "delete") remove.focus();
     if (focus === "pronunciation") (pronunciation.retry ?? pronunciation.box).focus();
+    if (focus === "flag") (flag ? flag.retry ?? flag.button : pronunciation.box).focus();
     if (focus !== null && !focus.group) keepField = keepContext = null;
     if (focus?.group && !keepField && !keepContext) {
       const target = focusTargets[focus.group]?.[focus.part];
@@ -654,6 +672,79 @@ export function mount(root, params) {
         // Not every input type keeps a selection
       }
     }
+  }
+
+  // The flag notice of a flagged Item: Clear flag, and the alert of a failed write; else null
+  function flagCard() {
+    if (!flagged) return null;
+    const card = element("section", "item-flag");
+    card.setAttribute("aria-label", "Flag");
+    const text = element("div", "item-flag-text");
+    text.append(
+      element("p", "item-flag-title", FLAGGED),
+      element("p", "item-flag-hint", FLAGGED_HINT),
+    );
+    const button = element("button", "button button-secondary", CLEAR_FLAG);
+    button.type = "button";
+    button.dataset.control = "clear-flag";
+    button.disabled = busy || clearing;
+    button.addEventListener("click", () => onClearFlag());
+    const row = element("div", "item-flag-row");
+    row.append(text, button);
+    card.append(row);
+    if (clearing) card.setAttribute("aria-busy", "true");
+    let retry = null;
+    if (flagError) {
+      const unreachable = isApiError(flagError, "anki_unavailable");
+      retry = tryAgain(() => onClearFlag());
+      retry.disabled = busy || clearing;
+      card.append(
+        alertBox(
+          "item-flag-alert",
+          element(
+            "p", "compose-alert-title",
+            unreachable ? "Flag not cleared — Anki isn't reachable" : "Flag not cleared",
+          ),
+          element(
+            "p", "draft-alert-body",
+            unreachable
+              ? "Make sure Anki Desktop is open on the Mac mini, then try again."
+              : errorMessage(flagError),
+          ),
+          retry,
+        ),
+      );
+    }
+    return { card, button, retry };
+  }
+
+  // Clear flag: written at once, outside the Save buffer
+  async function onClearFlag() {
+    if (busy || clearing || !item) return;
+    clearing = true;
+    flagError = null;
+    renderEditor();
+    try {
+      await clearFlag(lang, itemId);
+    } catch (failure) {
+      if (!mounted) return;
+      clearing = false;
+      flagError = failure;
+      renderEditor({ focus: flagFocus() });
+      return;
+    }
+    if (!mounted) return;
+    clearing = false;
+    flagged = false;
+    renderEditor({ focus: flagFocus() });
+  }
+
+  // Back to the flag notice (or, once it is gone, the Pronunciation checkbox) only when focus
+  // is still there or was dropped by the disabled button
+  function flagFocus() {
+    const active = document.activeElement;
+    if (!active || active === document.body) return "flag";
+    return body.querySelector(".item-flag")?.contains(active) ? "flag" : null;
   }
 
   // The Pronunciation card: the checkbox, and the alert of a failed write
@@ -1050,6 +1141,7 @@ export function mount(root, params) {
     if (!mounted) return;
     item = read;
     excluded = read.pronunciationExcluded === true;
+    flagged = read.flagged === true;
     loadedValues = generatedValues(read);
     values = { ...loadedValues };
     audioCard = itemAudioCard({

@@ -78,6 +78,12 @@ class FakeAnkiStore:
     ready, but only when the flag changes; each change is recorded in `exclusions`.
     `pronunciation_queue()` leaves out the excluded Items' cards, `answer_card()` raises
     `not_found` for one, and `get_item()` reports the flag.
+
+    `flagged` holds the ItemIds with a flagged card in Anki; `item_candidates()` reports it only
+    with `with_flags=True` (each call's `with_flags` recorded in `flag_reads`), `get_item()`
+    always. `clear_flag()` drops the ItemId from there, raising `not_found` for an Item of no
+    `items` entry in that Language and refusing when Setup is not ready, but only when it is
+    flagged; each clear is recorded in `cleared_flags`.
     """
 
     def __init__(
@@ -116,6 +122,9 @@ class FakeAnkiStore:
         self.answers: list[tuple[int, Rating]] = []
         self.excluded: set[str] = set()
         self.exclusions: list[tuple[str, bool]] = []
+        self.flagged: set[str] = set()
+        self.cleared_flags: list[str] = []
+        self.flag_reads: list[bool] = []
 
     async def reachable(self) -> bool:
         if self.busy:
@@ -270,6 +279,7 @@ class FakeAnkiStore:
             self.audio.get(item_id),
             has_example_audio=example is not None,
             example_audio=example,
+            flagged=item_id in self.flagged,
             **extra,
         )
 
@@ -284,16 +294,22 @@ class FakeAnkiStore:
             raise AppError(ErrorCode.NOT_FOUND)
         return self.media[name]
 
-    async def item_candidates(self, language: Language, category: Category) -> list[Item]:
+    async def item_candidates(
+        self, language: Language, category: Category, *, with_flags: bool = False
+    ) -> list[Item]:
         if self.busy:
             raise AppError(ErrorCode.ANKI_BUSY)
         if not self.available:
             raise AppError(ErrorCode.ANKI_UNAVAILABLE)
-        return [
+        self.flag_reads.append(with_flags)
+        items = [
             self._item(item_id, content)
             for item_id, (stored_language, content) in self.items.items()
             if stored_language is language and content.category is category
         ]
+        if with_flags:
+            return items
+        return [dataclasses.replace(item, flagged=False) for item in items]
 
     async def get_item(self, language: Language, item_id: str) -> Item:
         if self.busy:
@@ -380,6 +396,21 @@ class FakeAnkiStore:
         else:
             self.excluded.discard(item_id)
         self.exclusions.append((item_id, excluded))
+
+    async def clear_flag(self, language: Language, item_id: str) -> None:
+        if self.busy:
+            raise AppError(ErrorCode.ANKI_BUSY)
+        if not self.available:
+            raise AppError(ErrorCode.ANKI_UNAVAILABLE)
+        stored = self.items.get(item_id)
+        if stored is None or stored[0] is not language:
+            raise AppError(ErrorCode.NOT_FOUND)
+        if item_id not in self.flagged:
+            return
+        if self.preview.state is not SetupState.READY:
+            raise AppError(ErrorCode.SETUP_REQUIRED)
+        self.flagged.discard(item_id)
+        self.cleared_flags.append(item_id)
 
     async def sync(self) -> SyncOutcome:
         self.sync_calls += 1

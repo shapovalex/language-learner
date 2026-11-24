@@ -213,6 +213,7 @@ def test_get_item_returns_the_item_flat_with_its_item_id(
         **on_wire(item_id, wire),
         "audio": None,
         "pronunciationExcluded": False,
+        "flagged": False,
     }
 
 

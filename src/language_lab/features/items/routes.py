@@ -1,5 +1,5 @@
 """Items' HTTP routes, under /api/items: Save, list/search, duplicate read, detail, Delete, the
-Pronunciation flag, and the example audio backfill.
+Pronunciation flag, clearing an Item's Anki flags, and the example audio backfill.
 """
 
 import json
@@ -132,9 +132,17 @@ def items_router(service: ItemService) -> APIRouter:
         return {"done": batch.done, "failed": batch.failed, "remaining": batch.remaining}
 
     @router.get("/{lang}")
-    async def search(lang: Language, q: str | None = None) -> ItemsBody:
-        items = await service.search(lang, q or "")
-        return {"items": [{**item.wire(), "hasAudio": item.has_audio} for item in items]}
+    async def search(
+        lang: Language, q: str | None = None, flagged: Literal["true", "false"] | None = None
+    ) -> ItemsBody:
+        # Only `true` or `false`: anything else is a 422 `validation_failed` before any read
+        items = await service.search(lang, q or "", flagged_only=flagged == "true")
+        return {
+            "items": [
+                {**item.wire(), "hasAudio": item.has_audio, "flagged": item.flagged}
+                for item in items
+            ]
+        }
 
     # Declared before /{item_id}, which would otherwise take "duplicates" as an ItemId
     @router.get("/{lang}/duplicates")
@@ -158,6 +166,7 @@ def items_router(service: ItemService) -> APIRouter:
             **item.wire(),
             "audio": item.audio,
             "pronunciationExcluded": item.pronunciation_excluded,
+            "flagged": item.flagged,
         }
 
     @router.delete("/{lang}/{item_id}", status_code=204)
@@ -172,6 +181,14 @@ def items_router(service: ItemService) -> APIRouter:
         if re.fullmatch(UUID4, item_id) is None:
             raise AppError(ErrorCode.NOT_FOUND)
         await service.set_pronunciation_excluded(lang, item_id, body.excluded)
+        return Response(status_code=204)
+
+    # Clears the Anki flag of every flagged card of the Item; none flagged writes nothing
+    @router.delete("/{lang}/{item_id}/flag", status_code=204)
+    async def clear_flag(lang: Language, item_id: str) -> Response:
+        if re.fullmatch(UUID4, item_id) is None:
+            raise AppError(ErrorCode.NOT_FOUND)
+        await service.clear_flag(lang, item_id)
         return Response(status_code=204)
 
     return router

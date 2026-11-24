@@ -83,7 +83,9 @@ class Item:
     `Audio` field holds Reference audio: read-only list metadata, never part of the content.
     `pronunciation_excluded` (its Pronounce Card suspended, AD-13) is read-only metadata too,
     set only by `get_item`. Its example audio (`has_example_audio`, `example_audio`) is set on
-    every read, `item_candidates` included.
+    every read, `item_candidates` included. `flagged` (any of its cards carries an Anki flag,
+    AD-13) is read-only metadata too, set by `get_item` and by `item_candidates` only when asked
+    `with_flags` (False otherwise).
     """
 
     item_id: str
@@ -94,6 +96,7 @@ class Item:
     # A Vocabulary note's `ExampleAudio`: whether it holds anything, and the managed clip's name
     has_example_audio: bool = False
     example_audio: str | None = None
+    flagged: bool = False
 
     def wire(self) -> dict[str, Any]:
         """The Item on the wire: `{itemId, ...ItemContent}`, flat like the Draft and the Save."""
