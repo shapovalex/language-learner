@@ -28,7 +28,13 @@ def test_the_llm_port_the_fake_and_the_openrouter_adapter_declare_generate() -> 
     assert {name: public_methods(FakeLlm).get(name) for name in port} == port
 
     assert {name: public_methods(OpenRouterLlm).get(name) for name in port} == port
-    assert set(port) == {"generate", "check_grammar", "examples", "translate"}
+    assert set(port) == {
+        "generate",
+        "check_grammar",
+        "examples",
+        "example_choices",
+        "translate",
+    }
     assert inspect.iscoroutinefunction(Llm.generate)
     hints = inspect.get_annotations(Llm.generate, eval_str=True)
     assert {k: v for k, v in hints.items() if k != "return"} == {
@@ -78,4 +84,23 @@ def test_the_llm_port_declares_translate() -> None:
         "language": Language,
         "text": str,
         "return": Translation,
+    }
+
+
+@pytest.mark.p1
+def test_the_llm_port_declares_example_choices() -> None:
+    """Regenerate example shares the port: async `example_choices(language, target, context,
+    meaning)` answering `ExampleChoices`.
+    """
+    from language_lab.domain.catalog import Language
+    from language_lab.domain.helpers import ExampleChoices
+    from language_lab.ports.llm import Llm
+
+    assert inspect.iscoroutinefunction(Llm.example_choices)
+    assert inspect.get_annotations(Llm.example_choices, eval_str=True) == {
+        "language": Language,
+        "target": str,
+        "context": str,
+        "meaning": str,
+        "return": ExampleChoices,
     }

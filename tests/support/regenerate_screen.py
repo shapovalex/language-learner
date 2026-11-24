@@ -1,4 +1,5 @@
-"""Story 5.2 regeneration: the proposed wire contract, Preview replies and accessible locators.
+"""Story 5.2 regeneration: the proposed wire contract, Preview replies and accessible locators,
+plus the example group's choices panel and its POST /api/helpers/example-choices double.
 
 `POST /api/drafts/regenerate` takes `{language, category, target}` and answers 200 with the
 Category's full generated model as flat ItemContent, without an ItemId (AD-11). The Preview
@@ -15,11 +16,44 @@ from tests.support.captures_screen import main
 from tests.support.duplicates import on_wire, sentence
 
 REGENERATE_API = "/api/drafts/regenerate"
+EXAMPLE_CHOICES_API = "/api/helpers/example-choices"
 
 KEEP_CURRENT = "Keep current"
 USE_PREVIEW = "Use preview"
 CURRENT = "Current"
 PREVIEW_NOT_SAVED = "Preview · not saved"
+GENERATE = "Generate"
+USE_THIS_EXAMPLE = "Use this example"
+EXAMPLE_CONTEXT = "Context · optional · used once, never saved"
+CHOICES_CONTEXT = "at the vet, about a sick cat"
+
+# Ten example choices for "jump to conclusions", as POST /api/helpers/example-choices answers
+CHOICES: dict[str, Any] = {
+    "sentences": [
+        {"sentence": sentence, "russian": russian}
+        for sentence, russian in [
+            ("Don't jump to conclusions about the cat.", "Не спеши с выводами о коте."),
+            ("The vet told us not to jump to conclusions.", "Ветеринар сказал не спешить."),
+            (
+                "I jumped to conclusions when he coughed.",
+                "Я поспешил с выводами, когда он кашлянул.",
+            ),
+            (
+                "Let's not jump to conclusions before the blood test.",
+                "Не будем спешить с выводами до анализа крови.",
+            ),
+            ("She jumped to conclusions about the food.", "Она поспешила с выводами о корме."),
+            ("It's easy to jump to conclusions with pets.", "С питомцами легко поспешить."),
+            ("We jumped to conclusions too fast.", "Мы слишком быстро сделали выводы."),
+            ("Try not to jump to conclusions.", "Постарайся не делать поспешных выводов."),
+            ("He always jumps to conclusions.", "Он всегда спешит с выводами."),
+            (
+                "Never jump to conclusions at the vet's.",
+                "Никогда не спеши с выводами у ветеринара.",
+            ),
+        ]
+    ]
+}
 
 PREVIEW_VOCABULARY: dict[str, Any] = {
     "category": "vocabulary",
@@ -60,6 +94,20 @@ def compare_pair(page: Page, group: str) -> Locator:
     return main(page).get_by_role("group", name=f"{group} · compare", exact=True)
 
 
+def choices_panel(page: Page) -> Locator:
+    """The example group's choices panel: "Example · choose"."""
+    return main(page).get_by_role("group", name="Example · choose", exact=True)
+
+
+def choices_context(page: Page) -> Locator:
+    return choices_panel(page).get_by_role("textbox", name=EXAMPLE_CONTEXT, exact=True)
+
+
+def choice_rows(page: Page) -> Locator:
+    """The listed examples, one row each, in the reply's order."""
+    return choices_panel(page).get_by_role("list", name="New examples").get_by_role("listitem")
+
+
 def pair_button(pair: Locator, name: str) -> Locator:
     return pair.get_by_role("button", name=name, exact=True)
 
@@ -93,6 +141,39 @@ class RegenerateApi:
                         "code": self.error,
                         "message": "The model is unavailable.",
                         "requestId": "atdd-regenerate",
+                    }
+                },
+            )
+            return
+        route.fulfill(json=self.reply)
+
+
+class ExampleChoicesApi:
+    """Per-test double of the example-choices route: records each JSON body, then answers
+    `reply` or, while `error` is set, a 502 AD-15 envelope with that code.
+    """
+
+    def __init__(
+        self, page: Page, reply: dict[str, Any] = CHOICES, *, error: str | None = None
+    ) -> None:
+        self.reply = reply
+        self.error = error
+        self.requests: list[dict[str, Any]] = []
+        page.route(f"**{EXAMPLE_CHOICES_API}", self._handle)
+
+    def _handle(self, route: Route) -> None:
+        if route.request.method != "POST":
+            route.fallback()
+            return
+        self.requests.append(route.request.post_data_json)
+        if self.error is not None:
+            route.fulfill(
+                status=502,
+                json={
+                    "error": {
+                        "code": self.error,
+                        "message": "The model is unavailable.",
+                        "requestId": "atdd-example-choices",
                     }
                 },
             )

@@ -24,7 +24,11 @@ from tests.support.aio import settle
 from tests.support.captures import code_of
 from tests.support.fixtures.logs import LogCapture
 from tests.support.helpers import (
+    CHOICE_SENTENCES,
+    CHOICES_CONTEXT,
+    CHOICES_MEANING,
     CORRECT_TARGET,
+    EXAMPLE_CHOICES,
     EXAMPLES,
     EXAMPLES_CONTEXT,
     EXAMPLES_TARGET,
@@ -32,6 +36,7 @@ from tests.support.helpers import (
     GRAMMAR_INCORRECT,
     INCORRECT_TARGET,
     LEVELS,
+    MALFORMED_CHOICES,
     MALFORMED_EXAMPLES,
     TRANSLATE_TARGET,
     TRANSLATION,
@@ -69,6 +74,13 @@ def check_grammar(
 def examples(llm: Any, context: str = EXAMPLES_CONTEXT, language: str = "fr") -> Any:
     """The outcome of one `examples()`: the example set, or the exception raised."""
     return settle(llm.examples(Language(language), EXAMPLES_TARGET, context))
+
+
+def example_choices(
+    llm: Any, context: str = CHOICES_CONTEXT, meaning: str = CHOICES_MEANING
+) -> Any:
+    """The outcome of one `example_choices()`: the choices, or the exception raised."""
+    return settle(llm.example_choices(Language("fr"), EXAMPLES_TARGET, context, meaning))
 
 
 def translate(llm: Any, language: str = "fr") -> Any:
@@ -307,3 +319,55 @@ def test_an_invalid_translation_is_retried_once_then_llm_invalid_output(
     assert len(replay.sent) == 2
     assert replay.sent[1].body == replay.sent[0].body
     assert TRANSLATE_TARGET not in log_capture.all_text
+
+
+@pytest.mark.p0
+def test_example_choices_carry_the_context_and_parse_ten_pairs() -> None:
+    """[P0] Regenerate example: ten pairs come back after one request on the shared path; the
+    Target, the Language, the Item's Russian meaning and the context reach the model.
+    """
+    replay = OpenRouterReplay([answer(EXAMPLE_CHOICES)])
+
+    outcome = example_choices(openrouter(replay))
+
+    assert [(c.sentence, c.russian) for c in outcome.sentences] == CHOICE_SENTENCES
+    assert len(replay.sent) == 1
+    schema = assert_shared_request(replay.sent[0])
+    assert closed(schema)
+    assert set(schema["properties"]) == {"sentences"}
+    prompt = prompt_text(replay.sent[0].body)
+    assert EXAMPLES_TARGET in prompt
+    assert "French" in prompt
+    assert f"Context: {CHOICES_CONTEXT}" in prompt
+    assert f"Russian meaning: {CHOICES_MEANING}" in prompt
+
+
+@pytest.mark.p1
+def test_example_choices_without_context_or_meaning_leave_them_out() -> None:
+    """[P1] a blank context and meaning are optional: the prompt has no line for either."""
+    replay = OpenRouterReplay([answer(EXAMPLE_CHOICES)])
+
+    outcome = example_choices(openrouter(replay), context="  ", meaning="")
+
+    assert len(outcome.sentences) == 10
+    prompt = prompt_text(replay.sent[0].body)
+    assert "Context:" not in prompt
+    assert "Russian meaning:" not in prompt
+
+
+@pytest.mark.p0
+@pytest.mark.parametrize("malformed", MALFORMED_CHOICES.values(), ids=MALFORMED_CHOICES.keys())
+def test_malformed_example_choices_are_retried_once_then_llm_invalid_output(
+    malformed: dict[str, Any], log_capture: LogCapture
+) -> None:
+    """[P0] nine or eleven pairs, or a blank field: one retry with the same body, then
+    `llm_invalid_output`; the context is not logged.
+    """
+    replay = OpenRouterReplay([answer(malformed), answer(malformed)])
+
+    outcome = example_choices(openrouter(replay))
+
+    assert code_of(outcome) == "llm_invalid_output"
+    assert len(replay.sent) == 2
+    assert replay.sent[1].body == replay.sent[0].body
+    assert CHOICES_CONTEXT not in log_capture.all_text

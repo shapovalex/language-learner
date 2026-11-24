@@ -1,10 +1,11 @@
 """The Target helpers' answers on the wire (AD-11): the grammar verdict, the CEFR example
-sentences and the Russian translation of a Capture, camelCase like `domain/items.py`, and the
-strict JSON Schemas OpenRouter gets.
+sentences, an Item's ten example choices and the Russian translation of a Capture, camelCase like
+`domain/items.py`, and the strict JSON Schemas OpenRouter gets.
 
 The strict schema can't count array items, so pydantic enforces the examples' shape: exactly the
-six CEFR levels in A1→C2 order, five sentences each. Anything else fails validation, which the
-adapter treats as invalid output (one retry, then `llm_invalid_output`). Nothing here is stored.
+six CEFR levels in A1→C2 order, five sentences each, and exactly ten example choices. Anything
+else fails validation, which the adapter treats as invalid output (one retry, then
+`llm_invalid_output`). Nothing here is stored.
 """
 
 from enum import StrEnum
@@ -16,6 +17,7 @@ from pydantic.alias_generators import to_camel
 from language_lab.domain.items import NonBlank, strict_schema
 
 SENTENCES_PER_LEVEL = 5
+EXAMPLE_CHOICES = 10
 
 
 class CefrLevel(StrEnum):
@@ -77,6 +79,18 @@ class ExampleSet(_Answer):
         return self
 
 
+class ExampleChoices(_Answer):
+    """Ten candidate examples for an Item's Example, each with its Russian, to pick one from."""
+
+    sentences: list[ExampleSentence]
+
+    @model_validator(mode="after")
+    def _ten_sentences(self) -> ExampleChoices:
+        if len(self.sentences) != EXAMPLE_CHOICES:
+            raise ValueError(f"example choices need exactly {EXAMPLE_CHOICES} sentences")
+        return self
+
+
 class Translation(_Answer):
     """A captured text's one natural Russian translation, shown once and never stored."""
 
@@ -91,6 +105,11 @@ def grammar_json_schema() -> dict[str, Any]:
 def examples_json_schema() -> dict[str, Any]:
     """The strict JSON Schema of an example set (its 6 × 5 shape is checked on validation)."""
     return strict_schema(ExampleSet)
+
+
+def example_choices_json_schema() -> dict[str, Any]:
+    """The strict JSON Schema of example choices (their count of 10 is checked on validation)."""
+    return strict_schema(ExampleChoices)
 
 
 def translation_json_schema() -> dict[str, Any]:

@@ -24,6 +24,17 @@
 // the new Current. Delete permanently removes the persisted Item, with a reusable confirmation;
 // cancellation and failures keep this buffer and every Preview.
 //
+// The Vocabulary example group is the exception: "Regenerate example" opens a choices panel
+// instead of a compare pair. It shows the current Example, an optional context (used once,
+// never saved) and Generate, which asks POST /api/helpers/example-choices with the buffer's
+// Target, the Item's Language, the context and the buffer's Russian meaning; the context stays
+// in the box while the panel is open. The ten sentence/Russian pairs it answers are listed, each
+// with "Use this example", which puts the pair into the edit buffer and closes the panel; Keep
+// current closes it with the buffer as it was. A failure shows the same alert as the other
+// groups, whose Try again asks again with the panel's current context and the buffer's Target
+// and meaning. A listed answer counts as one unsaved change, like an open Preview; nothing is
+// written until Save changes, whose `exampleVoice` remakes the example audio.
+//
 // Reference audio (FR-23, story 6.2) is a card after the fields. The current clip plays from
 // /api/media/<audio> of this mount's read, never autoplaying; a clip that fails to load leaves
 // the card without a player and the edits unaffected. Voice changes only write voice-pref.js;
@@ -46,6 +57,7 @@
 import {
   deleteItem,
   errorMessage,
+  exampleChoices,
   findDuplicates,
   getItem,
   isApiError,
@@ -84,6 +96,10 @@ const NOT_REGENERATED = "Couldn't regenerate";
 const MODEL_UNREACHABLE = ["Couldn't reach the model", "Your Item is unchanged."];
 const INVALID_TWICE = "The model's answer failed the checks twice. Your Item is unchanged.";
 const EMPTY = "—";
+const EXAMPLE_CONTEXT = "Context · optional · used once, never saved";
+const GENERATE = "Generate";
+const WRITING_CHOICES = "Writing 10 examples…";
+const USE_THIS_EXAMPLE = "Use this example";
 
 // The regenerable groups: the buffer keys each takes from the reply, the field its slot follows,
 // and the Categories that have it
@@ -103,6 +119,7 @@ const GROUPS = [
     fields: ["example", "exampleRussian"],
     after: "exampleRussian",
     categories: ["vocabulary"],
+    choices: true, // a list of ten to pick from, not a compare pair
   },
   {
     key: "note",
@@ -131,6 +148,7 @@ const STALE_AUDIO = "Audio no longer matches the text.";
 const TTS_FAILED = "Couldn't make the audio. Current audio is unchanged.";
 const MEDIA_FAILED = "Couldn't load the saved audio.";
 let compareIds = 0; // unique ids for the audio compare headings
+const CHOICES_CONTEXT_ID = "item-example-context";
 const PRACTISE = "Practise pronunciation";
 const PRACTISE_HINT = "Unchecked, this Item's Pronounce Card stays out of Pronunciation practice.";
 const AUDIO_COMPARE_HINT = "The old audio is removed only after Save succeeds.";
@@ -459,6 +477,9 @@ export function mount(root, params) {
   let previews = {}; // group key -> the Preview's values for that group's fields
   let regenerating = null; // the group key whose regeneration is in flight
   let regenError = null; // {group, error} of the last failed regeneration
+  // The example group's open choices panel: {context, busy, error, result, token}
+  let choices = null;
+  let choiceTokens = 0;
   let currentInputs = null; // the rendered inputs, to keep focus across a re-render
   let audioCard = null; // the Reference audio card, built once per read
   let excluded = false; // the Item's Pronounce Card is suspended, as last read or written
@@ -473,7 +494,8 @@ export function mount(root, params) {
   root.replaceChildren(screen);
 
   function syncDirty() {
-    const count = unsavedCount(values, loadedValues, previews, audioCard?.pending() ?? 0);
+    const count = unsavedCount(values, loadedValues, previews, audioCard?.pending() ?? 0)
+      + Number(Boolean(choices?.result));
     setDirty(count ? { kind: "item", count, target: item.target } : null);
     return count;
   }
@@ -489,6 +511,12 @@ export function mount(root, params) {
         const { selectionStart, selectionEnd } = active;
         keepField = { key: keepField, selectionStart, selectionEnd };
       }
+    }
+    // The choices panel's context, typed into while a re-render lands, keeps focus too
+    let keepContext = null;
+    const typing = document.activeElement;
+    if (typing?.id === CHOICES_CONTEXT_ID && body.contains(typing)) {
+      keepContext = { selectionStart: typing.selectionStart, selectionEnd: typing.selectionEnd };
     }
 
     const form = element("form", "draft-editor item-editor");
@@ -523,6 +551,7 @@ export function mount(root, params) {
       const built = regenerateSlot(group);
       regenerateButtons.push(built.button);
       if (built.retry) retryButtons.push(built.retry);
+      if (built.generate) retryButtons.push(built.generate);
       focusTargets[group.key] = built;
       inputs[group.after].parentElement.after(built.slot);
     }
@@ -604,10 +633,17 @@ export function mount(root, params) {
     if (focus === "save") save.focus();
     if (focus === "delete") remove.focus();
     if (focus === "pronunciation") (pronunciation.retry ?? pronunciation.box).focus();
-    if (keepField && focus !== null && !focus.group) keepField = null;
-    if (focus?.group && !keepField) {
+    if (focus !== null && !focus.group) keepField = keepContext = null;
+    if (focus?.group && !keepField && !keepContext) {
       const target = focusTargets[focus.group]?.[focus.part];
       target?.focus();
+    }
+    if (keepContext && !keepField) {
+      const context = body.querySelector(`#${CHOICES_CONTEXT_ID}`);
+      if (context) {
+        context.focus();
+        context.setSelectionRange(keepContext.selectionStart, keepContext.selectionEnd);
+      }
     }
     if (keepField) {
       const input = inputs[keepField.key];
@@ -734,20 +770,26 @@ export function mount(root, params) {
     navigate(`/${lang}/items`);
   }
 
-  // A group's Regenerate button, then its loading state, failure alert or compare pair
+  // A group's Regenerate button, then its loading state, failure alert or compare pair; the
+  // example group's button opens its choices panel instead
   function regenerateSlot(group) {
     const slot = element("div", "regenerate-slot");
     const row = element("div", "regenerate-row");
     const button = element("button", "button-link", group.button);
     button.type = "button";
-    if (regenerating === group.key) {
+    if (regenerating === group.key && !group.choices) {
       button.setAttribute("aria-busy", "true");
       button.setAttribute("aria-disabled", "true");
     }
-    button.addEventListener("click", () => regenerate(group));
+    button.addEventListener("click", () =>
+      group.choices ? openChoices(group) : regenerate(group));
     row.append(button);
     slot.append(row);
-    const built = { slot, button, retry: null, heading: null };
+    const built = { slot, button, retry: null, heading: null, generate: null, context: null };
+    if (group.choices) {
+      if (choices) slot.append(choicesPanel(group, built));
+      return built;
+    }
 
     if (regenerating === group.key) {
       slot.append(skeleton(WRITING_PREVIEW));
@@ -792,6 +834,153 @@ export function mount(root, params) {
       slot.append(pair);
     }
     return built;
+  }
+
+  // The example group's choices panel: the current Example, the context and Generate, then the
+  // loading state, the failure alert with Try again, or the ten pairs to pick from
+  function choicesPanel(group, built) {
+    const panel = element("section", "compare-pair example-choices");
+    panel.setAttribute("role", "group");
+    const heading = element("h2", "compare-title", `${group.name} · choose`);
+    heading.id = `choices-${group.key}-${itemId}`;
+    heading.tabIndex = -1;
+    panel.setAttribute("aria-labelledby", heading.id);
+    built.heading = heading;
+
+    const contextGroup = element("div", "make-item-group");
+    const contextLabel = element("label", "make-item-label", EXAMPLE_CONTEXT);
+    contextLabel.htmlFor = CHOICES_CONTEXT_ID;
+    const context = element("textarea", "compose-field make-item-context");
+    context.id = CHOICES_CONTEXT_ID;
+    context.rows = 2;
+    context.value = choices.context;
+    context.addEventListener("input", () => {
+      if (choices) choices.context = context.value;
+    });
+    contextGroup.append(contextLabel, context);
+    built.context = context;
+
+    const actions = element("div", "make-item-actions");
+    const generate = element("button", "button button-primary", GENERATE);
+    generate.type = "button";
+    if (choices.busy) {
+      generate.setAttribute("aria-busy", "true");
+      generate.setAttribute("aria-disabled", "true");
+    }
+    generate.addEventListener("click", () => generateChoices());
+    actions.append(generate);
+    built.generate = generate;
+
+    panel.append(
+      heading,
+      comparePane("compare-current", CURRENT, paneLines(group, values)),
+      contextGroup,
+      actions,
+    );
+
+    if (choices.busy) {
+      panel.append(skeleton(WRITING_CHOICES));
+    } else if (choices.error) {
+      const [alertTitle, alertBody] = regenerationFailure(choices.error);
+      built.retry = tryAgain(() => generateChoices());
+      panel.append(
+        alertBox(
+          "regenerate-alert",
+          element("p", "compose-alert-title", alertTitle),
+          element("p", "draft-alert-body", alertBody),
+          built.retry,
+        ),
+      );
+    } else if (choices.result) {
+      const list = element("ul", "examples-list");
+      list.setAttribute("aria-label", "New examples");
+      for (const { sentence, russian } of choices.result.sentences) {
+        const li = element("li", "examples-item");
+        const words = element("div", "examples-item-body");
+        words.append(
+          element("p", "examples-sentence", sentence),
+          element("p", "examples-russian", russian),
+        );
+        const use = element("button", "button-link examples-make", USE_THIS_EXAMPLE);
+        use.type = "button";
+        use.disabled = busy; // a choice made during a Save would be lost when it lands
+        use.addEventListener("click", () => chooseExample(sentence, russian));
+        li.append(words, use);
+        list.append(li);
+      }
+      panel.append(list);
+    }
+
+    const closing = element("div", "compare-actions");
+    const keep = element("button", "button button-secondary", KEEP_CURRENT);
+    keep.type = "button";
+    keep.disabled = busy;
+    keep.addEventListener("click", () => closeChoices(group));
+    closing.append(keep);
+    panel.append(closing);
+    return panel;
+  }
+
+  // Regenerate example: open the choices panel, or go to it when it's open
+  function openChoices(group) {
+    if (busy || regenerating !== null || !values?.target.trim()) return;
+    if (!choices) choices = { context: "", busy: false, error: null, result: null };
+    renderEditor({ focus: { group: group.key, part: "context" } });
+  }
+
+  // Generate: the buffer's Target and Russian meaning, with the panel's context
+  function generateChoices() {
+    if (!choices || choices.busy || busy || regenerating !== null) return;
+    if (!values.target.trim()) return;
+    runChoices({
+      language: lang,
+      target: values.target,
+      context: choices.context,
+      meaning: values.russian ?? "",
+    });
+  }
+
+  // Ask for `request`'s ten examples (Try again builds a new one from the panel's context). One
+  // regeneration runs at a time, and a reply for a closed panel or a left screen opens nothing
+  async function runChoices(request) {
+    if (!choices || busy || regenerating !== null) return;
+    const token = ++choiceTokens;
+    Object.assign(choices, { token, busy: true, error: null, result: null });
+    regenerating = "example";
+    renderEditor({ focus: { group: "example", part: "generate" } });
+    let result = null;
+    let failure = null;
+    try {
+      result = await exampleChoices(request);
+    } catch (error) {
+      failure = error;
+    }
+    if (!mounted || choices?.token !== token) return;
+    regenerating = null;
+    choices.busy = false;
+    if (failure) {
+      choices.error = failure;
+      renderEditor({ focus: { group: "example", part: "retry" } });
+      return;
+    }
+    choices.result = result;
+    renderEditor({ focus: { group: "example", part: "heading" } });
+  }
+
+  // Use this example: the pair into the edit buffer, nothing written (NFR-4)
+  function chooseExample(sentence, russian) {
+    if (busy || !choices) return;
+    values.example = sentence;
+    values.exampleRussian = russian;
+    choices = null;
+    renderEditor({ focus: { group: "example", part: "button" } });
+  }
+
+  // Keep current: the panel goes (an answer still on its way is dropped), the buffer stays
+  function closeChoices(group) {
+    if (choices?.busy) regenerating = null;
+    choices = null;
+    renderEditor({ focus: { group: group.key, part: "button" } });
   }
 
   // Ask for the group's Preview with the buffer's Target; only one runs at a time
