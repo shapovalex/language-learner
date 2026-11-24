@@ -4,7 +4,9 @@ something LanguageLab manages.
 `PrefixGuard(manifest).check(action, params, lookup)` runs before every v6 request. Reads in
 `READS` pass. A write passes only when its target is a manifest deck or note type (by exact
 name, never by prefix match), the `<Prefix>` preset, an AD-7 media name, or notes and cards of
-a manifest note type (`answerCards` included), looked up by id through `lookup` first. `multi`
+a manifest note type (`answerCards` included), looked up by id through `lookup` first. The one
+card value write is `setSpecificValueOfCard` clearing a managed card's flag: exactly
+`{card: <id>, keys: ["flags"], newValues: [0]}` (the integer 0), anything else refused. `multi`
 is checked action by action. Anything else, an action the guard doesn't know included, raises
 `PrefixViolation` before a request is sent: the guard fails closed.
 
@@ -97,6 +99,17 @@ def _answered(params: Mapping[str, Any]) -> list[int]:
     _require(all(isinstance(a, dict) and set(a) == {"cardId", "ease"} for a in answers))
     _require(all(is_int(a["ease"]) and a["ease"] in _EASES for a in answers))
     return _ids([a["cardId"] for a in answers])
+
+
+def _flag_cleared(params: Mapping[str, Any]) -> list[int]:
+    """The one card id of a `setSpecificValueOfCard` that clears its flag and writes nothing
+    else (`flags` to 0, no `warning_check`), or a violation.
+    """
+    _require(set(params) == {"card", "keys", "newValues"})
+    values = params["newValues"]
+    _require(params["keys"] == ["flags"] and isinstance(values, list) and len(values) == 1)
+    _require(is_int(values[0]) and values[0] == 0)
+    return _ids([params["card"]])
 
 
 def inner_actions(params: Mapping[str, Any]) -> list[tuple[Any, Mapping[str, Any]]]:
@@ -209,6 +222,8 @@ class PrefixGuard:
             await self._require_managed(lookup, "cardsInfo", "cards", _ids(params.get("cards")))
         elif action in _CARD_WRITES:
             await self._require_managed(lookup, "cardsInfo", "cards", _ids(params.get("cards")))
+        elif action == "setSpecificValueOfCard":
+            await self._require_managed(lookup, "cardsInfo", "cards", _flag_cleared(params))
         elif action == "answerCards":
             await self._require_managed(lookup, "cardsInfo", "cards", _answered(params))
         elif action == "saveDeckConfig":

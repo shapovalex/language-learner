@@ -19,6 +19,13 @@ def note_query(manifest: Manifest, note_type: str) -> str:
     return f'note:"{note_type}"'
 
 
+def flagged_notes_query(manifest: Manifest, note_type: str) -> str:
+    """The notes of the exact `note_type` scope with any flagged card (any flag colour, any
+    ord): `-flag:0` is a fixed literal, never user text.
+    """
+    return f"{note_query(manifest, note_type)} -flag:0"
+
+
 def pronounce_queue_query(manifest: Manifest, deck: str, note_type: str, card: int) -> str:
     """The Pronounce queue of one Language/Category (FR-30, AD-6): the exact deck and note type
     scopes, template `card` (1-based), new or due, and not suspended.

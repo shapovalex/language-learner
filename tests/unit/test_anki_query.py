@@ -12,7 +12,12 @@ import re
 import pytest
 
 from language_lab.adapters.anki.manifest import build_manifest
-from language_lab.adapters.anki.query import deck_query, note_query, pronounce_queue_query
+from language_lab.adapters.anki.query import (
+    deck_query,
+    flagged_notes_query,
+    note_query,
+    pronounce_queue_query,
+)
 
 RELEASE = "LanguageLab"
 DEV = "LanguageLabDev"
@@ -91,3 +96,20 @@ def test_the_pronounce_queue_query_is_one_exact_deck_and_note_scope() -> None:
             pronounce_queue_query(manifest, bad_deck, bad_model, 4)
     with pytest.raises(ValueError):
         pronounce_queue_query(manifest, deck, model, 5)
+
+
+@pytest.mark.p0
+def test_the_flagged_notes_query_is_one_exact_note_scope_with_the_fixed_flag_literal() -> None:
+    """Flagged Items filter (AD-4): the exact note type scope of a manifest note type plus the
+    fixed `-flag:0` literal (any flag colour, any card); any other name is refused.
+    """
+    manifest = build_manifest(RELEASE)
+
+    assert flagged_notes_query(manifest, f"{RELEASE} English Vocabulary") == (
+        f'note:"{RELEASE} English Vocabulary" -flag:0'
+    )
+    for note_type in REFUSED_NOTE_TYPES:
+        with pytest.raises(ValueError):
+            flagged_notes_query(manifest, note_type)
+    with pytest.raises(ValueError):
+        flagged_notes_query(build_manifest(DEV), f"{RELEASE} English Vocabulary")

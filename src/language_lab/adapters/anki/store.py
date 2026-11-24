@@ -48,6 +48,16 @@ Category scopes, the ItemId matched in Python) and sends `suspend` or `unsuspend
 card only when its state differs, guarded and gated, all under one lock hold; ords 0-2 are never
 written. A card the user suspended in Anki reads as excluded too.
 
+Flagged Items keep the flag in Anki only (AD-13): an Item is flagged when any of its cards
+carries any flag colour. Only when asked (`with_flags=True`, the Items list) `item_candidates`
+sends one more `findNotes` in the same lock hold, the exact note type scope with the fixed
+`-flag:0` literal (`flagged_notes_query`), and marks the notes whose id it returns; without it
+its AnkiConnect calls are unchanged, so the duplicate check and backfill reads pay nothing.
+`get_item` reads each card's `flags` from the `cardsInfo` it already sends (a missing `flags`
+reads as 0). `clear_flag` finds the note as `delete_item` does and sends one
+`setSpecificValueOfCard` setting `flags` to the integer 0 per flagged card, guarded and gated,
+under one lock hold; an Item with no flagged card writes nothing.
+
 Example audio (SchemaVersion 2): Save takes optional example audio bytes for a Vocabulary Item,
 stored by the AD-7 name into `ExampleAudio`; Anki then makes the Example card (ord 4) in the
 deck of the note's first card, so Save moves it to its Study deck. `store_example_audio` is the
@@ -81,7 +91,11 @@ from language_lab.adapters.anki.manifest import (
     Manifest,
 )
 from language_lab.adapters.anki.migrations import Migration, add_fields, stamp_versions
-from language_lab.adapters.anki.query import note_query, pronounce_queue_query
+from language_lab.adapters.anki.query import (
+    flagged_notes_query,
+    note_query,
+    pronounce_queue_query,
+)
 from language_lab.adapters.anki.setup_apply import run_plan, run_repairs
 from language_lab.adapters.anki.setup_gate import (
     _SUSPENDED_QUEUE,
@@ -287,6 +301,33 @@ def _notes_by_id(infos: Any, expected: int) -> dict[int, dict[str, Any]]:
             raise AppError(ErrorCode.ANKI_UNAVAILABLE)
         by_id[info["noteId"]] = info
     return by_id
+
+
+def _pronounce_card(cards: list[dict[str, Any]]) -> tuple[int, int]:
+    """The id and `queue` of the Pronounce Card (ord 3) among a note's `cardsInfo` entries;
+    `ANKI_UNAVAILABLE` on a malformed entry or no such card.
+    """
+    for card in cards:
+        if is_int(card.get("ord")) and card["ord"] == PRONOUNCE_ORD:
+            queue = card.get("queue")
+            if not is_int(queue):
+                raise AppError(ErrorCode.ANKI_UNAVAILABLE)
+            return card["cardId"], queue
+    raise AppError(ErrorCode.ANKI_UNAVAILABLE)
+
+
+def _flagged_cards(cards: list[dict[str, Any]]) -> list[int]:
+    """The ids of a note's cards whose `flags` isn't 0 (a missing `flags` reads as 0);
+    `ANKI_UNAVAILABLE` on a non-int `flags`.
+    """
+    flagged: list[int] = []
+    for card in cards:
+        flags = card.get("flags", 0)
+        if not is_int(flags):
+            raise AppError(ErrorCode.ANKI_UNAVAILABLE)
+        if flags != 0:
+            flagged.append(card["cardId"])
+    return flagged
 
 
 def _failure_outcome(poll: dict[str, Any]) -> SyncOutcome:
@@ -636,27 +677,46 @@ class AnkiConnectStore:
             except ValueError, binascii.Error:
                 raise AppError(ErrorCode.ANKI_UNAVAILABLE) from None
 
-    async def item_candidates(self, language: Language, category: Category) -> list[Item]:
+    async def item_candidates(
+        self, language: Language, category: Category, *, with_flags: bool = False
+    ) -> list[Item]:
         """Every Item of the exact `language`/`category` note type scope, decoded, in note
-        order, under one lock hold. Raises `AppError(ANKI_UNAVAILABLE | ANKI_BUSY)`.
+        order, under one lock hold; with `with_flags`, each marked `flagged` from one more
+        `findNotes` (`-flag:0`) in that hold. Raises `AppError(ANKI_UNAVAILABLE | ANKI_BUSY)`.
         """
         manifest = self._require_manifest()
         model = manifest.item_note_type(language, category)
+        flagged: set[int] = set()
         async with self._lock.hold():
             infos = await self._note_infos(manifest, model)
-        return [_stored_item(info, category, manifest.prefix) for info in infos]
+            if with_flags:
+                query = flagged_notes_query(manifest, model)
+                flagged = set(_id_list(await self._client.invoke("findNotes", query=query)))
+        return [
+            dataclasses.replace(
+                _stored_item(info, category, manifest.prefix),
+                flagged=info.get("noteId") in flagged,
+            )
+            for info in infos
+        ]
 
     async def get_item(self, language: Language, item_id: str) -> Item:
         """The Item of `language` whose decoded ItemId is `item_id` (matched in Python, AD-4),
-        from both Categories' exact scopes, with whether its Pronounce Card is suspended, under
-        one lock hold. Raises `AppError(NOT_FOUND | ANKI_UNAVAILABLE | ANKI_BUSY)`.
+        from both Categories' exact scopes, with whether its Pronounce Card is suspended and
+        whether any of its cards is flagged, under one lock hold. Raises
+        `AppError(NOT_FOUND | ANKI_UNAVAILABLE | ANKI_BUSY)`.
         """
         manifest = self._require_manifest()
         async with self._lock.hold():
             category, info = await self._find_item(manifest, language, item_id)
-            _, queue = await self._pronounce_card(info)
+            cards = await self._card_infos(info)
+        _, queue = _pronounce_card(cards)
         item = _stored_item(info, category, manifest.prefix)
-        return dataclasses.replace(item, pronunciation_excluded=queue == _SUSPENDED_QUEUE)
+        return dataclasses.replace(
+            item,
+            pronunciation_excluded=queue == _SUSPENDED_QUEUE,
+            flagged=bool(_flagged_cards(cards)),
+        )
 
     async def set_pronunciation_excluded(
         self, language: Language, item_id: str, excluded: bool
@@ -669,10 +729,27 @@ class AnkiConnectStore:
         manifest = self._require_manifest()
         async with self._lock.hold():
             _, info = await self._find_item(manifest, language, item_id)
-            card_id, queue = await self._pronounce_card(info)
+            card_id, queue = _pronounce_card(await self._card_infos(info))
             if (queue == _SUSPENDED_QUEUE) is excluded:
                 return
             await self._client.invoke("suspend" if excluded else "unsuspend", cards=[card_id])
+
+    async def clear_flag(self, language: Language, item_id: str) -> None:
+        """Set the flag of every flagged card of the Item of `language` whose decoded ItemId is
+        `item_id` (matched in Python, AD-4) to 0, one `setSpecificValueOfCard` per card, under
+        one lock hold; nothing is written when none is flagged. Each write is guarded and gated
+        and must answer `[true]`, else `ANKI_UNAVAILABLE`. Raises
+        `AppError(NOT_FOUND | SETUP_REQUIRED | ANKI_UNAVAILABLE | ANKI_BUSY)`.
+        """
+        manifest = self._require_manifest()
+        async with self._lock.hold():
+            _, info = await self._find_item(manifest, language, item_id)
+            for card_id in _flagged_cards(await self._card_infos(info)):
+                reply = await self._client.invoke(
+                    "setSpecificValueOfCard", card=card_id, keys=["flags"], newValues=[0]
+                )
+                if reply != [True]:
+                    raise AppError(ErrorCode.ANKI_UNAVAILABLE)
 
     async def delete_item(self, language: Language, item_id: str) -> None:
         """Delete matching notes before their managed media, stopping at the first failure.
@@ -831,21 +908,17 @@ class AnkiConnectStore:
                 return category, info
         raise AppError(ErrorCode.NOT_FOUND)
 
-    async def _pronounce_card(self, info: dict[str, Any]) -> tuple[int, int]:
-        """The id and `queue` of the Pronounce Card (ord 3) of the note `info`, from one
-        `cardsInfo` on its cards; `ANKI_UNAVAILABLE` on a malformed reply or no such card.
+    async def _card_infos(self, info: dict[str, Any]) -> list[dict[str, Any]]:
+        """The `cardsInfo` entries of the note `info`'s cards, from one `cardsInfo`, each with
+        an int `cardId` among them; `ANKI_UNAVAILABLE` on a malformed reply.
         """
         cards = info.get("cards")
         if not isinstance(cards, list) or not cards or not all(is_int(c) for c in cards):
             raise AppError(ErrorCode.ANKI_UNAVAILABLE)
         infos = _present_entries(await self._client.invoke("cardsInfo", cards=cards), len(cards))
-        for card in infos:
-            if is_int(card.get("ord")) and card["ord"] == PRONOUNCE_ORD:
-                card_id, queue = card.get("cardId"), card.get("queue")
-                if not is_int(card_id) or not is_int(queue) or card_id not in cards:
-                    raise AppError(ErrorCode.ANKI_UNAVAILABLE)
-                return card_id, queue
-        raise AppError(ErrorCode.ANKI_UNAVAILABLE)
+        if not all(is_int(card.get("cardId")) and card["cardId"] in cards for card in infos):
+            raise AppError(ErrorCode.ANKI_UNAVAILABLE)
+        return infos
 
     async def _cards_by_ord(self, note_id: int) -> dict[int, int]:
         """Each card id of note `note_id` by its ord, from `notesInfo` and `cardsInfo`;

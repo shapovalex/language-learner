@@ -8,6 +8,13 @@
 // collection hides the search; a search with no match says so; a failed read shows an inline
 // alert with Try again.
 //
+// Flagged Items: a "Flagged" toggle button (`aria-pressed`) beside the search field lists only
+// the Items with a card flagged in Anki (`flagged=true` on the same read, so search and filter
+// settle through the same sequence token), combined with the search. Each flagged row shows a
+// flag marker. The toggle is remembered per Language for the page's life, so coming back from
+// an Item detail keeps it. With the filter on and nothing flagged the screen says so, and the
+// search stays shown so the filter can be turned off.
+//
 // Example audio (backfill): once a read lists Vocabulary Items, "Add example audio" gives every
 // Vocabulary Item with an Example and its Russian but no example audio that audio, in the saved
 // Voice (the first listed when none is saved). It posts one batch at a time to
@@ -27,25 +34,39 @@ const AUDIO = "Reference audio";
 const BACKFILL = "Add example audio";
 const BACKFILL_FAILED = "Example audio stopped";
 const NO_VOICE = "No voices available for this language.";
+const FLAGGED = "Flagged";
 const SVG = "http://www.w3.org/2000/svg";
 
-// A speaker icon named "Reference audio" (the row's audio indicator; not a control)
-function audioIcon() {
-  const icon = element("span", "item-row-audio");
+// The Flagged toggle of each Language, kept across mounts (back from an Item detail)
+const flaggedOnly = new Map();
+
+function svgIcon(className, label, d) {
+  const icon = element("span", className);
   icon.setAttribute("role", "img");
-  icon.setAttribute("aria-label", AUDIO);
+  icon.setAttribute("aria-label", label);
   const svg = document.createElementNS(SVG, "svg");
   svg.setAttribute("viewBox", "0 0 24 24");
   svg.setAttribute("aria-hidden", "true");
   svg.setAttribute("focusable", "false");
   const path = document.createElementNS(SVG, "path");
-  path.setAttribute(
-    "d",
-    "M4 9v6h4l5 4V5L8 9H4zm12.5 3a4.5 4.5 0 0 0-2.5-4v8a4.5 4.5 0 0 0 2.5-4zM14 3.2v2.1a7 7 0 0 1 0 13.4v2.1a9 9 0 0 0 0-17.6z",
-  );
+  path.setAttribute("d", d);
   svg.append(path);
   icon.append(svg);
   return icon;
+}
+
+// A flag icon named "Flagged" (the row's flag marker; not a control)
+function flagIcon() {
+  return svgIcon("item-row-flag", FLAGGED, "M5 21V4h9l.4 2H20v10h-7l-.4-2H7v7H5z");
+}
+
+// A speaker icon named "Reference audio" (the row's audio indicator; not a control)
+function audioIcon() {
+  return svgIcon(
+    "item-row-audio",
+    AUDIO,
+    "M4 9v6h4l5 4V5L8 9H4zm12.5 3a4.5 4.5 0 0 0-2.5-4v8a4.5 4.5 0 0 0 2.5-4zM14 3.2v2.1a7 7 0 0 1 0 13.4v2.1a9 9 0 0 0 0-17.6z",
+  );
 }
 
 export function mount(root, params) {
@@ -54,7 +75,7 @@ export function mount(root, params) {
   let mounted = true;
   let timer = null;
   let seq = 0;
-  // { query, items, error }: the latest settled read; null until the first one settles
+  // { query, flagged, items, error }: the latest settled read; null until the first one settles
   let shown = null;
 
   const screen = element("div", "items-screen");
@@ -66,7 +87,10 @@ export function mount(root, params) {
   box.placeholder = PLACEHOLDER;
   box.autocomplete = "off";
   box.spellcheck = false;
-  search.append(box);
+  const toggle = element("button", "button button-secondary items-flag-toggle", FLAGGED);
+  toggle.type = "button";
+  toggle.setAttribute("aria-pressed", String(Boolean(flaggedOnly.get(lang))));
+  search.append(box, toggle);
   search.hidden = true;
   const count = element("p", "items-count");
   count.hidden = true;
@@ -157,6 +181,7 @@ export function mount(root, params) {
     russian.lang = "ru";
     text.append(target, russian);
     const meta = element("span", "item-row-meta");
+    if (item.flagged) meta.append(flagIcon());
     if (item.hasAudio) meta.append(audioIcon());
     meta.append(element("span", "chip item-row-category", categoryName(item.category)));
     link.append(text, meta);
@@ -176,9 +201,9 @@ export function mount(root, params) {
       );
       return;
     }
-    const { query, items } = shown;
+    const { query, flagged, items } = shown;
     const blank = !query.trim();
-    if (!items.length && blank) {
+    if (!items.length && blank && !flagged) {
       // An empty collection: nothing to search (EXPERIENCE.md Items empty)
       search.hidden = true;
       count.hidden = true;
@@ -193,17 +218,20 @@ export function mount(root, params) {
     search.hidden = false;
     if (!items.length) {
       count.hidden = true;
-      body.replaceChildren(
-        element("p", "items-empty-title", `No ${language} Items match “${query.trim()}”.`),
-      );
+      const kind = flagged ? `flagged ${language}` : language;
+      const text = blank
+        ? `No ${kind} Items.`
+        : `No ${kind} Items match “${query.trim()}”.`;
+      body.replaceChildren(element("p", "items-empty-title", text));
       return;
     }
     count.hidden = !blank;
-    if (blank && items.some((item) => item.category === "vocabulary") && backfill.hidden) {
+    const full = blank && !flagged;
+    if (full && items.some((item) => item.category === "vocabulary") && backfill.hidden) {
       backfill.hidden = false;
       renderBackfill();
     }
-    const noun = items.length === 1 ? "Item" : "Items";
+    const noun = `${flagged ? "flagged " : ""}${items.length === 1 ? "Item" : "Items"}`;
     const present = CATEGORIES.filter(([key]) => items.some((item) => item.category === key));
     const kinds = present.map(([key]) => categoryName(key)).join(" and ");
     count.textContent = `${items.length} ${noun} · ${kinds}`;
@@ -218,11 +246,12 @@ export function mount(root, params) {
     // The first read, or a retry, shows the skeleton; a search keeps the rows until it settles
     if (shown === null || shown.error) body.replaceChildren(skeleton(`Loading ${language} Items…`));
     body.setAttribute("aria-busy", "true");
+    const flagged = Boolean(flaggedOnly.get(lang));
     let next;
     try {
-      next = { query, items: (await listItems(lang, query)).items, error: null };
+      next = { query, flagged, items: (await listItems(lang, query, flagged)).items, error: null };
     } catch (error) {
-      next = { query, items: null, error };
+      next = { query, flagged, items: null, error };
     }
     // Only the latest query's reply is shown
     if (!mounted || token !== seq) return;
@@ -235,6 +264,14 @@ export function mount(root, params) {
     clearTimeout(timer);
     const query = box.value;
     timer = setTimeout(() => load(query), DEBOUNCE_MS);
+  });
+
+  toggle.addEventListener("click", () => {
+    const on = !flaggedOnly.get(lang);
+    flaggedOnly.set(lang, on);
+    toggle.setAttribute("aria-pressed", String(on));
+    clearTimeout(timer);
+    load(box.value);
   });
 
   load("");

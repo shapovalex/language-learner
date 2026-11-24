@@ -216,6 +216,55 @@ BY_ID: list[tuple[str, dict[str, Any], bool]] = [
     ("answerCards", {"answers": [{"cardId": str(MANAGED_CARD), "ease": 2}]}, False),
     ("answerCards", {"answers": []}, False),
     ("answerCards", {"answers": [{"cardId": MANAGED_CARD}]}, False),
+    # Clearing an Item's flag: exactly `flags` to the integer 0 on one managed card, nothing else
+    ("setSpecificValueOfCard", {"card": MANAGED_CARD, "keys": ["flags"], "newValues": [0]}, True),
+    ("setSpecificValueOfCard", {"card": BASIC_CARD, "keys": ["flags"], "newValues": [0]}, False),
+    ("setSpecificValueOfCard", {"card": MANAGED_CARD, "keys": ["flags"], "newValues": [1]}, False),
+    (
+        "setSpecificValueOfCard",
+        {"card": MANAGED_CARD, "keys": ["flags"], "newValues": ["0"]},
+        False,
+    ),
+    (
+        "setSpecificValueOfCard",
+        {"card": MANAGED_CARD, "keys": ["flags"], "newValues": [False]},
+        False,
+    ),
+    (
+        "setSpecificValueOfCard",
+        {"card": MANAGED_CARD, "keys": ["flags"], "newValues": [0.0]},
+        False,
+    ),
+    ("setSpecificValueOfCard", {"card": MANAGED_CARD, "keys": ["flags"], "newValues": []}, False),
+    ("setSpecificValueOfCard", {"card": MANAGED_CARD, "keys": ["flags"], "newValues": 0}, False),
+    (
+        "setSpecificValueOfCard",
+        {"card": MANAGED_CARD, "keys": ["flags"], "newValues": [0, 0]},
+        False,
+    ),
+    ("setSpecificValueOfCard", {"card": MANAGED_CARD, "keys": ["due"], "newValues": [0]}, False),
+    (
+        "setSpecificValueOfCard",
+        {"card": MANAGED_CARD, "keys": ["flags", "due"], "newValues": [0, 0]},
+        False,
+    ),
+    (
+        "setSpecificValueOfCard",
+        {"card": MANAGED_CARD, "keys": ["flags"], "newValues": [0], "warning_check": True},
+        False,
+    ),
+    (
+        "setSpecificValueOfCard",
+        {"card": [MANAGED_CARD], "keys": ["flags"], "newValues": [0]},
+        False,
+    ),
+    (
+        "setSpecificValueOfCard",
+        {"card": str(MANAGED_CARD), "keys": ["flags"], "newValues": [0]},
+        False,
+    ),
+    ("setSpecificValueOfCard", {"card": True, "keys": ["flags"], "newValues": [0]}, False),
+    ("setSpecificValueOfCard", {"keys": ["flags"], "newValues": [0]}, False),
     ("saveDeckConfig", {"config": {"id": PRESET_ID, "name": RELEASE}}, True),
     ("saveDeckConfig", {"config": {"id": PRESET_ID + 1, "name": RELEASE}}, False),  # Default's id
     ("saveDeckConfig", {"config": {"id": PRESET_ID, "name": "Default"}}, False),

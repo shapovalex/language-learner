@@ -1,7 +1,8 @@
 """Items: Save, create-or-update by ItemId in the AnkiStore (AD-6, AD-20), and the Item reads:
 the search and the duplicate check, both matched on normalized text here (AD-12), and one Item
-by ItemId, permanent deletion with retryable media cleanup, and excluding an Item from
-Pronunciation (its Pronounce Card suspended in Anki, AD-13).
+by ItemId, permanent deletion with retryable media cleanup, excluding an Item from
+Pronunciation (its Pronounce Card suspended in Anki, AD-13), and clearing an Item's Anki flags
+once the user has fixed it (the flag lives in Anki only).
 
 Example audio: a Vocabulary Save given a Voice makes the example sentence's audio when the
 Example and ExampleRussian both hold text and the stored Item has no example audio or another
@@ -150,17 +151,22 @@ class ItemService:
     async def media(self, name: str) -> bytes:
         return await self._anki.get_media(name)
 
-    async def search(self, language: Language, query: str = "") -> list[Item]:
+    async def search(
+        self, language: Language, query: str = "", flagged_only: bool = False
+    ) -> list[Item]:
         """The Items of `language`, both Categories, whose normalized Target, Russian meaning or
         any Russian alternative contains `query`'s normalized text, in Category order then store
-        order (FR-22, AD-12). A query that normalizes to nothing lists every Item. Anki only
+        order (FR-22, AD-12). A query that normalizes to nothing lists every Item; with
+        `flagged_only`, only the Items with a flagged card in Anki are kept. Anki only
         gets the exact note-type scopes (AD-4); nothing is written. Raises
         `AppError(ANKI_UNAVAILABLE | ANKI_BUSY)`.
         """
         wanted = normalize_text(query)
         found: list[Item] = []
         for category in Category:
-            for item in await self._anki.item_candidates(language, category):
+            for item in await self._anki.item_candidates(language, category, with_flags=True):
+                if flagged_only and not item.flagged:
+                    continue
                 if not wanted or _matches(item, wanted):
                     found.append(item)
         return found
@@ -197,6 +203,13 @@ class ItemService:
         `AppError(NOT_FOUND | SETUP_REQUIRED | ANKI_UNAVAILABLE | ANKI_BUSY)`.
         """
         await self._anki.set_pronunciation_excluded(language, item_id, excluded)
+
+    async def clear_flag(self, language: Language, item_id: str) -> None:
+        """Clear the Anki flag of every flagged card of the Item `item_id`; an Item with no
+        flagged card writes nothing. Raises
+        `AppError(NOT_FOUND | SETUP_REQUIRED | ANKI_UNAVAILABLE | ANKI_BUSY)`.
+        """
+        await self._anki.clear_flag(language, item_id)
 
 
 def _matches(item: Item, wanted: str) -> bool:

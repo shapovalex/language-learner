@@ -242,13 +242,25 @@ export function setPronunciationExcluded(lang, itemId, excluded) {
   });
 }
 
-// The Items of `lang`, both Categories (FR-22): `{items: [{itemId, ...ItemContent, hasAudio}]}`,
-// those whose normalized Target, Russian meaning or an alternative contains `query` (AD-12).
-// A blank `query` is not sent, and lists every Item
-export function listItems(lang, query = "") {
+// The Items of `lang`, both Categories (FR-22):
+// `{items: [{itemId, ...ItemContent, hasAudio, flagged}]}`, those whose normalized Target,
+// Russian meaning or an alternative contains `query` (AD-12), and with `flagged` only those with
+// a flagged card in Anki. A blank `query` is not sent, and lists every Item; `flagged=true` is
+// sent only when asked
+export function listItems(lang, query = "", flagged = false) {
   const path = `/api/items/${encodeURIComponent(lang)}`;
-  if (!query.trim()) return request(path);
-  return request(`${path}?${new URLSearchParams({ q: query })}`);
+  const params = new URLSearchParams();
+  if (query.trim()) params.set("q", query);
+  if (flagged) params.set("flagged", "true");
+  const search = params.toString();
+  return request(search ? `${path}?${search}` : path);
+}
+
+// Clear the Anki flag of every flagged card of the Item (204). An Item with no flagged card
+// writes nothing, so a retry is safe
+export function clearFlag(lang, itemId) {
+  const path = `/api/items/${encodeURIComponent(lang)}/${encodeURIComponent(itemId)}/flag`;
+  return request(path, { method: "DELETE" });
 }
 
 // One batch of the example audio backfill: `{voice, skip}` in, `skip` the Items earlier

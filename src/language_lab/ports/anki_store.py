@@ -3,7 +3,7 @@
 Each method is one complete use case that the adapter runs under the Anki lock: readiness, sync,
 the SetupState, the Setup preview and apply, Create, List, Get and Delete Capture, Save and Delete
 Item, the Item reads, the Pronunciation queue and Rating, excluding an Item from
-Pronunciation, and the example audio backfill.
+Pronunciation, clearing an Item's Anki flags, and the example audio backfill.
 Later entries add methods here, to the AnkiConnect adapter and to the fake in tests/fakes/ together.
 """
 
@@ -133,18 +133,25 @@ class AnkiStore(Protocol):
         """Read managed media under the lock, independent of the Setup write gate."""
         ...
 
-    async def item_candidates(self, language: Language, category: Category) -> list[Item]:
+    async def item_candidates(
+        self, language: Language, category: Category, *, with_flags: bool = False
+    ) -> list[Item]:
         """Every Item of `language` and `category`, its fields decoded through the codec, in note
         order, from the exact scope of that note type only, under one lock hold; not gated
         (AD-19). The duplicate check matches on them in the service (AD-12): no user text is in
-        the query (AD-4). Raises `AppError(ANKI_UNAVAILABLE | ANKI_BUSY)`.
+        the query (AD-4). Each Item's `flagged` is False unless `with_flags` is given; then it is
+        whether any of its cards carries an Anki flag (any colour, any ord), read under the same
+        lock hold with the fixed `-flag:0` literal in the same exact scope. Without `with_flags`
+        the reads are unchanged (the duplicate check and backfill never ask for it). Raises
+        `AppError(ANKI_UNAVAILABLE | ANKI_BUSY)`.
         """
         ...
 
     async def get_item(self, language: Language, item_id: str) -> Item:
         """The Item `item_id` of either Category of `language`, matched in Python and never in a
         query (AD-4), from reads only under one lock hold; not gated (AD-19). Its
-        `pronunciation_excluded` is whether its Pronounce Card (ord 3) is suspended. Raises
+        `pronunciation_excluded` is whether its Pronounce Card (ord 3) is suspended, its
+        `flagged` whether any of its cards carries an Anki flag. Raises
         `AppError(NOT_FOUND | ANKI_UNAVAILABLE | ANKI_BUSY)`.
         """
         ...
@@ -189,5 +196,15 @@ class AnkiStore(Protocol):
         gated, and only when its state differs: a flag that already matches writes nothing.
         The Study cards (ords 0-2) are never touched. Raises
         `AppError(NOT_FOUND | SETUP_REQUIRED | ANKI_UNAVAILABLE | ANKI_BUSY)`.
+        """
+        ...
+
+    async def clear_flag(self, language: Language, item_id: str) -> None:
+        """Clear the Anki flag of every flagged card of the Item `item_id` of `language` (set it to
+        0), under one lock hold. The Item is found in the exact scopes of both Categories, its
+        ItemId matched in Python (AD-4); the flag lives in Anki only (AD-13). Only cards whose
+        flag isn't 0 are written, Prefix guarded and Setup gated: an Item with no flagged card
+        writes nothing. Raises `AppError(NOT_FOUND | SETUP_REQUIRED | ANKI_UNAVAILABLE |
+        ANKI_BUSY)`.
         """
         ...

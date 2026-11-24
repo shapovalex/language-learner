@@ -81,6 +81,7 @@ def test_anki_store_port_adds_the_setup_preview_read_and_the_fake_matches() -> N
         "store_example_audio",
         "set_pronunciation_excluded",
         "answer_card",
+        "clear_flag",
     }
     assert inspect.iscoroutinefunction(AnkiStore.setup_preview)
     assert inspect.get_annotations(AnkiStore.setup_preview, eval_str=True)["return"] is SetupPreview
@@ -138,6 +139,7 @@ def test_anki_store_port_adds_the_item_reads_and_the_fake_matches() -> None:
     assert inspect.get_annotations(AnkiStore.item_candidates, eval_str=True) == {
         "language": Language,
         "category": Category,
+        "with_flags": bool,
         "return": list[Item],
     }
     assert inspect.get_annotations(AnkiStore.get_item, eval_str=True) == {

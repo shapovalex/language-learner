@@ -42,6 +42,14 @@ With `writes=True` the collection also answers `changeDeck`, `suspend`, `unsuspe
 `deleteMediaFile` (`REPAIR_WRITE_ACTIONS`; `unsuspend` is what including an Item in Pronunciation
 again sends).
 
+Card flags: a card holds Anki's `flags` (0 none, 1-7 a colour), set by `add_card(flags=...)` or
+`flag_card()`. `cardsInfo` answers it, `findNotes` also answers `note:"<type>" -flag:0` (the
+notes of that type with any flagged card), and with `writes=True` the collection answers
+`setSpecificValueOfCard` (`CARD_VALUE_WRITE_ACTIONS`) for `flags` as the installed add-on does:
+an integer 0-7 is set and answers `[true]`, anything else (a string, a bool, a float, out of
+range) answers `[[false, <message>]]` and sets nothing, an unknown card is an error.
+`findCards` with `-flag:0` answers only the flagged cards, as Anki does.
+
 Card generation (example card): as Anki does, a note gets a card for a template only when the
 template's front renders non-empty. The simulator reads that from the front's outer
 `{{#Field}}…{{/Field}}` sections: each wrapping field must hold something (a front with no
@@ -126,6 +134,10 @@ REPAIR_WRITE_ACTIONS = frozenset({"changeDeck", "suspend", "unsuspend", "deleteM
 MEDIA_WRITE_ACTIONS = frozenset({"storeMediaFile"})
 
 
+# The card value write clearing an Item's flag sends, answered with `writes=True`
+CARD_VALUE_WRITE_ACTIONS = frozenset({"setSpecificValueOfCard"})
+
+
 @dataclass
 class Model:
     fields: list[str]
@@ -156,6 +168,7 @@ class Card:
     ord: int
     deck: str
     suspended: bool = False
+    flags: int = 0  # Anki's flag colour, 0 none
 
 
 _STOCK_MODELS = tuple(anki_fixture("modelNames")["response"]["result"])
@@ -372,30 +385,58 @@ def _generate_cards(collection: Collection, note_id: int) -> None:
 
 
 def add_card(
-    collection: Collection, note_id: int, ord: int, deck: str, *, suspended: bool = False
+    collection: Collection,
+    note_id: int,
+    ord: int,
+    deck: str,
+    *,
+    suspended: bool = False,
+    flags: int = 0,
 ) -> int:
     """Give note `note_id` a card of `ord` in `deck` (which must exist); return its id."""
     assert deck in collection.decks, deck
     card_id = next(_ids)
-    collection.cards[card_id] = Card(note_id, ord, deck, suspended)
+    collection.cards[card_id] = Card(note_id, ord, deck, suspended, flags)
     return card_id
 
 
-_NOTE_QUERY = re.compile(r'note:"([^"]*)"')
+def flag_card(collection: Collection, note_id: int, ord: int, flags: int = 1) -> int:
+    """Flag the card of `ord` of note `note_id` with colour `flags`, as the user does in
+    Anki's reviewer; return its id.
+    """
+    card_id = next(i for i, c in collection.cards.items() if c.note == note_id and c.ord == ord)
+    collection.cards[card_id].flags = flags
+    return card_id
+
+
+_NOTE_QUERY = re.compile(r'note:"([^"]*)"( -flag:0)?')
 
 
 def _find_notes(collection: Collection, query: str) -> list[int]:
-    """Ids for an exact `note:"<type>"` query; any other query finds nothing."""
+    """Ids for an exact `note:"<type>"` query, or `note:"<type>" -flag:0` (only the notes
+    with a flagged card); any other query finds nothing.
+    """
     match = _NOTE_QUERY.fullmatch(query)
     if match is None:
         return []
-    return sorted(i for i, note in collection.notes.items() if note.model == match.group(1))
+    found = sorted(i for i, note in collection.notes.items() if note.model == match.group(1))
+    if match.group(2):
+        flagged = {card.note for card in collection.cards.values() if card.flags}
+        found = [i for i in found if i in flagged]
+    return found
 
 
 def _find_cards(collection: Collection, query: str) -> list[int]:
-    """Card ids for an exact `note:"<type>"` query; any other query finds nothing."""
+    """Card ids for an exact `note:"<type>"` query (with `-flag:0`, only its flagged cards);
+    any other query finds nothing.
+    """
     notes = set(_find_notes(collection, query))
-    return sorted(i for i, card in collection.cards.items() if card.note in notes)
+    flagged_only = query.endswith(" -flag:0")
+    return sorted(
+        i
+        for i, card in collection.cards.items()
+        if card.note in notes and (card.flags or not flagged_only)
+    )
 
 
 def _card_info(collection: Collection, card_id: int) -> dict[str, Any]:
@@ -414,6 +455,7 @@ def _card_info(collection: Collection, card_id: int) -> dict[str, Any]:
         "ord": card.ord,
         "queue": -1 if card.suspended else 0,
         "type": 0,
+        "flags": card.flags,
         "fields": {
             name: {"value": value, "order": order}
             for order, (name, value) in enumerate(note.fields.items())
@@ -521,6 +563,18 @@ def _answer_repair_write(
         case "deleteMediaFile":
             collection.media.discard(params.get("filename", ""))
             return _ok(None)
+        case "setSpecificValueOfCard":
+            card = collection.cards.get(params.get("card"))
+            if card is None:
+                return _error("Card was not found")
+            keys, values = params.get("keys", []), params.get("newValues", [])
+            if keys != ["flags"] or not isinstance(values, list) or len(values) != 1:
+                return _ok([[False, "only a single flags value is simulated"]])
+            value = values[0]
+            if not isinstance(value, int) or isinstance(value, bool) or not 0 <= value <= 7:
+                return _ok([[False, f"{value!r} is not valid under the flag schema"]])
+            card.flags = value
+            return _ok([True])
         case "storeMediaFile":
             base64.b64decode(params.get("data", ""), validate=True)
             name = params.get("filename", "").lower()
@@ -731,8 +785,8 @@ def collection_replies(
 ) -> dict[str, StubReply]:
     """Replies for `AnkiConnectReplay`: every read in `READ_ACTIONS`, `multi` included.
 
-    `writes=True` also answers `WRITE_ACTIONS`, `NOTE_WRITE_ACTIONS`, `REPAIR_WRITE_ACTIONS`
-    and `MEDIA_WRITE_ACTIONS`, changing `collection`.
+    `writes=True` also answers `WRITE_ACTIONS`, `NOTE_WRITE_ACTIONS`, `REPAIR_WRITE_ACTIONS`,
+    `MEDIA_WRITE_ACTIONS` and `CARD_VALUE_WRITE_ACTIONS`, changing `collection`.
     `refuse_save=True` makes `saveDeckConfig` answer `false` and save nothing, as it did in
     spike 2.2 (Q5).
     """
@@ -742,7 +796,10 @@ def collection_replies(
             return _answer_write(collection, action, params, refuse_save=refuse_save)
         if writes and action in NOTE_WRITE_ACTIONS:
             return _answer_note_write(collection, action, params)
-        if writes and action in REPAIR_WRITE_ACTIONS | MEDIA_WRITE_ACTIONS:
+        if (
+            writes
+            and action in REPAIR_WRITE_ACTIONS | MEDIA_WRITE_ACTIONS | CARD_VALUE_WRITE_ACTIONS
+        ):
             return _answer_repair_write(collection, action, params)
         return _answer(collection, action, params)
 
@@ -753,7 +810,13 @@ def collection_replies(
         inner = body.get("params", {}).get("actions", [])
         return _ok([answer(a["action"], a.get("params", {})) for a in inner])
 
-    all_writes = WRITE_ACTIONS | NOTE_WRITE_ACTIONS | REPAIR_WRITE_ACTIONS | MEDIA_WRITE_ACTIONS
+    all_writes = (
+        WRITE_ACTIONS
+        | NOTE_WRITE_ACTIONS
+        | REPAIR_WRITE_ACTIONS
+        | MEDIA_WRITE_ACTIONS
+        | CARD_VALUE_WRITE_ACTIONS
+    )
     actions = READ_ACTIONS | all_writes if writes else READ_ACTIONS
     replies: dict[str, StubReply] = {action: reply_to(action) for action in actions}
     replies["multi"] = multi

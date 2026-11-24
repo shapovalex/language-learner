@@ -48,6 +48,15 @@ Pronounce card in Anki; its Study cards are not changed. Check "Practise pronunc
 bring it back: it returns to Pronunciation the next time it is new or due. A Pronounce card you
 suspend in Anki yourself counts as left out too.
 
+## Find and fix flagged Items
+
+When you spot a mistake on a card while reviewing in Anki, flag it (any flag colour). On the
+Items screen, tap "Flagged" beside the search to list only the Items with a flagged card; the
+search still narrows that list, and each flagged row shows a flag. Open the Item, fix it and
+save, then tap "Clear flag" on its page: LanguageLab sets every flagged card of that Item back to
+no flag in Anki. Saving alone never clears the flag, and you can also unflag the cards in Anki
+yourself. The flag lives only in Anki.
+
 ## French reading rules deck
 
 Setup creates `<Prefix>::Study::French::Reading Rules` and fills it with 46 French reading rules,

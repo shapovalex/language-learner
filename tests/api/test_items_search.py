@@ -13,7 +13,7 @@ import uuid
 
 import pytest
 
-from language_lab.adapters.anki.query import note_query
+from language_lab.adapters.anki.query import flagged_notes_query, note_query
 from tests.support.anki_state import (
     apply_manifest,
     item_note,
@@ -153,10 +153,12 @@ def test_search_uses_read_only_exact_prefix_scopes(settings_factory: SettingsFac
     # When the real service and adapter execute the user-controlled search.
     response = client.get("/api/items/en", params={"q": query_text})
 
-    # Then only the exact two English note-type queries reach Anki, never user text.
+    # Then only the exact two English note-type queries (and their fixed flag reads) reach
+    # Anki, never user text.
+    types = [f"{MANIFEST.prefix} English Vocabulary", f"{MANIFEST.prefix} English Sentence"]
     assert set(sent_queries(replay.sent)) == {
-        note_query(MANIFEST, f"{MANIFEST.prefix} English Vocabulary"),
-        note_query(MANIFEST, f"{MANIFEST.prefix} English Sentence"),
+        *(note_query(MANIFEST, t) for t in types),
+        *(flagged_notes_query(MANIFEST, t) for t in types),
     }
     assert response.status_code == 200
     assert [row["itemId"] for row in response.json()["items"]] == [item_id]
@@ -171,6 +173,10 @@ def test_search_uses_read_only_exact_prefix_scopes(settings_factory: SettingsFac
     failed = client_over(settings_factory, failing_store).get("/api/items/en", params={"q": "x"})
     assert failed.status_code == 503
     assert failed.json()["error"]["code"] == "anki_unavailable"
+
+
+# The list rows' read-only metadata beside the ItemContent
+METADATA = ("itemId", "hasAudio", "flagged")
 
 
 @pytest.mark.p1
@@ -209,9 +215,10 @@ def test_item_list_reports_stored_audio_presence_without_writing(
     assert response.status_code == 200
     rows = {row["itemId"]: row for row in response.json()["items"]}
     assert rows[voiced]["hasAudio"] is True
+    assert rows[voiced]["flagged"] is rows[silent]["flagged"] is False
     assert rows[silent]["hasAudio"] is False
-    assert {k: v for k, v in rows[voiced].items() if k not in ("itemId", "hasAudio")} == voiced_wire
-    assert {k: v for k, v in rows[silent].items() if k not in ("itemId", "hasAudio")} == silent_wire
+    assert {k: v for k, v in rows[voiced].items() if k not in METADATA} == voiced_wire
+    assert {k: v for k, v in rows[silent].items() if k not in METADATA} == silent_wire
     assert sent_writes(replay.sent) == []
     assert collection == before
 

@@ -19,6 +19,8 @@ from tests.support.network import stub_api_json
 
 SAVE_CHANGES = "Save changes"
 AUDIO_INDICATOR = "Reference audio"
+FLAG_MARKER = "Flagged"
+FLAGGED_FILTER = "Flagged"
 
 
 def stored_item(*, has_audio: bool = False, **changes: Any) -> dict[str, Any]:
@@ -31,6 +33,11 @@ def detail_wire(row: dict[str, Any]) -> dict[str, Any]:
 
 def search_box(page: Page, language: str = "English") -> Locator:
     return main(page).get_by_role("textbox", name=f"Search {language} Items", exact=True)
+
+
+def flagged_filter(page: Page) -> Locator:
+    """The Items screen's Flagged toggle (a button with `aria-pressed`)."""
+    return main(page).get_by_role("button", name=FLAGGED_FILTER, exact=True)
 
 
 def item_row(page: Page, target: str) -> Locator:
@@ -48,6 +55,11 @@ def save_changes(page: Page) -> Locator:
 
 def query_of(request: Request) -> str:
     return parse_qs(urlparse(request.url).query).get("q", [""])[0]
+
+
+def flagged_of(request: Request) -> str | None:
+    """A list read's `flagged` parameter, None when it wasn't sent."""
+    return parse_qs(urlparse(request.url).query).get("flagged", [None])[0]
 
 
 def stub_items(page: Page, items: list[dict[str, Any]], *, lang: str = "en") -> None:
