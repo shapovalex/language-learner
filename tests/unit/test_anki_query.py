@@ -17,6 +17,7 @@ from language_lab.adapters.anki.query import (
     flagged_notes_query,
     note_query,
     pronounce_queue_query,
+    unlockable_notes_query,
 )
 
 RELEASE = "LanguageLab"
@@ -113,3 +114,24 @@ def test_the_flagged_notes_query_is_one_exact_note_scope_with_the_fixed_flag_lit
             flagged_notes_query(manifest, note_type)
     with pytest.raises(ValueError):
         flagged_notes_query(build_manifest(DEV), f"{RELEASE} English Vocabulary")
+
+
+@pytest.mark.p0
+def test_the_unlockable_notes_query_is_one_exact_note_scope_with_fixed_literals() -> None:
+    """Study lock: the exact note type scope, the Prefix's lock tag and the fixed
+    `card:1 -is:new` literal (the Understand card answered at least once); any other name is
+    refused.
+    """
+    manifest = build_manifest(RELEASE)
+
+    assert unlockable_notes_query(manifest, f"{RELEASE} French Vocabulary") == (
+        f'note:"{RELEASE} French Vocabulary" tag:{RELEASE}::Locked card:1 -is:new'
+    )
+    assert unlockable_notes_query(build_manifest(DEV), f"{DEV} English Sentence") == (
+        f'note:"{DEV} English Sentence" tag:{DEV}::Locked card:1 -is:new'
+    )
+    for note_type in REFUSED_NOTE_TYPES:
+        with pytest.raises(ValueError):
+            unlockable_notes_query(manifest, note_type)
+    with pytest.raises(ValueError):
+        unlockable_notes_query(build_manifest(DEV), f"{RELEASE} English Vocabulary")

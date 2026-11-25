@@ -54,6 +54,18 @@ ALLOWED: list[tuple[str, dict[str, Any]]] = [
     ("cloneDeckConfigId", {"name": RELEASE, "cloneFrom": 1}),
     ("setDeckConfigId", {"decks": [f"{RELEASE}::Study", STUDY_LEAF], "configId": 1}),
     ("addNote", {"note": {"modelName": VOCABULARY, "deckName": STUDY_LEAF, "fields": {}}}),
+    # Study lock: a new Item's note carries the Prefix's lock tag, and only it
+    (
+        "addNote",
+        {
+            "note": {
+                "modelName": VOCABULARY,
+                "deckName": STUDY_LEAF,
+                "fields": {},
+                "tags": [f"{RELEASE}::Locked"],
+            }
+        },
+    ),
     ("storeMediaFile", {"filename": media_name(RELEASE), "data": ""}),
     ("deleteMediaFile", {"filename": media_name(RELEASE)}),
     ("multi", {"actions": [{"action": "createDeck", "params": {"deck": CAPTURES}}]}),
@@ -89,6 +101,20 @@ REJECTED: list[tuple[str, dict[str, Any]]] = [
                 "audio": [{"url": "https://example.com/a.mp3", "filename": "evil.mp3"}],
             }
         },
+    ),
+    # Study lock: no tag but the Prefix's own lock tag on an added note
+    *(
+        (
+            "addNote",
+            {"note": {"modelName": VOCABULARY, "deckName": STUDY_LEAF, "fields": {}, "tags": t}},
+        )
+        for t in (
+            ["marked"],
+            [f"{RELEASE}::Locked", "marked"],
+            [f"{DEV}::Locked"],
+            f"{RELEASE}::Locked",
+            [],
+        )
     ),
     ("storeMediaFile", {"filename": "pronunciation.mp3", "data": ""}),
     ("storeMediaFile", {"filename": media_name(DEV), "data": ""}),
@@ -265,6 +291,17 @@ BY_ID: list[tuple[str, dict[str, Any], bool]] = [
     ),
     ("setSpecificValueOfCard", {"card": True, "keys": ["flags"], "newValues": [0]}, False),
     ("setSpecificValueOfCard", {"keys": ["flags"], "newValues": [0]}, False),
+    # Study lock: removing exactly the lock tag from managed notes, nothing else
+    ("removeTags", {"notes": [MANAGED_NOTE], "tags": f"{RELEASE}::Locked"}, True),
+    ("removeTags", {"notes": [BASIC_NOTE], "tags": f"{RELEASE}::Locked"}, False),
+    ("removeTags", {"notes": [MANAGED_NOTE, BASIC_NOTE], "tags": f"{RELEASE}::Locked"}, False),
+    ("removeTags", {"notes": [UNKNOWN_NOTE], "tags": f"{RELEASE}::Locked"}, False),
+    ("removeTags", {"notes": [MANAGED_NOTE], "tags": "marked"}, False),
+    ("removeTags", {"notes": [MANAGED_NOTE], "tags": f"{RELEASE}::Locked marked"}, False),
+    ("removeTags", {"notes": [MANAGED_NOTE], "tags": [f"{RELEASE}::Locked"]}, False),
+    ("removeTags", {"notes": [MANAGED_NOTE], "tags": f"{DEV}::Locked"}, False),
+    ("removeTags", {"notes": [], "tags": f"{RELEASE}::Locked"}, False),
+    ("removeTags", {"tags": f"{RELEASE}::Locked"}, False),
     ("saveDeckConfig", {"config": {"id": PRESET_ID, "name": RELEASE}}, True),
     ("saveDeckConfig", {"config": {"id": PRESET_ID + 1, "name": RELEASE}}, False),  # Default's id
     ("saveDeckConfig", {"config": {"id": PRESET_ID, "name": "Default"}}, False),

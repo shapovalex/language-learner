@@ -58,6 +58,13 @@ outer section always renders). `addNote` and `item_note()` make only those cards
 the deck of the note's first card (Anki's behaviour). `modelTemplateAdd` refuses a template
 naming a field the model lacks, as Anki refuses to save it.
 
+Study lock: a note holds Anki's `tags` (`notesInfo` answers them) and a card whether it was ever
+answered (`reviewed`: `cardsInfo` answers `type` 2 and `queue` 2, or -1 when suspended, rather
+than new). `addNote` keeps its `tags`, `item_note(..., tags=, reviewed_ords=)` and
+`review_card()` set them, `findNotes` also answers `note:"<type>" tag:<tag> card:1 -is:new` (the
+notes of that type carrying the tag whose ord 0 card is not new), and with `writes=True` the
+collection answers `removeTags` (`TAG_WRITE_ACTIONS`) with `null`, ignoring a tag a note lacks.
+
 French reading rules: `apply_manifest()` also puts every seeded rule in the collection as Setup
 leaves it (`reading_rule_note()`): its note, its card in the Reading Rules deck and its three
 media files. With `writes=True` the collection answers `storeMediaFile` too
@@ -138,6 +145,10 @@ MEDIA_WRITE_ACTIONS = frozenset({"storeMediaFile"})
 CARD_VALUE_WRITE_ACTIONS = frozenset({"setSpecificValueOfCard"})
 
 
+# The tag write unlocking an Item's Study cards sends, answered with `writes=True`
+TAG_WRITE_ACTIONS = frozenset({"removeTags"})
+
+
 @dataclass
 class Model:
     fields: list[str]
@@ -160,6 +171,7 @@ class Collection:
 class Note:
     model: str
     fields: dict[str, str]  # field name -> stored content, in the model's field order
+    tags: list[str] = field(default_factory=list)
 
 
 @dataclass
@@ -169,6 +181,7 @@ class Card:
     deck: str
     suspended: bool = False
     flags: int = 0  # Anki's flag colour, 0 none
+    reviewed: bool = False  # answered at least once: no longer new
 
 
 _STOCK_MODELS = tuple(anki_fixture("modelNames")["response"]["result"])
@@ -284,10 +297,14 @@ def reading_rule_media(manifest: Manifest) -> set[str]:
     }
 
 
-def add_note(collection: Collection, model: str, fields: dict[str, str]) -> int:
-    """Put a note of `model` with `fields` (stored content) in `collection`; return its id."""
+def add_note(
+    collection: Collection, model: str, fields: dict[str, str], tags: list[str] | None = None
+) -> int:
+    """Put a note of `model` with `fields` (stored content) and `tags` in `collection`; return
+    its id.
+    """
     note_id = next(_ids)
-    collection.notes[note_id] = Note(model, dict(fields))
+    collection.notes[note_id] = Note(model, dict(fields), list(tags or []))
     return note_id
 
 
@@ -334,20 +351,33 @@ def item_note(
     note_type: str,
     item_id: str,
     fields: dict[str, str],
+    *,
+    tags: list[str] | None = None,
+    reviewed_ords: tuple[int, ...] = (),
+    suspended_ords: tuple[int, ...] = (),
 ) -> int:
     """Put an Item note of the manifest's `note_type` in `collection`, as Save leaves it:
     `fields` stored exactly (markup included), every other field empty, `item_id`, the
     manifest's SchemaVersion, and four cards, each in the deck its ord belongs in; return its id.
+    `tags` are the note's; the cards of `reviewed_ords` were answered, those of `suspended_ords`
+    are suspended.
     """
     declared = next(nt for nt in manifest.note_types if nt.name == note_type)
     stored = {f.name: "" for f in declared.fields}
     stored.update(fields)
     stored["ItemId"] = item_id
     stored["SchemaVersion"] = str(manifest.schema_version)
-    note_id = add_note(collection, note_type, stored)
+    note_id = add_note(collection, note_type, stored, tags)
     for template in declared.templates:
         if front_renders(template.front, stored):
-            add_card(collection, note_id, template.ord, manifest.card_deck(note_type, template.ord))
+            card_id = add_card(
+                collection,
+                note_id,
+                template.ord,
+                manifest.card_deck(note_type, template.ord),
+                suspended=template.ord in suspended_ords,
+            )
+            collection.cards[card_id].reviewed = template.ord in reviewed_ords
     return note_id
 
 
@@ -409,20 +439,39 @@ def flag_card(collection: Collection, note_id: int, ord: int, flags: int = 1) ->
     return card_id
 
 
-_NOTE_QUERY = re.compile(r'note:"([^"]*)"( -flag:0)?')
+def review_card(collection: Collection, note_id: int, ord: int) -> int:
+    """Answer the card of `ord` of note `note_id` once, as the user does in Anki's reviewer (it
+    is no longer new); return its id.
+    """
+    card_id = next(i for i, c in collection.cards.items() if c.note == note_id and c.ord == ord)
+    collection.cards[card_id].reviewed = True
+    return card_id
+
+
+_NOTE_QUERY = re.compile(r'note:"([^"]*)"( -flag:0| tag:(\S+) card:1 -is:new)?')
 
 
 def _find_notes(collection: Collection, query: str) -> list[int]:
-    """Ids for an exact `note:"<type>"` query, or `note:"<type>" -flag:0` (only the notes
-    with a flagged card); any other query finds nothing.
+    """Ids for an exact `note:"<type>"` query, `note:"<type>" -flag:0` (only the notes with a
+    flagged card), or `note:"<type>" tag:<tag> card:1 -is:new` (only the notes carrying the tag,
+    case-insensitively as Anki matches it, whose ord 0 card was answered); any other query finds
+    nothing.
     """
     match = _NOTE_QUERY.fullmatch(query)
     if match is None:
         return []
     found = sorted(i for i, note in collection.notes.items() if note.model == match.group(1))
-    if match.group(2):
+    if match.group(2) == " -flag:0":
         flagged = {card.note for card in collection.cards.values() if card.flags}
         found = [i for i in found if i in flagged]
+    elif match.group(3):
+        tag = match.group(3).lower()
+        answered = {c.note for c in collection.cards.values() if c.ord == 0 and c.reviewed}
+        found = [
+            i
+            for i in found
+            if i in answered and tag in (t.lower() for t in collection.notes[i].tags)
+        ]
     return found
 
 
@@ -453,8 +502,8 @@ def _card_info(collection: Collection, card_id: int) -> dict[str, Any]:
         "modelName": note.model,
         "deckName": card.deck,
         "ord": card.ord,
-        "queue": -1 if card.suspended else 0,
-        "type": 0,
+        "queue": -1 if card.suspended else (2 if card.reviewed else 0),
+        "type": 2 if card.reviewed else 0,
         "flags": card.flags,
         "fields": {
             name: {"value": value, "order": order}
@@ -469,7 +518,7 @@ def _note_info(note_id: int, note: Note, cards: list[int] | None = None) -> dict
     return {
         **copy.deepcopy(recorded),
         "noteId": note_id,
-        "tags": [],
+        "tags": list(note.tags),
         "fields": {
             name: {"value": value, "order": order}
             for order, (name, value) in enumerate(note.fields.items())
@@ -504,7 +553,8 @@ def _answer_note_write(
             allow_duplicate = note.get("options", {}).get("allowDuplicate", False)
             if not allow_duplicate and _is_duplicate(collection, note["modelName"], first):
                 return _error("cannot create note because it is a duplicate")
-            note_id = add_note(collection, note["modelName"], fields)
+            tags = note.get("tags", [])
+            note_id = add_note(collection, note["modelName"], fields, tags)
             # Anki gives the new note one card per template whose front renders, every one in
             # the note's deck
             for ord, sides in enumerate(model.templates.values()):
@@ -575,6 +625,14 @@ def _answer_repair_write(
                 return _ok([[False, f"{value!r} is not valid under the flag schema"]])
             card.flags = value
             return _ok([True])
+        case "removeTags":
+            # AnkiConnect takes the tags as one space-separated string
+            gone = {t.lower() for t in params.get("tags", "").split()}
+            for note_id in params.get("notes", []):
+                stored = collection.notes.get(note_id)
+                if stored is not None:
+                    stored.tags = [t for t in stored.tags if t.lower() not in gone]
+            return _ok(None)
         case "storeMediaFile":
             base64.b64decode(params.get("data", ""), validate=True)
             name = params.get("filename", "").lower()
@@ -786,7 +844,8 @@ def collection_replies(
     """Replies for `AnkiConnectReplay`: every read in `READ_ACTIONS`, `multi` included.
 
     `writes=True` also answers `WRITE_ACTIONS`, `NOTE_WRITE_ACTIONS`, `REPAIR_WRITE_ACTIONS`,
-    `MEDIA_WRITE_ACTIONS` and `CARD_VALUE_WRITE_ACTIONS`, changing `collection`.
+    `MEDIA_WRITE_ACTIONS`, `CARD_VALUE_WRITE_ACTIONS` and `TAG_WRITE_ACTIONS`, changing
+    `collection`.
     `refuse_save=True` makes `saveDeckConfig` answer `false` and save nothing, as it did in
     spike 2.2 (Q5).
     """
@@ -798,7 +857,11 @@ def collection_replies(
             return _answer_note_write(collection, action, params)
         if (
             writes
-            and action in REPAIR_WRITE_ACTIONS | MEDIA_WRITE_ACTIONS | CARD_VALUE_WRITE_ACTIONS
+            and action
+            in REPAIR_WRITE_ACTIONS
+            | MEDIA_WRITE_ACTIONS
+            | CARD_VALUE_WRITE_ACTIONS
+            | TAG_WRITE_ACTIONS
         ):
             return _answer_repair_write(collection, action, params)
         return _answer(collection, action, params)
@@ -816,6 +879,7 @@ def collection_replies(
         | REPAIR_WRITE_ACTIONS
         | MEDIA_WRITE_ACTIONS
         | CARD_VALUE_WRITE_ACTIONS
+        | TAG_WRITE_ACTIONS
     )
     actions = READ_ACTIONS | all_writes if writes else READ_ACTIONS
     replies: dict[str, StubReply] = {action: reply_to(action) for action in actions}

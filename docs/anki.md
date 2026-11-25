@@ -40,6 +40,17 @@ there changes their schedule without any pronunciation check.
 
 This is a convention you keep. Nothing in Anki or LanguageLab enforces it.
 
+## New Items unlock after Understand
+
+A new Item starts with only its Understand card (and its Pronounce card) available. Its Produce,
+Write and Example cards are suspended and its note carries the tag `<Prefix>::Locked`, so you
+meet the word in Understand before you are asked to produce or write it. Once you have answered
+the Understand card once, with any rating, the next Sync unsuspends the Produce and Write cards
+(and the Example card, when the Item has example audio) and removes the tag. Sync runs every
+few minutes, so the cards reach your phone soon after. Items created before this release are
+never locked. In dev mode Sync is off, so nothing unlocks new Items; to unlock one by hand in
+Anki, remove the tag and unsuspend its cards.
+
 ## Leave an Item out of Pronunciation
 
 To stop practising an Item aloud, tap "Don't practise this card" on the Pronunciation screen, or

@@ -82,6 +82,7 @@ def test_anki_store_port_adds_the_setup_preview_read_and_the_fake_matches() -> N
         "set_pronunciation_excluded",
         "answer_card",
         "clear_flag",
+        "unlock_answered_items",
     }
     assert inspect.iscoroutinefunction(AnkiStore.setup_preview)
     assert inspect.get_annotations(AnkiStore.setup_preview, eval_str=True)["return"] is SetupPreview

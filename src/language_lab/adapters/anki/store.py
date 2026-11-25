@@ -63,6 +63,17 @@ stored by the AD-7 name into `ExampleAudio`; Anki then makes the Example card (o
 deck of the note's first card, so Save moves it to its Study deck. `store_example_audio` is the
 backfill's write for one Item. Old example media is cleaned up like `Audio`'s, and a clip either
 field still names is kept. Each Pronounce Card in the queue says whether it is new.
+
+The Study lock lives in Anki only (a note tag, AD-13 style): Save adds a new Item's note with the
+manifest's lock tag and, once its cards are in their decks, suspends its `LOCKED_ORDS` cards
+(Produce, Write, and Example when made) before moving the cards to their decks; Understand
+and Pronounce stay as they were. While the
+note carries the tag, example audio still moves its Example card to its Study deck but leaves it
+suspended. `unlock_answered_items` (run before each Sync) finds, per Item note type, the locked
+notes whose Understand card is no longer new (`unlockable_notes_query`), unsuspends their
+suspended Produce and Write cards (and Example card when `ExampleAudio` holds something), then
+removes the tag, all under one lock hold, every write guarded and gated. A note without the tag
+is never touched; an existing Item updated by Save never gets it.
 """
 
 import asyncio
@@ -86,8 +97,10 @@ from language_lab.adapters.anki.lock import AnkiLock
 from language_lab.adapters.anki.manifest import (
     EXAMPLE_AUDIO_FIELD,
     EXAMPLE_ORD,
+    LOCKED_ORDS,
     PRONOUNCE_ORD,
     STUDY_ORDS,
+    UNDERSTAND_ORD,
     Manifest,
 )
 from language_lab.adapters.anki.migrations import Migration, add_fields, stamp_versions
@@ -95,6 +108,7 @@ from language_lab.adapters.anki.query import (
     flagged_notes_query,
     note_query,
     pronounce_queue_query,
+    unlockable_notes_query,
 )
 from language_lab.adapters.anki.setup_apply import run_plan, run_repairs
 from language_lab.adapters.anki.setup_gate import (
@@ -330,6 +344,14 @@ def _flagged_cards(cards: list[dict[str, Any]]) -> list[int]:
     return flagged
 
 
+def _has_tag(info: dict[str, Any], tag: str) -> bool:
+    """Whether a `notesInfo` entry carries `tag` (Anki matches tags case-insensitively)."""
+    tags = info.get("tags")
+    if not isinstance(tags, list):
+        raise AppError(ErrorCode.ANKI_UNAVAILABLE)
+    return tag.lower() in (t.lower() for t in tags if isinstance(t, str))
+
+
 def _failure_outcome(poll: dict[str, Any]) -> SyncOutcome:
     """A failed operation's outcome, from its `error.data.type` (spike 2.2, Q3/Q4)."""
     error = poll.get("error")
@@ -500,14 +522,15 @@ class AnkiConnectStore:
         example_audio_bytes: bytes | None = None,
     ) -> None:
         """Update the note whose decoded ItemId is `item_id` (matched in Python, AD-4), or add
-        it to its Pronunciation deck and move cards 0-2 (and a Vocabulary note's Example card)
-        to their Study decks (AD-6), under one lock hold. Replacement stores media first and
+        it to its Pronunciation deck with the lock tag, suspend its Produce, Write and Example
+        cards (the Study lock), and move cards 0-2 (and a Vocabulary note's Example card) to
+        their Study decks (AD-6), under one lock hold. Replacement stores media first and
         cleans old managed media last; removal stores nothing, empties Audio, then cleans the
         old managed media last. `example_audio_bytes` (Vocabulary only) is stored the same way
-        as `ExampleAudio`, and the Example card Anki then makes is moved to its Study deck (and
-        unsuspended). A Vocabulary Item whose Example or ExampleRussian is blank, or whose
-        Example changed with no new bytes, has its `ExampleAudio` emptied, the old clip deleted
-        and its Example card suspended.
+        as `ExampleAudio`, and the Example card Anki then makes is moved to its Study deck and
+        unsuspended, or, on a locked note, left suspended. A Vocabulary Item whose Example or
+        ExampleRussian is blank, or whose Example changed with no new bytes, has its
+        `ExampleAudio` emptied, the old clip deleted and its Example card suspended.
         A clip still named by either audio field is never deleted. A failure stops the sequence
         with no compensation: leftovers are Setup's `orphanMedia` repairs. Raises
         `AppError(VALIDATION_FAILED | SETUP_REQUIRED | ANKI_UNAVAILABLE | ANKI_BUSY)`.
@@ -563,6 +586,7 @@ class AnkiConnectStore:
                     _ITEM_ID: item_id,
                     SCHEMA_VERSION_FIELD: str(manifest.schema_version),
                 }
+                # Locked from the start: a failure below leaves the tag for a later unlock
                 note_id = await self._client.invoke(
                     "addNote",
                     note={
@@ -570,11 +594,16 @@ class AnkiConnectStore:
                         "modelName": model,
                         "fields": _encoded(fields),
                         "options": {"allowDuplicate": True},
+                        "tags": [manifest.lock_tag],
                     },
                 )
                 if not is_int(note_id):
                     raise AppError(ErrorCode.ANKI_UNAVAILABLE)
-                for ord, card_id in (await self._cards_by_ord(note_id)).items():
+                by_ord = await self._cards_by_ord(note_id)
+                # Before the moves: a failed move must not leave Produce/Write open
+                locked = [card_id for ord, card_id in by_ord.items() if ord in LOCKED_ORDS]
+                await self._client.invoke("suspend", cards=sorted(locked))
+                for ord, card_id in by_ord.items():
                     if ord in STUDY_ORDS or ord == EXAMPLE_ORD:
                         await self._client.invoke(
                             "changeDeck", cards=[card_id], deck=manifest.card_deck(model, ord)
@@ -640,10 +669,13 @@ class AnkiConnectStore:
     ) -> None:
         """Move the note's Example card (ord 4), when Anki made one, to its Study deck unless it
         is there already, and unsuspend it if suspended; with `enabled=False` (its
-        `ExampleAudio` emptied, so its front is empty) suspend it instead, never deleted.
-        `ANKI_UNAVAILABLE` on a malformed reply.
+        `ExampleAudio` emptied, so its front is empty) suspend it instead, never deleted. While
+        the note carries the lock tag the card is suspended rather than unsuspended: the unlock
+        frees it. `ANKI_UNAVAILABLE` on a malformed reply.
         """
-        cards = await self._note_cards(note_id)
+        note = await self._note_entry(note_id)
+        cards = note["cards"]
+        locked = _has_tag(note, manifest.lock_tag)
         infos = _present_entries(await self._client.invoke("cardsInfo", cards=cards), len(cards))
         deck = manifest.card_deck(model, EXAMPLE_ORD)
         for info in infos:
@@ -653,13 +685,13 @@ class AnkiConnectStore:
             if not is_int(card_id):
                 raise AppError(ErrorCode.ANKI_UNAVAILABLE)
             suspended = info.get("queue") == _SUSPENDED_QUEUE
-            if not enabled:
-                if not suspended:
-                    await self._client.invoke("suspend", cards=[card_id])
-                continue
-            if info.get("deckName") != deck:
+            if enabled and info.get("deckName") != deck:
                 await self._client.invoke("changeDeck", cards=[card_id], deck=deck)
-            if suspended:
+            # A locked note's Example card waits, suspended, for the unlock
+            keep_suspended = not enabled or locked
+            if keep_suspended and not suspended:
+                await self._client.invoke("suspend", cards=[card_id])
+            elif not keep_suspended and suspended:
                 await self._client.invoke("unsuspend", cards=[card_id])
 
     async def get_media(self, name: str) -> bytes:
@@ -944,13 +976,19 @@ class AnkiConnectStore:
         """The card ids of note `note_id`, from `notesInfo`; `ANKI_UNAVAILABLE` on a malformed
         reply or a note with no cards.
         """
+        return (await self._note_entry(note_id))["cards"]
+
+    async def _note_entry(self, note_id: int) -> dict[str, Any]:
+        """The `notesInfo` entry of note `note_id`, its `cards` a non-empty list;
+        `ANKI_UNAVAILABLE` on a malformed reply or a note with no cards.
+        """
         infos = await self._client.invoke("notesInfo", notes=[note_id])
         if not isinstance(infos, list) or len(infos) != 1 or not isinstance(infos[0], dict):
             raise AppError(ErrorCode.ANKI_UNAVAILABLE)
         cards = infos[0].get("cards")
         if not isinstance(cards, list) or not cards:
             raise AppError(ErrorCode.ANKI_UNAVAILABLE)
-        return cards
+        return infos[0]
 
     async def _capture_infos(self, manifest: Manifest) -> list[dict[str, Any]]:
         return await self._note_infos(manifest, _capture_model(manifest))
@@ -980,6 +1018,73 @@ class AnkiConnectStore:
         if self._manifest is None:
             raise RuntimeError("AnkiConnectStore was built without a manifest")
         return self._manifest
+
+    async def unlock_answered_items(self) -> int:
+        """Unlock every locked Item whose Understand card has been answered, under one lock
+        hold: per Item note type, `findNotes` with `unlockable_notes_query`, then `notesInfo`
+        and `cardsInfo`; `unsuspend` the suspended Produce and Write cards (and the Example card
+        when the note's `ExampleAudio` holds something), then one `removeTags` of the lock tag.
+        Returns how many notes were unlocked. Raises
+        `AppError(SETUP_REQUIRED | ANKI_UNAVAILABLE | ANKI_BUSY)`.
+        """
+        manifest = self._require_manifest()
+        tag = manifest.lock_tag
+        unlocked = 0
+        async with self._lock.hold():
+            for language in Language:
+                for category in Category:
+                    model = manifest.item_note_type(language, category)
+                    query = unlockable_notes_query(manifest, model)
+                    ids = _id_list(await self._client.invoke("findNotes", query=query))
+                    if not ids:
+                        continue
+                    notes = await self._client.invoke("notesInfo", notes=ids)
+                    by_id = _notes_by_id(notes, len(ids))
+                    unlocked += await self._unlock_notes(list(by_id.values()), tag)
+        return unlocked
+
+    async def _unlock_notes(self, notes: list[dict[str, Any]], tag: str) -> int:
+        """Unsuspend the locked cards of `notes` (`notesInfo` entries of one note type) and
+        remove `tag` from those whose Understand card isn't new; returns how many.
+        """
+        notes = [n for n in notes if _has_tag(n, tag)]
+        cards: list[int] = []
+        for note in notes:
+            note_cards = note.get("cards")
+            if not isinstance(note_cards, list) or not all(is_int(c) for c in note_cards):
+                raise AppError(ErrorCode.ANKI_UNAVAILABLE)
+            cards += note_cards
+        if not cards:
+            return 0
+        infos = _present_entries(await self._client.invoke("cardsInfo", cards=cards), len(cards))
+        by_note: dict[int, list[dict[str, Any]]] = {}
+        for info in infos:
+            if not all(is_int(info.get(key)) for key in ("cardId", "note", "ord", "type", "queue")):
+                raise AppError(ErrorCode.ANKI_UNAVAILABLE)
+            by_note.setdefault(info["note"], []).append(info)
+        to_unsuspend: list[int] = []
+        to_untag: list[int] = []
+        for note in notes:
+            note_cards = by_note.get(note["noteId"], [])
+            understood = any(
+                c["ord"] == UNDERSTAND_ORD and c["type"] != _NEW_TYPE for c in note_cards
+            )
+            if not understood:  # answered since, then reset: wait for the next answer
+                continue
+            with_example = bool(_optional(note, EXAMPLE_AUDIO_FIELD).strip())
+            for card in note_cards:
+                ord = card["ord"]
+                if ord not in LOCKED_ORDS or card["queue"] != _SUSPENDED_QUEUE:
+                    continue
+                if ord == EXAMPLE_ORD and not with_example:
+                    continue
+                to_unsuspend.append(card["cardId"])
+            to_untag.append(note["noteId"])
+        if to_unsuspend:
+            await self._client.invoke("unsuspend", cards=sorted(to_unsuspend))
+        if to_untag:
+            await self._client.invoke("removeTags", notes=sorted(to_untag), tags=tag)
+        return len(to_untag)
 
     async def sync(self) -> SyncOutcome:
         async with self._lock.hold():

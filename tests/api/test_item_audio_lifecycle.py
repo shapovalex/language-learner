@@ -106,7 +106,7 @@ class TestItemAudioRemovalMatrix:
 
         assert response.status_code == 200
         writes = sent_writes(rig.replay.sent)
-        assert writes == ["addNote", "changeDeck", "changeDeck", "changeDeck"]
+        assert writes == ["addNote", "suspend", "changeDeck", "changeDeck", "changeDeck"]
         assert "deleteMediaFile" not in writes
         assert "storeMediaFile" not in writes
         (note,) = collection.notes.values()

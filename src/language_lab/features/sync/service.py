@@ -7,6 +7,12 @@ or hung AnkiConnect fails no request. The status lives in memory only (AD-2).
 Full sync required (entry 9): Sync never reports it (spike 2.2, Q2), so Setup sets it with
 `set_full_sync_required()` after a field change. Every status recorded or returned from then on
 carries it, across later Syncs that end OK, until it is set again (the user says they uploaded).
+
+Study lock: after a Sync that ends OK, `AnkiStore.unlock_answered_items()` runs, so Items whose
+Understand card that Sync brought in are unlocked at once; when it unlocked any, one more Sync
+sends the unsuspends up, and its outcome is the status recorded. An unlock failure is logged as
+one line and never raised: the first Sync's status stands. After a failed Sync nothing unlocks.
+With Sync disabled (dev mode) nothing runs the unlock, so new Items stay locked.
 """
 
 import asyncio
@@ -105,6 +111,12 @@ class SyncService:
             self._start(pending)
 
     async def _sync_once(self) -> SyncStatus:
+        status = await self._sync_and_record()
+        if status.outcome is SyncOutcome.OK and await self._unlock():
+            status = await self._sync_and_record()
+        return status
+
+    async def _sync_and_record(self) -> SyncStatus:
         try:
             outcome = await self._anki.sync()
         except AppError as exc:
@@ -118,3 +130,19 @@ class SyncService:
         else:
             _log.warning("Sync with AnkiWeb failed: %s", outcome.value)
         return status
+
+    async def _unlock(self) -> int:
+        """Unlock the answered Items after an OK Sync; how many, 0 on a failure, which is
+        logged, never raised.
+        """
+        try:
+            unlocked = await self._anki.unlock_answered_items()
+        except AppError as exc:
+            _log.warning("Unlocking studied Items skipped: %s", exc.code.value)
+            return 0
+        except Exception as exc:  # noqa: BLE001 -- a bug must not break the Sync chain
+            _log.warning("Unlocking studied Items skipped: %s", type(exc).__name__)
+            return 0
+        if unlocked:
+            _log.info("Unlocked the Study cards of %d Item(s)", unlocked)
+        return unlocked

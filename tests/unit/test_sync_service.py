@@ -206,3 +206,116 @@ def test_aclose_gives_every_waiter_a_status_and_ends_the_running_sync() -> None:
     assert isinstance(on_running, SyncStatus)
     assert isinstance(on_pending, SyncStatus)
     assert in_flight == 0
+
+
+@pytest.mark.p0
+def test_an_ok_sync_is_followed_by_the_unlock() -> None:
+    """Study lock: the unlock runs after a Sync ends OK, never while it runs; with nothing
+    unlocked no second Sync follows.
+    """
+
+    async def scenario() -> tuple[int, object, int, int]:
+        store = FakeAnkiStore(gated=True)
+        service = SyncService(store, enabled=True)
+        waiter = asyncio.create_task(settled(service.request_and_wait()))
+        await until(lambda: store.in_flight == 1)
+        unlocks_during_sync = store.unlock_calls
+        store.finish(SyncOutcome.OK)
+        status = await waiter
+        return unlocks_during_sync, status, store.unlock_calls, store.sync_calls
+
+    during, status, unlocks, syncs = settle(bounded(scenario()))
+
+    assert during == 0
+    assert getattr(status, "outcome", status) == SyncOutcome.OK
+    assert (unlocks, syncs) == (1, 1)
+
+
+@pytest.mark.p0
+@pytest.mark.parametrize("end", [SyncOutcome.ANKIWEB_UNREACHABLE, ErrorCode.ANKI_UNAVAILABLE])
+def test_a_failed_sync_runs_no_unlock(end: SyncOutcome | ErrorCode) -> None:
+    """Study lock: after a failed Sync nothing unlocks."""
+
+    async def scenario() -> tuple[int, int]:
+        store = FakeAnkiStore(gated=True)
+        store.unlocked = 1
+        service = SyncService(store, enabled=True)
+        waiter = asyncio.create_task(settled(service.request_and_wait()))
+        await until(lambda: store.in_flight == 1)
+        store.finish(end)
+        await waiter
+        return store.unlock_calls, store.sync_calls
+
+    assert settle(bounded(scenario())) == (0, 1)
+
+
+@pytest.mark.p0
+def test_unlocked_items_go_up_in_one_more_sync_whose_status_is_recorded() -> None:
+    """Study lock: when the unlock freed an Item, a second Sync sends the unsuspends up, and
+    its outcome is the status returned and kept.
+    """
+
+    async def scenario() -> tuple[object, object, int, int]:
+        store = FakeAnkiStore(gated=True)
+        store.unlocked = 2
+        service = SyncService(store, enabled=True)
+        waiter = asyncio.create_task(settled(service.request_and_wait()))
+        await until(lambda: store.in_flight == 1)
+        store.finish(SyncOutcome.OK)
+        await until(lambda: store.sync_calls == 2 and store.in_flight == 1)
+        store.finish(SyncOutcome.AUTH_REQUIRED)
+        status = await waiter
+        return status, service.last_status(), store.unlock_calls, store.sync_calls
+
+    status, last, unlocks, syncs = settle(bounded(scenario()))
+
+    assert getattr(status, "outcome", status) == SyncOutcome.AUTH_REQUIRED
+    assert last == SyncStatus(SyncOutcome.AUTH_REQUIRED, full_sync_required=False)
+    assert (unlocks, syncs) == (1, 2)
+
+
+@pytest.mark.p0
+@pytest.mark.parametrize(
+    "error",
+    [AppError(ErrorCode.ANKI_UNAVAILABLE), AppError(ErrorCode.SETUP_REQUIRED), RuntimeError("x")],
+    ids=["anki_unavailable", "setup_required", "unexpected"],
+)
+def test_an_unlock_failure_is_logged_and_the_first_sync_status_stands(
+    error: BaseException, log_capture: LogCapture
+) -> None:
+    """Study lock: Anki down or Setup not ready at unlock: one warning line, no second Sync,
+    and the first Sync's status is the one returned.
+    """
+
+    async def scenario() -> tuple[object, int, int]:
+        store = FakeAnkiStore()
+        store.unlock_error = error
+        service = SyncService(store, enabled=True)
+        status = await settled(service.request_and_wait())
+        return status, store.unlock_calls, store.sync_calls
+
+    status, unlocks, sync_calls = settle(bounded(scenario()))
+
+    assert getattr(status, "outcome", status) == SyncOutcome.OK
+    assert (unlocks, sync_calls) == (1, 1)
+    warnings = [
+        r for r in log_capture.records if r.name == SYNC_LOGGER and r.levelname == "WARNING"
+    ]
+    assert len(warnings) == 1
+    assert "Unlocking" in warnings[0].getMessage()
+    assert not any(r.exc_info for r in log_capture.records)
+
+
+@pytest.mark.p1
+def test_a_disabled_service_never_unlocks() -> None:
+    """Sync disabled (dev mode): nothing runs the unlock, so new Items stay locked."""
+
+    async def scenario() -> int:
+        store = FakeAnkiStore()
+        service = SyncService(store, enabled=False)
+        await service.request()
+        await service.request_and_wait()
+        await drain()
+        return store.unlock_calls
+
+    assert settle(bounded(scenario())) == 0

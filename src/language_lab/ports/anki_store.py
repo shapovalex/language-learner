@@ -3,7 +3,8 @@
 Each method is one complete use case that the adapter runs under the Anki lock: readiness, sync,
 the SetupState, the Setup preview and apply, Create, List, Get and Delete Capture, Save and Delete
 Item, the Item reads, the Pronunciation queue and Rating, excluding an Item from
-Pronunciation, clearing an Item's Anki flags, and the example audio backfill.
+Pronunciation, clearing an Item's Anki flags, the example audio backfill, and unlocking the
+Study cards of Items whose Understand card has been answered.
 Later entries add methods here, to the AnkiConnect adapter and to the fake in tests/fakes/ together.
 """
 
@@ -59,6 +60,18 @@ class AnkiStore(Protocol):
         """
         ...
 
+    async def unlock_answered_items(self) -> int:
+        """Unlock the Study cards of every locked Item whose Understand card (ord 0) has been
+        answered at least once, under one lock hold. Save locks a new Item: its note carries the
+        manifest's lock tag (`<Prefix>::Locked`) and its Produce, Write and Example cards start
+        suspended. Only notes carrying the tag are touched, found per Item note type with the
+        exact scope plus fixed literals (AD-4): their suspended Produce and Write cards are
+        unsuspended, the Example card only when `ExampleAudio` holds something, then the tag is
+        removed. Prefix guarded and Setup gated. Returns how many Items were unlocked. Raises
+        `AppError(SETUP_REQUIRED | ANKI_UNAVAILABLE | ANKI_BUSY)`.
+        """
+        ...
+
     async def create_capture(self, capture_id: str, text: str, created_at: datetime) -> Capture:
         """Create the Capture `capture_id`, or return the one already stored (AD-20), under one
         lock hold. A new one is added to `<Prefix>::Captures` with `text` and `created_at` and
@@ -102,7 +115,10 @@ class AnkiStore(Protocol):
     ) -> None:
         """Save the Item `item_id`, create-or-update by ItemId (AD-20), under one lock hold. The
         ItemId is matched in Python, never in a query (AD-4). A new one is added to its
-        Language/Category Pronunciation deck, then cards 0-2 move to their Study decks (AD-6); a
+        Language/Category Pronunciation deck with the lock tag, then cards 0-2 move to their
+        Study decks (AD-6) and its Produce, Write and Example cards are suspended until
+        `unlock_answered_items` frees them (on a locked note, example audio leaves the Example
+        card suspended); a
         stored one has its fields updated, with Audio preserved for `keep`. `replace` stores
         exact MP3 bytes before the note and deletes differing old managed media after the
         note write and card placement succeed. `remove` stores nothing, writes an empty Audio

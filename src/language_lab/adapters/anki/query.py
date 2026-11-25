@@ -34,3 +34,10 @@ def pronounce_queue_query(manifest: Manifest, deck: str, note_type: str, card: i
         raise ValueError("not a card template")
     scope = f"{deck_query(manifest, deck)} {note_query(manifest, note_type)}"
     return f"{scope} card:{card} (is:due OR is:new) -is:suspended"
+
+
+def unlockable_notes_query(manifest: Manifest, note_type: str) -> str:
+    """The locked notes of the exact `note_type` scope whose Understand card (template 1) has been
+    answered: the manifest's lock tag and `card:1 -is:new` are fixed literals, never user text.
+    """
+    return f"{note_query(manifest, note_type)} tag:{manifest.lock_tag} card:1 -is:new"

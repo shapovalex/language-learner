@@ -29,6 +29,7 @@ class TestAudioSave:
         assert sent_writes(rig.replay.sent) == [
             "storeMediaFile",
             "addNote",
+            "suspend",  # the Study lock: Produce and Write wait for Understand
             "changeDeck",
             "changeDeck",
             "changeDeck",

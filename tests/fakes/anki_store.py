@@ -84,6 +84,9 @@ class FakeAnkiStore:
     always. `clear_flag()` drops the ItemId from there, raising `not_found` for an Item of no
     `items` entry in that Language and refusing when Setup is not ready, but only when it is
     flagged; each clear is recorded in `cleared_flags`.
+
+    `unlock_answered_items()` counts its calls (`unlock_calls`) and returns `unlocked` (0 by
+    default); with `unlock_error` set it raises that exception instead.
     """
 
     def __init__(
@@ -125,6 +128,9 @@ class FakeAnkiStore:
         self.flagged: set[str] = set()
         self.cleared_flags: list[str] = []
         self.flag_reads: list[bool] = []
+        self.unlock_calls = 0
+        self.unlocked = 0
+        self.unlock_error: BaseException | None = None
 
     async def reachable(self) -> bool:
         if self.busy:
@@ -411,6 +417,12 @@ class FakeAnkiStore:
             raise AppError(ErrorCode.SETUP_REQUIRED)
         self.flagged.discard(item_id)
         self.cleared_flags.append(item_id)
+
+    async def unlock_answered_items(self) -> int:
+        self.unlock_calls += 1
+        if self.unlock_error is not None:
+            raise self.unlock_error
+        return self.unlocked
 
     async def sync(self) -> SyncOutcome:
         self.sync_calls += 1
