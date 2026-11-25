@@ -33,7 +33,8 @@
 // current closes it with the buffer as it was. A failure shows the same alert as the other
 // groups, whose Try again asks again with the panel's current context and the buffer's Target
 // and meaning. A listed answer counts as one unsaved change, like an open Preview; nothing is
-// written until Save changes, whose `exampleVoice` remakes the example audio.
+// written until Save changes, whose `exampleVoice` remakes the example audio. The panel's DOM is
+// example-choices.js, shared with the Draft editor; its state and focus stay here.
 //
 // Reference audio (FR-23, story 6.2) is a card after the fields. The current clip plays from
 // /api/media/<audio> of this mount's read, never autoplaying; a clip that fails to load leaves
@@ -47,7 +48,16 @@
 // Target that differs from the remaining clip's Target warns "Audio no longer matches the
 // text." without blocking Save. Blob URLs are revoked when replaced, discarded or left behind.
 //
-// Pronunciation is a card after Reference audio: "Practise pronunciation", checked unless the
+// A Vocabulary Item has an Example audio card after it (plan item-example-and-capture-
+// improvements): the saved clip of the read's `exampleAudio`, and "Regenerate example audio",
+// which previews the buffer's Example in the Reference audio card's Voice. Keep current / Use new
+// work like Reference audio's pair, and the offered and accepted clips each count as one unsaved
+// change. Save changes uploads the accepted clip as `exampleAudioFile` only while it speaks the
+// Example being saved (else `exampleVoice` decides); it then becomes the current clip. A Save that
+// changed the Example without one re-reads the Item for its new clip. A blank Example disables
+// the card with "Add an example to make its audio."
+//
+// Pronunciation is a card after Reference audio (and Example audio): "Practise pronunciation", checked unless the
 // read says `pronunciationExcluded`. A toggle writes at once through PUT
 // /api/items/<lang>/<itemId>/pronunciation (its Pronounce Card suspended or not in Anki, AD-13),
 // never through the Save buffer, so it is no unsaved change. The checkbox shows the new state,
@@ -74,6 +84,7 @@ import {
   setPronunciationExcluded,
 } from "../api.js";
 import { categoryName, languageName } from "../catalog.js";
+import { exampleChoicesPanel } from "../example-choices.js";
 import { alertBox, element, skeleton, tryAgain } from "../dom.js";
 import {
   loadVoices as loadVoiceList,
@@ -104,10 +115,6 @@ const NOT_REGENERATED = "Couldn't regenerate";
 const MODEL_UNREACHABLE = ["Couldn't reach the model", "Your Item is unchanged."];
 const INVALID_TWICE = "The model's answer failed the checks twice. Your Item is unchanged.";
 const EMPTY = "—";
-const EXAMPLE_CONTEXT = "Context · optional · used once, never saved";
-const GENERATE = "Generate";
-const WRITING_CHOICES = "Writing 10 examples…";
-const USE_THIS_EXAMPLE = "Use this example";
 
 // The regenerable groups: the buffer keys each takes from the reply, the field its slot follows,
 // and the Categories that have it
@@ -163,13 +170,31 @@ const CLEAR_FLAG = "Clear flag";
 const PRACTISE = "Practise pronunciation";
 const PRACTISE_HINT = "Unchecked, this Item's Pronounce Card stays out of Pronunciation practice.";
 const AUDIO_COMPARE_HINT = "The old audio is removed only after Save succeeds.";
+const REGENERATE_EXAMPLE_AUDIO = "Regenerate example audio";
+const PREVIEW_EXAMPLE_AUDIO = "Preview example audio";
+const USE_NEW = "Use new";
+const NO_EXAMPLE = "Add an example to make its audio.";
+const STALE_EXAMPLE_AUDIO = "Audio no longer matches the example.";
+const EXAMPLE_MEDIA_FAILED = "Couldn't load the saved example audio.";
 
 // The Item's Reference audio card (story 6.2). `values()` is the edit buffer, `busy()` whether
 // a Save or Delete runs, `changed()` reports a pending-state change to the screen. State stays
 // in this closure: `current` ({url, target, blob?}: the saved clip, a /api/media URL or, after a
 // replace Save, the accepted Blob's URL), `offered` and `accepted` ({blob, url, target}) and
 // `removing`. Players are kept per URL, so a re-render moves them without stopping playback.
-function itemAudioCard({ language, audioName, target, values, busy, changed }) {
+// `onVoices()` runs once the Voices have loaded.
+//
+// With `example`, it is the Vocabulary Item's Example audio card instead: no Voice picker (it
+// speaks the buffer's Example in `voice()`, the Reference audio card's Voice), no Remove, and
+// "Use new" for the offered clip; `target` is then the saved clip's Example. A blank Example
+// disables it with "Add an example to make its audio."
+function itemAudioCard({
+  language, audioName, target, values, busy, changed,
+  example = false, voice: exampleVoice = null, onVoices = null,
+}) {
+  // The text the card speaks: the buffer's Example, or its Target
+  const text = () => (example ? values().example ?? "" : values().target);
+  const name = example ? "Example audio" : "Reference audio";
   const state = {
     voices: [], voice: null, loading: true, voiceError: false,
     previewing: false, previewError: false, sequence: 0, disposed: false,
@@ -177,12 +202,15 @@ function itemAudioCard({ language, audioName, target, values, busy, changed }) {
     currentFailed: false, offered: null, accepted: null, removing: false,
   };
   const players = new Map(); // url -> <audio>
-  const card = element("section", "reference-audio item-reference-audio");
-  card.setAttribute("aria-label", "Reference audio");
-  const heading = element("h2", "make-item-heading", "Reference audio");
+  const card = element(
+    "section", `reference-audio ${example ? "item-example-audio" : "item-reference-audio"}`,
+  );
+  card.setAttribute("aria-label", name);
+  const heading = element("h2", "make-item-heading", name);
   const body = element("div", "reference-audio-body");
   card.append(heading, body);
   let stale = null; // the stale row, updated on every edit
+  let empty = null; // the example card's "Add an example" hint, updated on every edit
   let controls = []; // buttons whose disabled state follows busy/previewing
   let nodes = {}; // this render's focus targets: regenerate, remove, keepAudio, compare, retry
 
@@ -236,7 +264,7 @@ function itemAudioCard({ language, audioName, target, values, busy, changed }) {
     const clip = remaining();
     if (!clip) return null;
     if (clip === state.current && state.currentFailed) {
-      return element("p", "make-item-hint", MEDIA_FAILED);
+      return element("p", "make-item-hint", example ? EXAMPLE_MEDIA_FAILED : MEDIA_FAILED);
     }
     return player(clip, clip === state.accepted ? "Play new audio" : "Play current audio");
   }
@@ -246,29 +274,31 @@ function itemAudioCard({ language, audioName, target, values, busy, changed }) {
     controls = [];
     nodes = {};
     body.replaceChildren();
-    body.append(...voicePicker(state, language, loadVoices));
+    if (!example) body.append(...voicePicker(state, language, loadVoices));
 
     const hasAudio = Boolean(state.current || state.accepted);
     const regenerateRow = element("div", "reference-audio-actions");
-    const regenerate = button(
-      state.previewing ? MAKING_AUDIO : hasAudio ? REGENERATE_AUDIO : PREVIEW_AUDIO,
-      preview,
-    );
+    const idle = example
+      ? hasAudio ? REGENERATE_EXAMPLE_AUDIO : PREVIEW_EXAMPLE_AUDIO
+      : hasAudio ? REGENERATE_AUDIO : PREVIEW_AUDIO;
+    const regenerate = button(state.previewing ? MAKING_AUDIO : idle, preview);
     if (state.previewing) regenerate.setAttribute("aria-busy", "true");
     regenerate.dataset.role = "regenerate";
     nodes.regenerate = regenerate;
     regenerateRow.append(regenerate);
-    if (remaining()) {
+    if (remaining() && !example) {
       nodes.remove = button(REMOVE_AUDIO, removeAudio, "button-link");
       regenerateRow.append(nodes.remove);
     }
-    stale = element("p", "reference-audio-stale", STALE_AUDIO);
+    stale = element("p", "reference-audio-stale", example ? STALE_EXAMPLE_AUDIO : STALE_AUDIO);
     regenerateRow.append(stale);
+    empty = example ? element("p", "make-item-hint", NO_EXAMPLE) : null;
+    if (empty) regenerateRow.append(empty);
 
     if (state.offered) {
       const pair = element("section", "compare-pair reference-audio-compare");
       pair.setAttribute("role", "group");
-      const title = element("h3", "compare-title", "Reference audio · compare");
+      const title = element("h3", "compare-title", `${name} · compare`);
       title.id = `compare-audio-${++compareIds}`;
       title.tabIndex = -1;
       nodes.compare = title;
@@ -286,7 +316,7 @@ function itemAudioCard({ language, audioName, target, values, busy, changed }) {
       const actions = element("div", "compare-actions");
       actions.append(
         button(KEEP_CURRENT, keepCurrent),
-        button(USE_PREVIEW, usePreview, "button button-soft"),
+        button(example ? USE_NEW : USE_PREVIEW, usePreview, "button button-soft"),
       );
       pair.append(
         title,
@@ -321,7 +351,8 @@ function itemAudioCard({ language, audioName, target, values, busy, changed }) {
   function refresh() {
     if (state.disposed) return;
     const clip = remaining();
-    if (stale) stale.hidden = !clip || clip.target === values().target;
+    if (stale) stale.hidden = !clip || clip.target === text();
+    if (empty) empty.hidden = Boolean(text().trim());
     const blocked = busy() || state.previewing;
     for (const node of controls) {
       if (node.dataset.role === "regenerate") {
@@ -332,7 +363,8 @@ function itemAudioCard({ language, audioName, target, values, busy, changed }) {
           node.setAttribute("aria-disabled", "true");
           continue;
         }
-        node.disabled = busy() || state.loading || !state.voice || !values().target.trim();
+        node.disabled = busy() || !voiceNow() || !text().trim()
+          || (!example && state.loading);
       } else {
         node.disabled = blocked;
       }
@@ -347,23 +379,31 @@ function itemAudioCard({ language, audioName, target, values, busy, changed }) {
   }
 
   function loadVoices() {
-    return loadVoiceList(state, language, render);
+    return loadVoiceList(state, language, () => {
+      render();
+      if (!state.loading) onVoices?.();
+    });
   }
 
-  // The only synthesis: the buffer's Target in the chosen Voice, kept in memory (NFR-4)
+  // The Voice a Preview speaks in: the card's own, or the Reference audio card's
+  function voiceNow() {
+    return example ? exampleVoice?.() ?? null : state.voice;
+  }
+
+  // The only synthesis: the buffer's Target (or Example) in the Voice, kept in memory (NFR-4)
   async function preview() {
-    const text = values().target;
-    if (state.previewing || busy() || !state.voice || !text.trim()) return;
-    const voice = state.voice;
+    const spoken = text();
+    const voice = voiceNow();
+    if (state.previewing || busy() || !voice || !spoken.trim()) return;
     state.previewing = true;
     state.previewError = false;
     render();
     nodes.regenerate?.focus();
     try {
-      const blob = await requestPreview(state, { language, voice, target: text });
+      const blob = await requestPreview(state, { language, voice, target: spoken });
       if (!blob) return;
       release(state.offered);
-      state.offered = { blob, target: text, url: URL.createObjectURL(blob) };
+      state.offered = { blob, target: spoken, url: URL.createObjectURL(blob) };
     } catch {
       state.previewError = true;
     }
@@ -404,7 +444,7 @@ function itemAudioCard({ language, audioName, target, values, busy, changed }) {
   }
 
   render();
-  loadVoices();
+  if (!example) loadVoices();
   return {
     card,
     render,
@@ -414,7 +454,29 @@ function itemAudioCard({ language, audioName, target, values, busy, changed }) {
       + Number(state.removing),
     intent: () => (state.accepted ? "replace" : state.removing ? "remove" : "keep"),
     blob: () => state.accepted?.blob ?? null,
+    // The accepted clip's text (the Target or Example it speaks), else null
+    acceptedText: () => state.accepted?.target ?? null,
     voice: () => state.voice,
+    // Whether a saved clip is shown (an accepted one aside)
+    hasCurrent: () => Boolean(state.current),
+    // Drop the accepted clip: a Save withheld it, so it is no longer an unsaved change
+    dropAccepted() {
+      if (state.disposed || !state.accepted) return;
+      release(state.accepted);
+      state.accepted = null;
+      render();
+    },
+    // The saved clip is now `audioName` (a /api/media name, or null) for `spoken`: a Save
+    // remade or dropped it
+    reset(audioName, spoken) {
+      if (state.disposed) return;
+      release(state.current);
+      state.current = audioName
+        ? { url: `/api/media/${encodeURIComponent(audioName)}`, target: spoken }
+        : null;
+      state.currentFailed = false;
+      render();
+    },
     // A successful Save of `intent`: the accepted clip becomes Current, or the clip is gone
     saved(intent) {
       if (state.disposed) return;
@@ -493,6 +555,7 @@ export function mount(root, params) {
   let choiceTokens = 0;
   let currentInputs = null; // the rendered inputs, to keep focus across a re-render
   let audioCard = null; // the Reference audio card, built once per read
+  let exampleCard = null; // a Vocabulary Item's Example audio card, built once per read
   let excluded = false; // the Item's Pronounce Card is suspended, as last read or written
   let practising = null; // the Practise pronunciation value being written, else null
   let pronunciationError = null; // {practise, error} of the last failed write
@@ -508,7 +571,8 @@ export function mount(root, params) {
   root.replaceChildren(screen);
 
   function syncDirty() {
-    const count = unsavedCount(values, loadedValues, previews, audioCard?.pending() ?? 0)
+    const audioPending = (audioCard?.pending() ?? 0) + (exampleCard?.pending() ?? 0);
+    const count = unsavedCount(values, loadedValues, previews, audioPending)
       + Number(Boolean(choices?.result));
     setDirty(count ? { kind: "item", count, target: item.target } : null);
     return count;
@@ -623,13 +687,16 @@ export function mount(root, params) {
     const flag = flagCard();
     const pronunciation = pronunciationCard();
     form.append(header, fields, audioCard.card);
+    if (exampleCard) form.append(exampleCard.card);
     if (flag) form.append(flag.card);
     form.append(pronunciation.card, alertSlot, actions);
     body.replaceChildren(form);
     audioCard.render();
+    exampleCard?.render();
 
     function refresh() {
       audioCard.refresh();
+      exampleCard?.refresh();
       const count = syncDirty();
       chip.textContent = count ? unsavedLabel(count) : "";
       chip.hidden = count === 0;
@@ -927,89 +994,27 @@ export function mount(root, params) {
     return built;
   }
 
-  // The example group's choices panel: the current Example, the context and Generate, then the
-  // loading state, the failure alert with Try again, or the ten pairs to pick from
+  // The example group's choices panel (example-choices.js): the current Example, the context and
+  // Generate, then the loading state, the failure alert with Try again, or the ten pairs
   function choicesPanel(group, built) {
-    const panel = element("section", "compare-pair example-choices");
-    panel.setAttribute("role", "group");
-    const heading = element("h2", "compare-title", `${group.name} · choose`);
-    heading.id = `choices-${group.key}-${itemId}`;
-    heading.tabIndex = -1;
-    panel.setAttribute("aria-labelledby", heading.id);
-    built.heading = heading;
-
-    const contextGroup = element("div", "make-item-group");
-    const contextLabel = element("label", "make-item-label", EXAMPLE_CONTEXT);
-    contextLabel.htmlFor = CHOICES_CONTEXT_ID;
-    const context = element("textarea", "compose-field make-item-context");
-    context.id = CHOICES_CONTEXT_ID;
-    context.rows = 2;
-    context.value = choices.context;
-    context.addEventListener("input", () => {
-      if (choices) choices.context = context.value;
+    const parts = exampleChoicesPanel(choices, {
+      title: `${group.name} · choose`,
+      headingId: `choices-${group.key}-${itemId}`,
+      contextId: CHOICES_CONTEXT_ID,
+      current: comparePane("compare-current", CURRENT, paneLines(group, values)),
+      failure: regenerationFailure,
+      locked: busy,
+      onGenerate: generateChoices,
+      onUse: chooseExample,
+      onKeep: () => closeChoices(group),
     });
-    contextGroup.append(contextLabel, context);
-    built.context = context;
-
-    const actions = element("div", "make-item-actions");
-    const generate = element("button", "button button-primary", GENERATE);
-    generate.type = "button";
-    if (choices.busy) {
-      generate.setAttribute("aria-busy", "true");
-      generate.setAttribute("aria-disabled", "true");
-    }
-    generate.addEventListener("click", () => generateChoices());
-    actions.append(generate);
-    built.generate = generate;
-
-    panel.append(
-      heading,
-      comparePane("compare-current", CURRENT, paneLines(group, values)),
-      contextGroup,
-      actions,
-    );
-
-    if (choices.busy) {
-      panel.append(skeleton(WRITING_CHOICES));
-    } else if (choices.error) {
-      const [alertTitle, alertBody] = regenerationFailure(choices.error);
-      built.retry = tryAgain(() => generateChoices());
-      panel.append(
-        alertBox(
-          "regenerate-alert",
-          element("p", "compose-alert-title", alertTitle),
-          element("p", "draft-alert-body", alertBody),
-          built.retry,
-        ),
-      );
-    } else if (choices.result) {
-      const list = element("ul", "examples-list");
-      list.setAttribute("aria-label", "New examples");
-      for (const { sentence, russian } of choices.result.sentences) {
-        const li = element("li", "examples-item");
-        const words = element("div", "examples-item-body");
-        words.append(
-          element("p", "examples-sentence", sentence),
-          element("p", "examples-russian", russian),
-        );
-        const use = element("button", "button-link examples-make", USE_THIS_EXAMPLE);
-        use.type = "button";
-        use.disabled = busy; // a choice made during a Save would be lost when it lands
-        use.addEventListener("click", () => chooseExample(sentence, russian));
-        li.append(words, use);
-        list.append(li);
-      }
-      panel.append(list);
-    }
-
-    const closing = element("div", "compare-actions");
-    const keep = element("button", "button button-secondary", KEEP_CURRENT);
-    keep.type = "button";
-    keep.disabled = busy;
-    keep.addEventListener("click", () => closeChoices(group));
-    closing.append(keep);
-    panel.append(closing);
-    return panel;
+    Object.assign(built, {
+      heading: parts.heading,
+      context: parts.context,
+      generate: parts.generate,
+      retry: parts.retry,
+    });
+    return parts.panel;
   }
 
   // Regenerate example: open the choices panel, or go to it when it's open
@@ -1151,7 +1156,20 @@ export function mount(root, params) {
       values: () => values,
       busy: () => busy,
       changed: () => renderEditor(),
+      onVoices: () => exampleCard?.refresh(),
     });
+    exampleCard = read.category === "vocabulary"
+      ? itemAudioCard({
+        language: lang,
+        audioName: read.exampleAudio ?? null,
+        target: read.example ?? "",
+        values: () => values,
+        busy: () => busy,
+        changed: () => renderEditor(),
+        example: true,
+        voice: () => audioCard.voice(),
+      })
+      : null;
     renderEditor();
   }
 
@@ -1168,6 +1186,12 @@ export function mount(root, params) {
     const voice = audioCard.voice();
     if (item.category === "vocabulary" && voice) part.exampleVoice = voice;
     const audioBlob = part.audio === "replace" ? audioCard.blob() : null;
+    // An accepted example clip goes only while it speaks the Example being saved; otherwise
+    // `exampleVoice` decides, as without one
+    const exampleBlob = exampleCard && exampleCard.acceptedText() === part.example
+      && part.example.trim() && part.exampleRussian.trim()
+      ? exampleCard.blob()
+      : null;
     if (part.target !== item.target && part.target !== createdAnyway) {
       let matches;
       try {
@@ -1193,7 +1217,7 @@ export function mount(root, params) {
     }
     let result;
     try {
-      result = await saveItem(lang, part, audioBlob);
+      result = await saveItem(lang, part, audioBlob, exampleBlob);
     } catch (failure) {
       if (!mounted) return;
       busy = false;
@@ -1204,6 +1228,7 @@ export function mount(root, params) {
     if (!mounted) return;
     // The saved values are now the Item's: clean again
     const { audio: intent, exampleVoice: _voice, ...saved } = part;
+    const exampleBefore = loadedValues.example;
     item = saved;
     exampleWarning = Boolean(result?.exampleAudioFailed);
     loadedValues = generatedValues(saved);
@@ -1211,7 +1236,32 @@ export function mount(root, params) {
     busy = false;
     createdAnyway = null;
     audioCard.saved(intent);
+    if (exampleBlob) {
+      exampleCard.saved("replace");
+    } else if (exampleCard) {
+      // A withheld clip (made for another Example) is not saved and no longer pending
+      exampleCard.dropAccepted();
+      // The Save remade (or dropped) the example audio, or made it for an Item that had none:
+      // read which clip it holds now
+      const madeForNone = !exampleCard.hasCurrent() && Boolean(part.exampleVoice)
+        && saved.example.trim() && saved.exampleRussian.trim();
+      if (saved.example !== exampleBefore || madeForNone) refreshExampleAudio();
+    }
     renderEditor({ focus: "save" });
+  }
+
+  // Best effort: the Item's example clip after a Save that changed the Example. A failed read
+  // leaves the card as it was; the next visit reads it anyway
+  async function refreshExampleAudio() {
+    const card = exampleCard;
+    let read;
+    try {
+      read = await getItem(lang, itemId);
+    } catch {
+      return;
+    }
+    if (!mounted || exampleCard !== card || busy) return;
+    card.reset(read.exampleAudio ?? null, read.example ?? "");
   }
 
   function openSheet(matches) {
@@ -1254,6 +1304,7 @@ export function mount(root, params) {
     mounted = false;
     closeSheet();
     audioCard?.dispose();
+    exampleCard?.dispose();
     root.replaceChildren();
   };
 }

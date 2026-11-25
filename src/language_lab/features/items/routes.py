@@ -1,5 +1,6 @@
 """Items' HTTP routes, under /api/items: Save, list/search, duplicate read, detail, Delete, the
-Pronunciation flag, clearing an Item's Anki flags, and the example audio backfill.
+Pronunciation flag, clearing an Item's Anki flags, and the example audio backfill. A Save may
+carry an `exampleAudioFile`: a Vocabulary Item's example clip, chosen on Item detail.
 """
 
 import json
@@ -17,7 +18,7 @@ from pydantic import (
     ValidationError,
 )
 
-from language_lab.domain.audio import MAX_AUDIO_BYTES, audio_upload
+from language_lab.domain.audio import MAX_AUDIO_BYTES, audio_upload, validate_mp3
 from language_lab.domain.catalog import UUID4, Category, Language
 from language_lab.domain.errors import AppError, ErrorCode
 from language_lab.domain.items import AudioIntent, ItemContent
@@ -100,6 +101,16 @@ def _duplicate_query(
     return parsed, target, item_id or None
 
 
+async def _read_upload(upload: UploadFile | None) -> bytes | None:
+    """An uploaded part's bytes, read up to one byte past the audio cap; None when absent."""
+    if upload is None:
+        return None
+    try:
+        return await upload.read(MAX_AUDIO_BYTES + 1)
+    finally:
+        await upload.close()
+
+
 def items_router(service: ItemService) -> APIRouter:
     router = APIRouter(prefix="/api/items")
 
@@ -108,17 +119,23 @@ def items_router(service: ItemService) -> APIRouter:
         lang: Language,
         item: Annotated[str, Form()],
         audio_file: Annotated[UploadFile | None, File(alias="audioFile")] = None,
+        example_audio_file: Annotated[UploadFile | None, File(alias="exampleAudioFile")] = None,
     ) -> SavedBody:
+        # Both files are read (and closed) before anything is validated
+        audio_data = await _read_upload(audio_file)
+        example_data = await _read_upload(example_audio_file)
         intent, content = _parse(item)
-        data = None
-        if audio_file is not None:
-            try:
-                data = await audio_file.read(MAX_AUDIO_BYTES + 1)
-            finally:
-                await audio_file.close()
-        data = audio_upload(intent.audio, data)
+        data = audio_upload(intent.audio, audio_data)
+        if example_data is not None:
+            validate_mp3(example_data)
         failed = await service.save(
-            intent.item_id, lang, content, intent.audio, data, example_voice=intent.example_voice
+            intent.item_id,
+            lang,
+            content,
+            intent.audio,
+            data,
+            example_voice=intent.example_voice,
+            example_audio_bytes=example_data,
         )
         body: SavedBody = {"itemId": intent.item_id}
         if failed:
@@ -165,6 +182,7 @@ def items_router(service: ItemService) -> APIRouter:
         return {
             **item.wire(),
             "audio": item.audio,
+            "exampleAudio": item.example_audio,
             "pronunciationExcluded": item.pronunciation_excluded,
             "flagged": item.flagged,
         }

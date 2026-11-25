@@ -7,7 +7,8 @@ once the user has fixed it (the flag lives in Anki only).
 Example audio: a Vocabulary Save given a Voice makes the example sentence's audio when the
 Example and ExampleRussian both hold text and the stored Item has no example audio or another
 Example; speech runs outside the Anki lock, and a failed synthesis saves the Item without it
-(the caller warns). The backfill gives a batch of a Language's Vocabulary Items that lack it
+(the caller warns). A clip the user chose on Item detail is stored instead, with nothing
+synthesized. The backfill gives a batch of a Language's Vocabulary Items that lack it
 their example audio, one Item at a time, a failed one counted and skipped.
 """
 
@@ -60,16 +61,23 @@ class ItemService:
         audio: AudioIntent,
         audio_bytes: bytes | None = None,
         example_voice: str | None = None,
+        example_audio_bytes: bytes | None = None,
     ) -> bool:
         """Save the Item `item_id`; a retry with the same ItemId updates it. With
         `example_voice`, a Vocabulary Item whose example audio is missing or whose Example
-        changed gets new example audio in that Voice first (module docstring). Returns True when
-        that audio couldn't be made, so the Item was saved without it. Raises
-        `AppError(SETUP_REQUIRED | ANKI_UNAVAILABLE | ANKI_BUSY)`.
+        changed gets new example audio in that Voice first (module docstring). Given
+        `example_audio_bytes` (a clip the user chose), they are stored as its example audio
+        instead and nothing is synthesized; they need a Vocabulary Item whose Example and
+        ExampleRussian both hold text, else `VALIDATION_FAILED` before anything is written.
+        Returns True when the synthesized audio couldn't be made, so the Item was saved without
+        it. Raises `AppError(VALIDATION_FAILED | SETUP_REQUIRED | ANKI_UNAVAILABLE | ANKI_BUSY)`.
         """
-        example_bytes = None
+        example_bytes = example_audio_bytes
         failed = False
-        if example_voice and self._audio is not None and _wants_example(content):
+        if example_audio_bytes is not None:
+            if not _wants_example(content):
+                raise AppError(ErrorCode.VALIDATION_FAILED)
+        elif example_voice and self._audio is not None and _wants_example(content):
             assert isinstance(content, VocabularyContent)
             if await self._example_changed(language, item_id, content):
                 try:

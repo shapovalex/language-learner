@@ -40,13 +40,20 @@
 // the compose box and opens a Sentence Draft at /captures/make/draft in that Language, its Target
 // and Russian meaning taken from the sentence and its shown Russian (POST /api/drafts/blank for
 // the ItemId; the model isn't asked again). If that fails, the Make an Item pane opens for the
-// sentence with the Language chosen and the failure shown.
+// sentence with the Language chosen and the failure shown. Every press of "Example sentences"
+// opens a clean pane: the earlier results, failure and context are dropped (an answer still on
+// its way too); the chosen Language stays.
 //
 // A shown Capture has "Copy to compose box" and "Copy" under its time (plan
 // capture-copy-actions). The first replaces the compose text with the Capture's text as a new
 // composition and returns to /captures with the box focused, so Example sentences and the other
 // compose actions work on it; the second writes the text to the clipboard, its label reading
-// "Copied" (or "Couldn't copy") for a moment. Nothing is saved.
+// "Copied" (or "Couldn't copy") for a moment. Nothing is saved. The copied Capture is remembered
+// (plan item-example-and-capture-improvements): a Draft made from that compose text (an example
+// sentence's Make an Item, or the compose box's Make an Item pane) returns on Save to that
+// Capture with its "Make another Item from this Capture, or delete it." banner, clearing the box.
+// Saving the compose text as a Capture, emptying the box or copying another Capture drops or
+// replaces the origin.
 //
 // "Capture and translate" (plan capture-and-translate) saves exactly like Save Capture, then asks
 // POST /api/helpers/translate for the Russian of the saved text and shows "original → Russian"
@@ -374,6 +381,10 @@ export function mount(root, params = {}) {
   };
   // The Language the next Make an Item pane opens with (from an example sentence), or null
   let presetLanguage = null;
+  // The Capture whose text "Copy to compose box" last copied, while the compose text is still
+  // that composition (or a sentence made from it): a compose-text Draft saved meanwhile returns
+  // to it. A Capture save or an emptied box drops it
+  let copiedFrom = null;
   // The Make an Item pane's choices for the open Capture
   let choice = freshChoice();
   // The Draft, from "Generate Draft" or "Write it myself" until it's saved or left; `editing`
@@ -488,7 +499,7 @@ export function mount(root, params = {}) {
       element("p", "capture-detail-text", open.capture.text),
       element("p", "capture-detail-time", detailTime(open.capture.createdAt)),
     );
-    if (open.status === "shown") content.append(copyRow(open.capture.text));
+    if (open.status === "shown") content.append(copyRow(open.capture));
     article.append(content);
     // Phone: in the header beside the back link (S-NewItem); desktop: in the card, beside the
     // text (S-CapturesDesk). Only once the read confirmed the Capture is in Anki
@@ -506,12 +517,13 @@ export function mount(root, params = {}) {
   }
 
   // The shown Capture's "Copy to compose box" and "Copy", under its time (both layouts)
-  function copyRow(text) {
+  function copyRow(capture) {
+    const { text } = capture;
     const row = element("div", "capture-detail-copy");
     const toBox = element("button", "button button-secondary capture-copy-to-box", COPY_TO_BOX);
     toBox.type = "button";
     toBox.disabled = state.busy;
-    toBox.addEventListener("click", () => copyToBox(text));
+    toBox.addEventListener("click", () => copyToBox(capture));
     const copy = element("button", "button button-secondary capture-copy", COPY);
     copy.type = "button";
     let reset = null;
@@ -530,10 +542,12 @@ export function mount(root, params = {}) {
 
   // "Copy to compose box": the Capture's text becomes the compose text (a new composition,
   // replacing what was there), and the list shows with the box focused, so Save Capture, Make an
-  // Item, Example sentences and Capture and translate work on it. Nothing is saved
-  async function copyToBox(text) {
+  // Item, Example sentences and Capture and translate work on it. Nothing is saved. The Capture is
+  // remembered, so a Draft made from this text returns to it once saved
+  async function copyToBox(capture) {
     if (state.busy) return;
-    box.value = text;
+    box.value = capture.text;
+    copiedFrom = capture.captureId;
     clearTranslation();
     state.captureId = crypto.randomUUID();
     state.error = null;
@@ -712,7 +726,11 @@ export function mount(root, params = {}) {
     if (!stillHere()) return;
     const values = blankValues(picked.category, sentence);
     values.russian = russian;
-    const pending = newDraft({ captureId: null, text: sentence }, picked, { itemId, values });
+    const pending = newDraft({ captureId: null, text: sentence }, picked, {
+      itemId,
+      values,
+      returnTo: copiedFrom,
+    });
     draft = pending;
     presetLanguage = picked.language;
     await navigate(MAKE_DRAFT_PATH);
@@ -753,7 +771,11 @@ export function mount(root, params = {}) {
       const { itemId } = await blankDraft();
       if (!mounted || !paneHolds(capture)) return;
       choice.busy = false;
-      draft = newDraft(capture, picked, { itemId, values: blankValues(picked.category, target) });
+      draft = newDraft(capture, picked, {
+        itemId,
+        values: blankValues(picked.category, target),
+        returnTo: capture.captureId === null ? copiedFrom : null,
+      });
       navigate(draftPath(capture.captureId));
     } catch (error) {
       if (!mounted || !paneHolds(capture)) return;
@@ -772,6 +794,7 @@ export function mount(root, params = {}) {
     draft = newDraft(capture, choice, {
       itemId: null,
       values: null,
+      returnTo: capture.captureId === null ? copiedFrom : null,
       generation: {
         request: {
           language: choice.language,
@@ -931,9 +954,19 @@ export function mount(root, params = {}) {
     if (!mounted || draft !== saving) return;
     setDirty(null);
     const exampleFailed = Boolean(saved?.exampleAudioFailed);
+    if (saving.captureId === null && saving.returnTo) {
+      // Made from text copied from a Capture: it's used, and the Capture can go now
+      box.value = "";
+      copiedFrom = null;
+      renderButtons();
+      const flash = savedFlash(item.target, saving.returnTo, exampleFailed);
+      navigate(capturePath(saving.returnTo), { flash });
+      return;
+    }
     if (saving.captureId === null) {
       // Made from the compose text: it's used, so the box starts afresh
       box.value = "";
+      copiedFrom = null;
       renderButtons();
       await navigate("/captures", { flash: savedFlash(item.target, null, exampleFailed) });
       if (mounted) box.focus();
@@ -1011,6 +1044,8 @@ export function mount(root, params = {}) {
       return;
     }
     if (!mounted) return;
+    // A deleted Capture is no Draft's origin any more
+    if (copiedFrom === id) copiedFrom = null;
     forget(id);
     renderList();
     if (open.id !== id) return;
@@ -1125,6 +1160,8 @@ export function mount(root, params = {}) {
   function onInput() {
     // The translation was of the text before this edit
     if (translation.request) clearTranslation();
+    // An emptied box ends the copied composition
+    if (!box.value.trim()) copiedFrom = null;
     syncDirty();
     renderButtons();
     // The pane shows the compose text, and its actions wait while the box is blank
@@ -1221,6 +1258,8 @@ export function mount(root, params = {}) {
       const unchanged = box.value === text;
       if (unchanged) {
         box.value = "";
+        // The text is a Capture of its own now, not the copied one's
+        copiedFrom = null;
         syncDirty();
         if (exploring && !editing) renderDetail();
       }
@@ -1248,8 +1287,14 @@ export function mount(root, params = {}) {
   make.addEventListener("click", () => {
     if (!make.disabled) navigate(MAKE_PATH);
   });
+  // Every press starts a clean pane: no results, error or context (an answer still on its way
+  // is dropped); the chosen Language stays
   examplesButton.addEventListener("click", () => {
-    if (!examplesButton.disabled) navigate(EXAMPLES_PATH);
+    if (examplesButton.disabled) return;
+    ++examples.token;
+    Object.assign(examples, { request: null, busy: false, error: null, result: null, context: "" });
+    if (exploring && !editing) renderDetail();
+    navigate(EXAMPLES_PATH);
   });
   render();
   renderList();

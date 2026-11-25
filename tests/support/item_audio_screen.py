@@ -25,6 +25,11 @@ from tests.support.maintain_items_screen import detail_wire
 
 REGENERATE_AUDIO = "Regenerate audio"
 REMOVE_AUDIO = "Remove audio"
+# The Vocabulary Item's Example audio card (plan item-example-and-capture-improvements)
+REGENERATE_EXAMPLE_AUDIO = "Regenerate example audio"
+USE_NEW = "Use new"
+NO_EXAMPLE = "Add an example to make its audio."
+EXAMPLE_MEDIA_FAILED = "Couldn't load the saved example audio."
 
 
 def item_audio_card(page: Page) -> Locator:
@@ -41,6 +46,23 @@ def card_button(page: Page, name: str) -> Locator:
 
 def card_alert(page: Page, text: str) -> Locator:
     return item_audio_card(page).get_by_role("alert").filter(has_text=text)
+
+
+def example_audio_card(page: Page) -> Locator:
+    return main(page).get_by_role("region", name="Example audio", exact=True)
+
+
+def example_card_button(page: Page, name: str) -> Locator:
+    return example_audio_card(page).get_by_role("button", name=name, exact=True)
+
+
+def example_player_sources(page: Page) -> list[str]:
+    """The `src` of each native player in the Example audio card, in DOM order."""
+    return (
+        example_audio_card(page)
+        .locator("audio")
+        .evaluate_all("players => players.map(player => player.getAttribute('src') || '')")
+    )
 
 
 def player_bytes(page: Page) -> list[bytes]:
@@ -99,7 +121,13 @@ class ItemAudioApi:
     """
 
     def __init__(
-        self, page: Page, row: dict[str, Any], *, lang: str = "en", has_audio: bool = True
+        self,
+        page: Page,
+        row: dict[str, Any],
+        *,
+        lang: str = "en",
+        has_audio: bool = True,
+        example_audio: bytes | None = None,
     ) -> None:
         self.page = page
         self.lang = lang
@@ -107,6 +135,14 @@ class ItemAudioApi:
         self.current = detail_wire(row)
         self.audio_name = managed_name(self.item_id, SECOND_MP3) if has_audio else None
         self.media = {self.audio_name: SECOND_MP3} if self.audio_name else {}
+        # The saved example clip, under a name of its own, when `example_audio` is given
+        self.example_name = (
+            f"languagelab_{self.item_id}_e00000000000.mp3" if example_audio is not None else None
+        )
+        if self.example_name is not None and example_audio is not None:
+            self.media[self.example_name] = example_audio
+        # Each Save's `exampleAudioFile` bytes, or None when it sent none
+        self.example_files: list[bytes | None] = []
         self.preview_error = False
         self.save_error = False
         self.voices_error = False
@@ -125,9 +161,11 @@ class ItemAudioApi:
             const body = options?.body;
             if (body instanceof FormData && body.has('item')) {
               const file = body.get('audioFile');
+              const example = body.get('exampleAudioFile');
               await window.observeAudioFormData({
                 item: JSON.parse(body.get('item')),
                 audio: file ? Array.from(new Uint8Array(await file.arrayBuffer())) : null,
+                example: example ? Array.from(new Uint8Array(await example.arrayBuffer())) : null,
               });
             }
             return originalFetch(url, options);
@@ -156,7 +194,9 @@ class ItemAudioApi:
         if route.request.method != "GET":
             route.fallback()
             return
-        route.fulfill(json={**self.current, "audio": self.audio_name})
+        route.fulfill(
+            json={**self.current, "audio": self.audio_name, "exampleAudio": self.example_name}
+        )
 
     def _media(self, route: Route) -> None:
         if route.request.method != "GET":
@@ -203,6 +243,9 @@ class ItemAudioApi:
         wire = audio_upload(route.request)
         observed = self._form_data.pop(0) if self._form_data else {"audio": None}
         data = bytes(observed["audio"]) if observed["audio"] is not None else None
+        example = observed.get("example")
+        example_data = bytes(example) if example is not None else None
+        self.example_files.append(example_data)
         if wire.audio_file:  # Chromium also supplies the intercepted file bytes.
             assert wire.audio_file == data
         upload = AudioSave(wire.item, data, wire.content_type)
@@ -216,6 +259,9 @@ class ItemAudioApi:
         elif upload.item.get("audio") == "replace" and data is not None:
             self.audio_name = managed_name(self.item_id, data)
             self.media[self.audio_name] = data
+        if example_data is not None:
+            self.example_name = f"languagelab_{self.item_id}_e11111111111.mp3"
+            self.media[self.example_name] = example_data
         route.fulfill(json={"itemId": self.item_id})
 
     def open(self) -> None:

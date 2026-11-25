@@ -13,16 +13,26 @@ The Capture is stubbed at the network (GET only).
 """
 
 import pytest
-from playwright.sync_api import Page, ViewportSize, expect
+from playwright.sync_api import Page, Route, ViewportSize, expect
 
 from tests.support import viewports
 from tests.support.captures_screen import API, CAPTURES_PATH, capture, compose_box, detail, main
-from tests.support.examples_screen import examples_button, examples_pane
+from tests.support.examples_screen import (
+    ExamplesApi,
+    example,
+    examples_button,
+    examples_pane,
+    sentence_item,
+)
 from tests.support.items_screen import (
     CUSTOM_VALUE,
     USE_AS_IS,
     choice,
+    field,
+    item_part,
     pane,
+    save_button,
+    stub_duplicates,
     write_it_myself,
 )
 from tests.support.navigation import path_pattern
@@ -204,3 +214,193 @@ def test_custom_value_starts_with_the_compose_text_at_captures_make(page: Page) 
 
     pane(page).get_by_role("radio", name=CUSTOM_VALUE, exact=True).check()
     expect(custom_field(page)).to_have_value(TEXT)
+
+
+# ---- Return to the copied Capture (plan item-example-and-capture-improvements, item 3) -------
+
+CAPTURE_FLASH = "Make another Item from this Capture, or delete it."
+
+
+def record_item_saves(page: Page) -> list[dict]:
+    """Answer every English Item Save with its ItemId (no duplicates), recording `item`."""
+    saves: list[dict] = []
+
+    def handle(route: Route) -> None:
+        if route.request.method != "POST":
+            route.fallback()
+            return
+        part = item_part(route.request)
+        saves.append(part)
+        route.fulfill(json={"itemId": part["itemId"]})
+
+    stub_duplicates(page, [])
+    page.route("**/api/items/en", handle)
+    return saves
+
+
+def expect_back_on_the_capture(page: Page, target: str) -> None:
+    expect(page).to_have_url(path_pattern(f"{CAPTURES_PATH}/{CAPTURE_ID}"))
+    flash = page.get_by_role("status").filter(has_text=f"Saved “{target}” to Anki.")
+    expect(flash).to_contain_text(CAPTURE_FLASH)
+    expect(compose_box(page)).to_have_value("")
+    expect(detail(page).get_by_role("button", name="Delete Capture").first).to_be_attached()
+
+
+@pytest.mark.p0
+def test_an_example_sentence_saved_from_copied_text_returns_to_its_capture(page: Page) -> None:
+    """Matrix "Return to Capture": Copy to compose box → Example sentences → a sentence's Make
+    an Item → Save lands on the Capture with its flash, the compose box cleared.
+    """
+    saves = record_item_saves(page)
+    ExamplesApi(page)
+    open_capture(page, viewports.DESKTOP)
+    copy_to_box(page).click()
+    examples_button(page).click()
+    examples_pane(page).get_by_role("button", name="English", exact=True).click()
+    examples_pane(page).get_by_role("button", name="Generate", exact=True).click()
+    sentence = example("B1", 2)["sentence"]
+    sentence_item(page, sentence).get_by_role("button", name=MAKE_AN_ITEM).click()
+    expect(page).to_have_url(path_pattern("/captures/make/draft"))
+
+    save_button(page).click()
+
+    expect_back_on_the_capture(page, sentence)
+    [saved] = saves
+    assert saved["target"] == sentence
+
+
+@pytest.mark.p1
+def test_a_written_draft_of_copied_text_returns_to_its_capture(page: Page) -> None:
+    """The compose box's Make an Item pane (Write it myself) returns to the copied Capture too."""
+    record_item_saves(page)
+    open_capture(page, viewports.DESKTOP)
+    copy_to_box(page).click()
+    main(page).get_by_role("button", name=MAKE_AN_ITEM, exact=True).click()
+    expect(page).to_have_url(path_pattern(MAKE_PATH))
+    choice(page, "English").click()
+    choice(page, "Vocabulary").click()
+    write_it_myself(page).click()
+    field(page, "Russian meaning").fill("делать поспешные выводы")
+
+    save_button(page).click()
+
+    expect_back_on_the_capture(page, TEXT)
+
+
+@pytest.mark.p1
+def test_an_emptied_box_drops_the_copied_capture(page: Page) -> None:
+    """Matrix "Origin dropped": after the box is emptied, a new Draft returns to /captures."""
+    record_item_saves(page)
+    open_capture(page, viewports.DESKTOP)
+    copy_to_box(page).click()
+    compose_box(page).fill("")
+    compose_box(page).fill("something new")
+    main(page).get_by_role("button", name=MAKE_AN_ITEM, exact=True).click()
+    choice(page, "English").click()
+    choice(page, "Vocabulary").click()
+    write_it_myself(page).click()
+    field(page, "Russian meaning").fill("что-то новое")
+
+    save_button(page).click()
+
+    expect(page).to_have_url(path_pattern(CAPTURES_PATH))
+    expect(
+        page.get_by_role("status").filter(has_text="Saved “something new” to Anki.")
+    ).to_be_visible()
+    expect(page.get_by_text(CAPTURE_FLASH)).to_have_count(0)
+
+
+def write_compose_draft(page: Page, russian: str) -> None:
+    """The compose box's Make an Item → English Vocabulary → Write it myself → Russian."""
+    main(page).get_by_role("button", name=MAKE_AN_ITEM, exact=True).click()
+    expect(page).to_have_url(path_pattern(MAKE_PATH))
+    choice(page, "English").click()
+    choice(page, "Vocabulary").click()
+    write_it_myself(page).click()
+    field(page, "Russian meaning").fill(russian)
+
+
+@pytest.mark.p1
+def test_saving_the_copied_text_as_a_capture_drops_the_origin(page: Page) -> None:
+    """Matrix "Origin dropped": Copy to compose box, then Save Capture of that text; a Draft of
+    text typed afterwards returns to /captures, not the copied Capture.
+    """
+    record_item_saves(page)
+    open_capture(page, viewports.DESKTOP)
+    copy_to_box(page).click()
+    expect(compose_box(page)).to_have_value(TEXT)
+    with page.expect_response(
+        lambda response: response.request.method == "POST" and response.url.endswith(API)
+    ):
+        main(page).get_by_role("button", name="Save Capture", exact=True).click()
+    expect(compose_box(page)).to_have_value("")
+
+    compose_box(page).press_sequentially("typed afterwards")
+    write_compose_draft(page, "напечатано потом")
+    save_button(page).click()
+
+    expect(page).to_have_url(path_pattern(CAPTURES_PATH))
+    flash = page.get_by_role("status").filter(has_text="Saved “typed afterwards” to Anki.")
+    expect(flash).to_be_visible()
+    expect(page.get_by_text(CAPTURE_FLASH)).to_have_count(0)
+
+
+@pytest.mark.p1
+def test_copying_another_capture_makes_it_the_origin(page: Page) -> None:
+    """Matrix "Origin dropped": Copy from Capture C, then from Capture D; the Draft's Save
+    lands on D.
+    """
+    other = capture("draw a conclusion", "2026-11-15T09:40:00Z")
+    other_id = other["captureId"]
+    record_item_saves(page)
+    page.set_viewport_size(viewports.DESKTOP)
+    stub_api_json(page, API, {"captures": [other, CAPTURE]}, method="GET")
+    stub_api_json(page, f"{API}/{CAPTURE_ID}", CAPTURE, method="GET")
+    stub_api_json(page, f"{API}/{other_id}", other, method="GET")
+    page.goto(f"{CAPTURES_PATH}/{CAPTURE_ID}")
+    copy_to_box(page).click()
+    expect(compose_box(page)).to_have_value(TEXT)
+
+    main(page).locator(f'a[data-capture-id="{other_id}"]').click()
+    expect(page).to_have_url(path_pattern(f"{CAPTURES_PATH}/{other_id}"))
+    expect(detail(page)).to_contain_text("draw a conclusion")
+    copy_to_box(page).click()
+    expect(compose_box(page)).to_have_value("draw a conclusion")
+
+    write_compose_draft(page, "сделать вывод")
+    save_button(page).click()
+
+    expect(page).to_have_url(path_pattern(f"{CAPTURES_PATH}/{other_id}"))
+    flash = page.get_by_role("status").filter(has_text="Saved “draw a conclusion” to Anki.")
+    expect(flash).to_contain_text(CAPTURE_FLASH)
+    expect(compose_box(page)).to_have_value("")
+
+
+@pytest.mark.p1
+def test_deleting_the_copied_capture_drops_the_origin(page: Page) -> None:
+    """Copy from Capture C, delete C: a compose-text Draft's Save lands on /captures."""
+    record_item_saves(page)
+    page.route(
+        f"**{API}/{CAPTURE_ID}",
+        lambda route: (
+            route.fulfill(status=204) if route.request.method == "DELETE" else route.fallback()
+        ),
+    )
+    open_capture(page, viewports.DESKTOP)
+    copy_to_box(page).click()
+    expect(compose_box(page)).to_have_value(TEXT)
+
+    main(page).locator(f'a[data-capture-id="{CAPTURE_ID}"]').click()
+    expect(page).to_have_url(path_pattern(f"{CAPTURES_PATH}/{CAPTURE_ID}"))
+    detail(page).get_by_role("button", name="Delete Capture").filter(visible=True).click()
+    page.get_by_role("button", name="Delete permanently", exact=True).click()
+    expect(page).to_have_url(path_pattern(CAPTURES_PATH))
+    expect(compose_box(page)).to_have_value(TEXT)
+
+    write_compose_draft(page, "делать поспешные выводы")
+    save_button(page).click()
+
+    expect(page).to_have_url(path_pattern(CAPTURES_PATH))
+    flash = page.get_by_role("status").filter(has_text=f"Saved “{TEXT}” to Anki.")
+    expect(flash).to_be_visible()
+    expect(page.get_by_text(CAPTURE_FLASH)).to_have_count(0)
