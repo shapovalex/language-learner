@@ -212,6 +212,7 @@ def test_get_item_returns_the_item_flat_with_its_item_id(
     assert response.json() == {
         **on_wire(item_id, wire),
         "audio": None,
+        "exampleAudio": None,
         "pronunciationExcluded": False,
         "flagged": False,
     }

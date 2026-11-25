@@ -50,7 +50,7 @@ from tests.support.items_screen import (
     pane,
 )
 from tests.support.navigation import path_pattern
-from tests.support.network import record_json_bodies, stub_api_error
+from tests.support.network import HeldRoute, record_json_bodies, stub_api_error
 from tests.support.unsaved import discard_button
 
 MAKE_PATH = "/captures/make"
@@ -181,3 +181,44 @@ def test_a_failed_generation_shows_try_again_and_keeps_the_compose_text(page: Pa
     assert len(examples.requests) == 2
     assert examples.requests[1] == examples.requests[0]
     expect(compose_box(page)).to_have_value(PHRASE)
+
+
+@pytest.mark.p1
+def test_pressing_example_sentences_again_opens_a_clean_pane(page: Page) -> None:
+    """Matrix "Clean examples" (plan item-example-and-capture-improvements, item 4): after
+    results, another press of Example sentences shows no results, no error and an empty
+    context; the chosen Language stays.
+    """
+    ExamplesApi(page)
+    open_examples(page)
+    generate(page, context=CONTEXT)
+    expect(level_groups(page)).to_have_count(len(LEVELS))
+    examples_context(page).fill("typed after the results")
+
+    examples_button(page).click()
+
+    expect(examples_pane(page)).to_be_visible()
+    expect(level_groups(page)).to_have_count(0)
+    expect(examples_pane(page).get_by_role("alert")).to_have_count(0)
+    expect(examples_context(page)).to_have_value("")
+    expect(examples_language(page, "English")).to_have_attribute("aria-pressed", "true")
+
+
+@pytest.mark.p1
+def test_a_reply_in_flight_is_dropped_when_example_sentences_is_pressed_again(
+    page: Page,
+) -> None:
+    """Matrix "Clean examples": an in-flight reply never fills the clean pane."""
+    held = HeldRoute(page, "/api/helpers/examples", method="POST")
+    open_examples(page)
+    with page.expect_request(is_examples):
+        generate(page)
+    expect(generate_button(page)).to_be_disabled()
+
+    examples_button(page).click()
+    expect(generate_button(page)).to_be_enabled()
+    with page.expect_response(lambda response: is_examples(response.request)):
+        held.fulfill_json(EXAMPLES_REPLY)
+    page.evaluate("new Promise(requestAnimationFrame)")
+
+    expect(level_groups(page)).to_have_count(0)

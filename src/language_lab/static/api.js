@@ -199,11 +199,14 @@ export function translateText(body) {
 // `keep` or `remove` (AD-6, story 6.2) with none. An optional `exampleVoice` lets a Vocabulary
 // Save make its example audio in that Voice. 200 `{itemId}`, with `exampleAudioFailed: true`
 // when that audio couldn't be made (the Item is saved without it); a retry with the same
-// ItemId updates the Item (AD-20). The part is a string field: a Blob would arrive as a file
-export function saveItem(lang, item, audioBlob = null) {
+// ItemId updates the Item (AD-20). The part is a string field: a Blob would arrive as a file.
+// `exampleBlob` (a Vocabulary Item's chosen example clip) goes as `exampleAudioFile` and is
+// stored instead of making one
+export function saveItem(lang, item, audioBlob = null, exampleBlob = null) {
   const body = new FormData();
   body.append("item", JSON.stringify(item));
   if (audioBlob) body.append("audioFile", audioBlob, "preview.mp3");
+  if (exampleBlob) body.append("exampleAudioFile", exampleBlob, "example.mp3");
   return request(`/api/items/${encodeURIComponent(lang)}`, { method: "POST", body });
 }
 
@@ -217,8 +220,9 @@ export function findDuplicates(lang, { category, target, itemId }) {
   return request(`/api/items/${encodeURIComponent(lang)}/duplicates?${query}`);
 }
 
-// One Item as Anki holds it now (FR-22): `{itemId, ...ItemContent, audio}`, `audio` the managed
-// clip's name for /api/media or null; 404 `not_found` when
+// One Item as Anki holds it now (FR-22): `{itemId, ...ItemContent, audio, exampleAudio}`,
+// `audio` (Reference audio) and `exampleAudio` the managed clips' names for /api/media or null;
+// 404 `not_found` when
 // that Language has no Item with the ItemId
 export function getItem(lang, itemId) {
   return request(`/api/items/${encodeURIComponent(lang)}/${encodeURIComponent(itemId)}`);

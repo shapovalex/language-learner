@@ -8,12 +8,17 @@
 // myself" for a blank one; both are disabled with a visible reason until those are chosen. The
 // editor shows every field of the Category, editable, with the alternatives one per line, Clear
 // on a Vocabulary example, and Discard and Save to Anki (pinned to the bottom on the phone).
+// A Vocabulary Draft has "Regenerate example" after the Example in Russian: the choices panel of
+// example-choices.js, asking POST /api/helpers/example-choices with the Draft's Language and
+// Target, the panel's context (used once, never saved) and its Russian meaning. Use this example
+// puts the pair into the Draft's fields and closes the panel; nothing reaches Anki before Save.
 // While the model writes, the generating screen shows the loading state, or the failure with
 // Try again. Before a Save, a duplicate opens the duplicate sheet (S-Duplicate, story 4.3).
 
 import { CATEGORIES, LANGUAGES, categoryName, languageName } from "../catalog.js";
-import { checkGrammar, errorMessage, isApiError } from "../api.js";
+import { checkGrammar, errorMessage, exampleChoices, isApiError } from "../api.js";
 import { alertBox, element, skeleton, tryAgain } from "../dom.js";
+import { exampleChoicesPanel } from "../example-choices.js";
 import {
   loadVoices as loadVoiceList,
   releasePlayer,
@@ -58,6 +63,9 @@ const MODEL_UNREACHABLE = "Couldn't reach the model";
 const NOT_CHECKED = "Couldn't check the grammar";
 const INVALID_TWICE = "The model's answer failed the checks twice.";
 const TARGET_UNCHANGED = "Your Target is unchanged.";
+const REGENERATE_EXAMPLE = "Regenerate example";
+const NOT_REGENERATED = "Couldn't regenerate";
+const DRAFT_UNCHANGED = "Your Draft is unchanged.";
 const UNREACHABLE_BODY =
   "Make sure Anki Desktop is open on the Mac mini, then try again. Your text is still here.";
 
@@ -541,16 +549,23 @@ export function draftEditor(draft, { onEdit, onSave, onDiscard, alertFor }) {
 
   const { header, title } = draftHeader(draft, draft.values.target, { chip: true });
 
-  const { fields } = editorFields(draft.category, draft.values, {
+  const { fields, inputs } = editorFields(draft.category, draft.values, {
     busy: draft.busy,
     language: draft.language,
-    onChange: (key) => {
-      if (key === "target") title.textContent = draft.values.target;
-      refresh();
-      audio.refresh();
-      onEdit();
-    },
+    onChange,
   });
+  function onChange(key) {
+    if (key === "target") title.textContent = draft.values.target;
+    refresh();
+    audio.refresh();
+    regenerate?.refresh();
+    onEdit();
+  }
+  // Vocabulary only: a Sentence Draft has no Example
+  const regenerate = draft.category === "vocabulary"
+    ? exampleRegenerate(draft, inputs, onChange)
+    : null;
+  if (regenerate) inputs.exampleRussian.parentElement.after(regenerate.slot);
 
   const audio = referenceAudio(draft);
   const alertSlot = element("div", "draft-alert-slot");
@@ -593,6 +608,130 @@ export function draftEditor(draft, { onEdit, onSave, onDiscard, alertFor }) {
 
   refresh();
   return { screen, title };
+}
+
+// [title, body] of a failed Regenerate example in the Draft
+function choicesFailure(error) {
+  if (isApiError(error, "llm_failed")) return [MODEL_UNREACHABLE, DRAFT_UNCHANGED];
+  if (isApiError(error, "llm_invalid_output")) {
+    return [NOT_REGENERATED, `${INVALID_TWICE} ${DRAFT_UNCHANGED}`];
+  }
+  return [NOT_REGENERATED, errorMessage(error)];
+}
+
+let choiceTokens = 0;
+
+// The Draft's "Regenerate example" button and its choices panel. The panel's state is
+// `draft.choices` ({context, busy, error, result, token, render}, null while closed), so it
+// survives the editor's re-renders; `render` is the latest slot's, which a reply updates. One
+// request runs at a time, and a reply for a closed panel or a discarded Draft (whose `choices`
+// disposeDraftAudio drops) is ignored. `inputs` are the editor's fields, `onChange(key)` its
+// edit hook. Returns {slot, refresh}, `refresh()` updating the disabled states on an edit
+function exampleRegenerate(draft, inputs, onChange) {
+  const slot = element("div", "regenerate-slot");
+  let controls = [];
+  let nodes = {};
+
+  function render(focus = null) {
+    if (draft.choices) draft.choices.render = render;
+    controls = [];
+    nodes = {};
+    const row = element("div", "regenerate-row");
+    const button = element("button", "button-link", REGENERATE_EXAMPLE);
+    button.type = "button";
+    button.addEventListener("click", open);
+    row.append(button);
+    nodes.button = button;
+    controls.push(button);
+    slot.replaceChildren(row);
+    const state = draft.choices;
+    if (state) {
+      const current = element("div", "compare-pane compare-current");
+      current.append(
+        element("span", "compare-label", "Current"),
+        element("p", "compare-main", draft.values.example || "—"),
+      );
+      if (draft.values.exampleRussian.trim()) {
+        current.append(element("p", "compare-secondary", draft.values.exampleRussian));
+      }
+      const parts = exampleChoicesPanel(state, {
+        title: "Example · choose",
+        headingId: uniqueId("draft-choices-heading"),
+        contextId: uniqueId("draft-choices-context"),
+        current,
+        failure: choicesFailure,
+        locked: draft.busy,
+        onGenerate: generate,
+        onUse: choose,
+        onKeep: close,
+      });
+      Object.assign(nodes, parts);
+      if (!state.busy) controls.push(parts.generate);
+      if (parts.retry) controls.push(parts.retry);
+      slot.append(parts.panel);
+    }
+    refresh();
+    if (focus) nodes[focus]?.focus();
+  }
+
+  function refresh() {
+    const blocked = draft.busy || !draft.values.target.trim();
+    for (const node of controls) node.disabled = blocked;
+  }
+
+  function open() {
+    if (draft.busy || !draft.values.target.trim()) return;
+    draft.choices ??= { context: "", busy: false, error: null, result: null, token: 0 };
+    render("context");
+  }
+
+  // Generate or Try again: the Draft's Target and Russian meaning, with the panel's context
+  async function generate() {
+    const state = draft.choices;
+    if (!state || state.busy || draft.busy || !draft.values.target.trim()) return;
+    const token = ++choiceTokens;
+    Object.assign(state, { token, busy: true, error: null, result: null });
+    state.render("generate");
+    let result = null;
+    let failure = null;
+    try {
+      result = await exampleChoices({
+        language: draft.language,
+        target: draft.values.target,
+        context: state.context,
+        meaning: draft.values.russian ?? "",
+      });
+    } catch (error) {
+      failure = error;
+    }
+    // Closed, reopened or the Draft discarded meanwhile: the reply opens nothing
+    if (draft.choices !== state || state.token !== token) return;
+    state.busy = false;
+    state.error = failure;
+    state.result = failure ? null : result;
+    state.render(failure ? "retry" : "heading");
+  }
+
+  // Use this example: the pair into the Draft's fields; nothing is written before Save
+  function choose(sentence, russian) {
+    if (draft.busy || !draft.choices) return;
+    draft.values.example = sentence;
+    draft.values.exampleRussian = russian;
+    inputs.example.value = sentence;
+    inputs.exampleRussian.value = russian;
+    draft.choices = null;
+    render("button");
+    onChange("example");
+  }
+
+  // Keep current: the panel goes (a reply still on its way is dropped), the fields stay
+  function close() {
+    draft.choices = null;
+    render("button");
+  }
+
+  render();
+  return { slot, refresh };
 }
 
 // The duplicate sheet (S-Duplicate; FR-19): a native modal <dialog>, a bottom sheet on the phone
@@ -666,8 +805,10 @@ export function duplicateSheet(draft, matches, { onOpen, onCancel, onCreate }) {
 }
 
 
-// URLs belong to the Draft, independent of DOM rerenders after a failed Save.
+// URLs belong to the Draft, independent of DOM rerenders after a failed Save. Its open
+// Regenerate example panel goes too, so a late reply opens nothing.
 export function disposeDraftAudio(draft) {
+  if (draft) draft.choices = null;
   const state = draft?.audio;
   if (!state) return;
   state.disposed = true;

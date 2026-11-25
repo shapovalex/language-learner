@@ -5,6 +5,10 @@
   the stored Item has none or held another Example; speech runs before the Save, outside the
   Anki lock. A failed synthesis saves the Item without it and answers
   `exampleAudioFailed: true`. A Sentence never asks for example audio.
+- **Chosen clip.** A Save may carry `exampleAudioFile`, the example clip the user chose on Item
+  detail (plan item-example-and-capture-improvements): it is stored as the example audio and
+  nothing is synthesized. It needs a Vocabulary Item whose Example and ExampleRussian both hold
+  text, else `VALIDATION_FAILED` before anything is written. GET answers `exampleAudio`.
 - **Backfill.** POST /api/items/<lang>/example-audio `{voice, skip}` gives one batch of the
   Language's Vocabulary Items with an Example and its Russian but no example audio that audio,
   answering `{done, failed, remaining}`; a failed Item is counted and skipped (the caller's
@@ -24,7 +28,7 @@ from language_lab.domain.errors import ErrorCode
 from language_lab.domain.setup import SetupPreview, SetupState
 from tests.fakes.anki_store import FakeAnkiStore
 from tests.fakes.speech import FakeSpeech
-from tests.support.audio import AZURE_KEY, AZURE_REGION, EN_VOICE, MP3, audio_client
+from tests.support.audio import AZURE_KEY, AZURE_REGION, EN_VOICE, MP3, SECOND_MP3, audio_client
 from tests.support.fixtures.settings import SettingsFactory
 from tests.support.items import SENTENCE, VOCABULARY, content
 
@@ -133,6 +137,70 @@ def test_no_example_audio_is_requested_without_an_example_card_to_make(
     assert response.json() == {"itemId": item_id}
     assert speech.requests == []
     assert item_id not in store.example_audio
+
+
+# ---- Chosen clip --------------------------------------------------------------------------
+
+
+def with_example_file(parts: dict[str, Any], data: bytes = SECOND_MP3) -> dict[str, Any]:
+    return {**parts, "exampleAudioFile": ("example.mp3", data, "audio/mpeg")}
+
+
+@pytest.mark.p0
+def test_an_uploaded_example_clip_is_stored_without_synthesis_and_read_back(
+    settings_factory: SettingsFactory,
+) -> None:
+    store, speech = FakeAnkiStore(), FakeSpeech()
+    client = client_for(settings_factory, store, speech)
+    item_id = str(uuid.uuid4())
+
+    response = client.post("/api/items/en", files=with_example_file(save_part(VOCABULARY, item_id)))
+
+    assert response.status_code == 200
+    assert response.json() == {"itemId": item_id}
+    assert speech.requests == []
+    name = store.example_audio[item_id]
+    assert store.media[name] == SECOND_MP3
+    read = client.get(f"/api/items/en/{item_id}")
+    assert read.status_code == 200
+    assert read.json()["exampleAudio"] == name
+
+
+@pytest.mark.p0
+@pytest.mark.parametrize(
+    "wire",
+    [SENTENCE, {**VOCABULARY, "exampleRussian": ""}, {**VOCABULARY, "example": " "}],
+    ids=["sentence", "no-example-russian", "blank-example"],
+)
+def test_an_uploaded_example_clip_without_an_example_is_refused_before_any_write(
+    settings_factory: SettingsFactory, wire: dict[str, Any]
+) -> None:
+    store, speech = FakeAnkiStore(), FakeSpeech()
+    client = client_for(settings_factory, store, speech)
+    item_id = str(uuid.uuid4())
+
+    response = client.post("/api/items/en", files=with_example_file(save_part(wire, item_id)))
+
+    assert response.status_code == 422
+    assert response.json()["error"]["code"] == "validation_failed"
+    assert item_id not in store.items
+    assert speech.requests == []
+
+
+@pytest.mark.p1
+def test_an_uploaded_example_clip_that_is_not_an_mp3_is_refused(
+    settings_factory: SettingsFactory,
+) -> None:
+    store, speech = FakeAnkiStore(), FakeSpeech()
+    client = client_for(settings_factory, store, speech)
+    item_id = str(uuid.uuid4())
+
+    response = client.post(
+        "/api/items/en", files=with_example_file(save_part(VOCABULARY, item_id), b"not audio")
+    )
+
+    assert response.status_code == 422
+    assert item_id not in store.items
 
 
 # ---- Backfill -----------------------------------------------------------------------------
