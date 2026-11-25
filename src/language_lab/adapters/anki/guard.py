@@ -6,7 +6,10 @@ something LanguageLab manages.
 name, never by prefix match), the `<Prefix>` preset, an AD-7 media name, or notes and cards of
 a manifest note type (`answerCards` included), looked up by id through `lookup` first. The one
 card value write is `setSpecificValueOfCard` clearing a managed card's flag: exactly
-`{card: <id>, keys: ["flags"], newValues: [0]}` (the integer 0), anything else refused. `multi`
+`{card: <id>, keys: ["flags"], newValues: [0]}` (the integer 0), anything else refused. The one
+tag an `addNote` may carry is the manifest's lock tag (`tags` absent or exactly `[<lock tag>]`),
+and the one tag write is `removeTags` of exactly that tag from notes of a manifest note type,
+looked up by id. `multi`
 is checked action by action. Anything else, an action the guard doesn't know included, raises
 `PrefixViolation` before a request is sent: the guard fails closed.
 
@@ -141,6 +144,7 @@ class PrefixGuard:
         self._note_types = frozenset(nt.name for nt in manifest.note_types)
         self._preset_deck = manifest.preset.decks[0]
         self._media = media_pattern(manifest.prefix)
+        self._lock_tag = manifest.lock_tag
 
     async def check(self, action: Any, params: Mapping[str, Any], lookup: Lookup) -> None:
         """Return when `action` may be sent; raise `PrefixViolation` otherwise.
@@ -202,6 +206,7 @@ class PrefixGuard:
             _require(isinstance(note, dict))
             _require(self._is_note_type(note.get("modelName")))
             _require(self._is_deck(note.get("deckName")))
+            _require("tags" not in note or note["tags"] == [self._lock_tag])
             self._require_note_media(note)
         elif action in ("storeMediaFile", "deleteMediaFile"):
             _require(self._is_media(params.get("filename")))
@@ -220,6 +225,9 @@ class PrefixGuard:
         elif action == "changeDeck":
             _require(self._is_deck(params.get("deck")))
             await self._require_managed(lookup, "cardsInfo", "cards", _ids(params.get("cards")))
+        elif action == "removeTags":
+            _require(set(params) == {"notes", "tags"} and params["tags"] == self._lock_tag)
+            await self._require_managed(lookup, "notesInfo", "notes", _ids(params.get("notes")))
         elif action in _CARD_WRITES:
             await self._require_managed(lookup, "cardsInfo", "cards", _ids(params.get("cards")))
         elif action == "setSpecificValueOfCard":

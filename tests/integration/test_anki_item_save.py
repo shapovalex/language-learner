@@ -121,9 +121,10 @@ def test_a_new_item_id_makes_one_note_with_four_cards_in_their_decks(
     added = sent_note(replay, "addNote")
     assert added["deckName"] == expected_decks(language, wire)[3]
     assert added["options"]["allowDuplicate"] is True
+    assert added["tags"] == [f"{PREFIX}::Locked"]
     writes = sent_writes(replay.sent)
-    assert writes[0] == "addNote"
-    assert set(writes[1:]) == {"changeDeck"}
+    assert writes[:2] == ["addNote", "suspend"]  # the Study lock, before any card moves
+    assert set(writes[2:]) == {"changeDeck"}
 
 
 def _another_item(collection: Collection, item_id: str) -> None:

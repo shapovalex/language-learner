@@ -15,6 +15,10 @@ SchemaVersion 2 gave the two Vocabulary note types an `ExampleAudio` field (appe
 `<Prefix>::Study::<Language>::Vocabulary::Example`. Its front renders only when `ExampleAudio`
 and `ExampleRussian` both hold something, so Anki makes the card only once the note has example
 audio. Sentence note types keep their four templates.
+
+The Study lock: a newly created Item's note carries the tag `Manifest.lock_tag`
+(`<Prefix>::Locked`) and its `LOCKED_ORDS` cards (Produce, Write, Example) start suspended, until
+its Understand card (ord 0) has been answered once. Pronounce (ord 3) is never locked.
 """
 
 import re
@@ -46,6 +50,9 @@ _ORDS: Mapping[Category, tuple[int, ...]] = {
     Category.SENTENCE: (*STUDY_ORDS, PRONOUNCE_ORD),
 }
 EXAMPLE_AUDIO_FIELD = "ExampleAudio"
+UNDERSTAND_ORD = 0
+# Suspended on a new Item until its Understand card is answered once (the lock tag says so)
+LOCKED_ORDS = (1, 2, EXAMPLE_ORD)
 
 _LANGUAGE_NAMES: Mapping[Language, str] = {Language.EN: "English", Language.FR: "French"}
 # (note type word, deck word): the note type is singular, the deck plural (A3)
@@ -154,6 +161,11 @@ class Manifest:
     preset: Preset
     reading_rule_note_type: str  # `<Prefix> French Reading Rule`
     reading_rules: tuple[ReadingRule, ...]  # the notes Setup seeds, in deck order
+
+    @property
+    def lock_tag(self) -> str:
+        """The note tag of an Item whose Study cards are locked: `<Prefix>::Locked`."""
+        return f"{self.prefix}::Locked"
 
     def item_note_type(self, language: Language, category: Category) -> str:
         """The name of the Item note type of `language` and `category`."""

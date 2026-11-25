@@ -38,6 +38,7 @@ from tests.support.anki_state import (
     item_note,
     managed_collection,
     managed_note,
+    review_card,
     sent_writes,
     stock_collection,
 )
@@ -68,6 +69,13 @@ def note_of(collection: Collection, item_id: str) -> tuple[int, Any]:
 def example_card(collection: Collection, note_id: int) -> Any:
     (card,) = [c for c in collection.cards.values() if c.note == note_id and c.ord == EXAMPLE_ORD]
     return card
+
+
+def unlock(store: Any, collection: Collection, item_id: str) -> None:
+    """Answer the new Item's Understand card and run the unlock, as the next Sync does."""
+    note_id, _ = note_of(collection, item_id)
+    review_card(collection, note_id, 0)
+    assert settle(store.unlock_answered_items()) == 1
 
 
 def save(
@@ -193,6 +201,7 @@ def test_clearing_the_example_empties_example_audio_and_deletes_its_clip() -> No
     store, _ = wired(collection)
     item_id = str(uuid.uuid4())
     save(store, item_id, VOCABULARY, example=MP3)
+    unlock(store, collection, item_id)
 
     save(store, item_id, {**VOCABULARY, "example": "", "exampleRussian": ""})
 
@@ -226,6 +235,7 @@ def test_an_edited_example_without_new_audio_drops_the_stale_clip(unchanged: boo
     store, _ = wired(collection)
     item_id = str(uuid.uuid4())
     save(store, item_id, VOCABULARY, example=MP3)
+    unlock(store, collection, item_id)
     old = managed_name(item_id, MP3)
 
     wire = VOCABULARY if unchanged else {**VOCABULARY, "example": "Don't jump yet."}
