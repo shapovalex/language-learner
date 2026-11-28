@@ -63,6 +63,12 @@
 // the Capture and its Try again asks only the translation. The translation lives in this
 // module's memory (AD-13): another Capture and translate, an edit of the text or a remount
 // clears it.
+//
+// "Shuffle" in the list header (plan shuffle-captures) puts the loaded list in a random order,
+// only here: nothing is sent or written. The header then reads "Shuffled", Shuffle again
+// reshuffles, and "Sort newest first" puts the list back in date order. The order lives in this
+// mount's memory (AD-13): opening, making from or deleting a Capture keeps it, a fresh visit or a
+// reload of the list starts newest first, and a Capture saved meanwhile goes on top.
 
 import {
   blankDraft,
@@ -102,6 +108,9 @@ const PLACEHOLDER = "Paste or type a word, phrase or sentence";
 const LOADING = "Loading Captures…";
 const EMPTY = "No Captures yet.";
 const NEWEST_FIRST = "Newest first";
+const SHUFFLE = "Shuffle";
+const SHUFFLED = "Shuffled";
+const SORT_NEWEST = "Sort newest first";
 const NO_SELECTION = "Choose a Capture to see it here.";
 const NOT_IN_ANKI = "This Capture isn't in Anki.";
 const BACK = "‹ Captures";
@@ -229,6 +238,24 @@ export function detailTime(iso, now = new Date()) {
   return `Captured ${day ?? date} · ${time}`;
 }
 
+// A copy of `captures` in a random order (Fisher–Yates)
+function shuffled(captures) {
+  const out = [...captures];
+  for (let i = out.length - 1; i > 0; i--) {
+    const j = Math.floor(Math.random() * (i + 1));
+    [out[i], out[j]] = [out[j], out[i]];
+  }
+  return out;
+}
+
+// A copy of `captures` newest first (ISO times compare as text; ties keep their order)
+function newestFirst(captures) {
+  return [...captures].sort((a, b) => {
+    if (a.createdAt === b.createdAt) return 0;
+    return a.createdAt < b.createdAt ? 1 : -1;
+  });
+}
+
 function loadError(error, onRetry) {
   return alertBox(
     "captures-load-alert",
@@ -336,7 +363,25 @@ export function mount(root, params = {}) {
   const listHeader = element("div", "captures-list-header");
   const narrowCount = element("span", "narrow-only", NEWEST_FIRST);
   const wideCount = element("span", "wide-only");
-  listHeader.append(narrowCount, wideCount);
+  const orderActions = element("span", "captures-order-actions");
+  const shuffleButton = element("button", "button-link", SHUFFLE);
+  shuffleButton.type = "button";
+  shuffleButton.addEventListener("click", () => {
+    if (!list.captures) return;
+    list.captures = shuffled(list.captures);
+    list.shuffled = true;
+    renderList();
+  });
+  const newestButton = element("button", "button-link", SORT_NEWEST);
+  newestButton.type = "button";
+  newestButton.addEventListener("click", () => {
+    if (!list.captures) return;
+    list.captures = newestFirst(list.captures);
+    list.shuffled = false;
+    renderList();
+  });
+  orderActions.append(shuffleButton, newestButton);
+  listHeader.append(narrowCount, wideCount, orderActions);
   const listBody = element("div", "captures-list-body");
   listSection.append(listHeader, listBody);
 
@@ -351,7 +396,8 @@ export function mount(root, params = {}) {
   root.replaceChildren(layout, draftRoot);
 
   // `captures`: null while loading or failed; `saved` are the ones saved meanwhile, newest first
-  const list = { captures: null, error: null, saved: [], token: 0 };
+  // `shuffled`: the list is in a random order (Shuffle), not newest first
+  const list = { captures: null, error: null, saved: [], token: 0, shuffled: false };
   // `capture`: the open one, once known; `status`: "loading", "shown", "missing" or "failed"
   // `deleteError`: the open Capture's failed delete, shown until another Capture opens
   const open = {
@@ -414,7 +460,12 @@ export function mount(root, params = {}) {
       return;
     }
     const n = list.captures.length;
-    wideCount.textContent = `${n} ${n === 1 ? "Capture" : "Captures"} · newest first`;
+    narrowCount.textContent = list.shuffled ? SHUFFLED : NEWEST_FIRST;
+    wideCount.textContent = `${n} ${n === 1 ? "Capture" : "Captures"} · ${
+      list.shuffled ? "shuffled" : "newest first"
+    }`;
+    newestButton.hidden = !list.shuffled;
+    shuffleButton.hidden = n < 2; // one Capture has no other order
     const ul = element("ul", "captures-list");
     ul.setAttribute("aria-label", "Captures");
     const now = new Date();
@@ -1057,6 +1108,7 @@ export function mount(root, params = {}) {
     const token = ++list.token;
     list.captures = null;
     list.error = null;
+    list.shuffled = false;
     renderList();
     try {
       const body = await listCaptures();
@@ -1118,7 +1170,8 @@ export function mount(root, params = {}) {
   function onSaved(capture) {
     list.saved = [capture, ...list.saved.filter((c) => c.captureId !== capture.captureId)];
     if (!list.captures) return; // the list in flight picks it up when it lands
-    list.captures = withSaved(list.captures);
+    // On top; the rest keep their order, so a shuffled list stays shuffled
+    list.captures = [capture, ...list.captures.filter((c) => c.captureId !== capture.captureId)];
     renderList();
   }
 
