@@ -544,10 +544,21 @@ main h1 {
 /* Captures list and Capture detail (S-Captures, S-CapturesDesk). Below 1024px the detail is
    its own screen; from 1024px list and detail are two panes. */
 .captures-list-header {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-3);
   margin: 0 0 var(--space-4);
   color: var(--color-ink-muted);
   font-size: var(--font-size-body-sm);
   font-weight: 600;
+}
+
+/* Shuffle and Newest first (plan shuffle-captures) */
+.captures-order-actions {
+  display: flex;
+  gap: var(--space-4);
 }
 
 .captures-list {
